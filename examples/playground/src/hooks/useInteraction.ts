@@ -16,17 +16,26 @@ import {
   type ResizeHandle,
   type Vec2,
   type WorldRect,
+  computeAutoFitHeight,
   hitTestAny,
   marqueeNodes,
   projectToNodeBoundary,
   screenToWorld,
+  shouldAutoFit,
   worldToNodeLocal,
 } from '@canvas-harness/core'
 import { useEffect } from 'react'
 
 const CLICK_MAX_PIXELS = 4 // pointerup within this many pixels of pointerdown = click
 
-export type InteractionTool = 'select' | 'rect' | 'ellipse' | 'diamond' | 'capsule' | 'arrow'
+export type InteractionTool =
+  | 'select'
+  | 'rect'
+  | 'ellipse'
+  | 'diamond'
+  | 'capsule'
+  | 'arrow'
+  | 'text'
 
 export const useInteraction = (
   ref: React.RefObject<HTMLElement | null>,
@@ -122,6 +131,16 @@ export const useInteraction = (
       // updateResize already committed via store.updateNode each pointermove;
       // we only need to clear the interaction state. The history-aware
       // version (phase 8 undo) will collapse these into one OpBatch.
+      // Refit autofit nodes now that the resize stream is over (we
+      // suppress mid-stream refit so the user's drag isn't overridden).
+      const selected = store.getSelection()
+      for (const id of selected) {
+        const node = store.getNode(id as NodeId)
+        if (!node) continue
+        if (!shouldAutoFit(node)) continue
+        const fitted = computeAutoFitHeight(node)
+        if (fitted !== node.h) store.updateNode(node.id, { h: fitted })
+      }
       store.resetInteractionState()
     }
 

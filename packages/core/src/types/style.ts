@@ -27,6 +27,14 @@ export type Style = {
   textAlign?: TextAlign
   textColor?: string
   textStyle?: TextStyle
+
+  /**
+   * When true, the node's height auto-adjusts to fit `content` on add /
+   * edit-commit / resize-commit. Defaults to true for any node type.
+   * See ARCHITECTURE.md §8 (autofit lives on commit boundaries, never
+   * per-keystroke).
+   */
+  autoFit?: boolean
 }
 
 export type EdgeStyle = Style & {

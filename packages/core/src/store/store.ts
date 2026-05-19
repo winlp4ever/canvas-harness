@@ -14,6 +14,7 @@ import { type Atom, atom, transact } from 'signia'
 
 import { DEFAULT_CAMERA } from '../camera'
 import { type EdgeGeometry, EdgeGeometryCache } from '../edges/cache'
+import { shouldAutoFit, withAutoFitHeight } from '../edit/auto-fit'
 import { type IdGenerator, makeIdGenerator, randomClientId } from '../ids'
 import { UniformGrid, nodeAABB } from '../spatial'
 import { SCHEMA_VERSION, asBatchId, isAttached } from '../types'
@@ -320,13 +321,31 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     generateId: () => idGenerator(),
 
     addNode(node) {
-      enqueueOp({ type: 'node.add', node })
-      return node.id
+      const fitted = withAutoFitHeight(node)
+      enqueueOp({ type: 'node.add', node: fitted })
+      return fitted.id
     },
     updateNode(id, patch) {
       const current = nodeAtoms.get(id)?.value
       if (!current) return
-      enqueueOp({ type: 'node.update', id, patch, prev: slicePrev(current, patch) })
+      let resolvedPatch = patch
+      // Auto-fit on commit-boundary fields: content (commitEdit) or font
+      // style (StylePanel applies). Width changes from a resize stream
+      // deliberately do NOT trigger autofit — that would override the
+      // user's drag mid-stream. Resize-commit refits explicitly.
+      const next = { ...current, ...patch }
+      const styleChanged =
+        patch.style &&
+        (patch.style.fontFamily !== undefined ||
+          patch.style.fontSize !== undefined ||
+          patch.style.textStyle !== undefined)
+      if (shouldAutoFit(next) && (patch.content !== undefined || styleChanged)) {
+        const fitted = withAutoFitHeight(next)
+        if (fitted.h !== next.h) {
+          resolvedPatch = { ...patch, h: fitted.h }
+        }
+      }
+      enqueueOp({ type: 'node.update', id, patch: resolvedPatch, prev: slicePrev(current, resolvedPatch) })
     },
     removeNode(id) {
       const node = nodeAtoms.get(id)?.value
@@ -469,6 +488,36 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
       const next = idleInteractionState()
       interactionAtom.set(next)
       emit('interaction', next)
+    },
+
+    beginEdit(id) {
+      if (!nodeAtoms.has(id)) return
+      const next: InteractionState = {
+        ...interactionAtom.value,
+        mode: 'editing',
+        editingNodeId: id,
+      }
+      interactionAtom.set(next)
+      emit('interaction', next)
+    },
+    commitEdit(content) {
+      const state = interactionAtom.value
+      if (state.mode !== 'editing' || !state.editingNodeId) return
+      const id = state.editingNodeId
+      // Write content + autofit-derived height in one update so the
+      // bitmap cache sees the final geometry on the next paint, not an
+      // intermediate one.
+      this.updateNode(id, { content })
+      const idleState = { ...interactionAtom.value, mode: 'idle' as const, editingNodeId: null }
+      interactionAtom.set(idleState)
+      emit('interaction', idleState)
+    },
+    cancelEdit() {
+      const state = interactionAtom.value
+      if (state.mode !== 'editing') return
+      const idleState = { ...state, mode: 'idle' as const, editingNodeId: null }
+      interactionAtom.set(idleState)
+      emit('interaction', idleState)
     },
 
     subscribe<E extends StoreEventName>(event: E, cb: StoreEventHandler<E>): Unsubscribe {

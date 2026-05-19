@@ -9,6 +9,7 @@ const TOOLS: ToolDef[] = [
   { id: 'diamond', label: 'Diamond', enabled: true },
   { id: 'capsule', label: 'Capsule', enabled: true },
   { id: 'arrow', label: 'Arrow', enabled: true },
+  { id: 'text', label: 'Text', enabled: true },
 ]
 
 export function Toolbar({

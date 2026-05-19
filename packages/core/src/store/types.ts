@@ -137,6 +137,21 @@ export interface CanvasStore {
   setInteractionState(patch: Partial<InteractionState>): void
   resetInteractionState(): void
 
+  // edit mode (phase 7) — content-bearing text edit lifecycle.
+  /**
+   * Enter edit mode for `id`. Selects the node and flips interaction.mode
+   * to 'editing'. The renderer skips painting this node's content bitmap
+   * (the editor overlay occludes it).
+   */
+  beginEdit(id: NodeId): void
+  /**
+   * Write the new content for the editing node, apply autofit (if the
+   * node opts in), and exit edit mode. No-op if not editing.
+   */
+  commitEdit(content: string): void
+  /** Exit edit mode without writing content. No-op if not editing. */
+  cancelEdit(): void
+
   // events
   subscribe<E extends StoreEventName>(event: E, cb: StoreEventHandler<E>): Unsubscribe
 }

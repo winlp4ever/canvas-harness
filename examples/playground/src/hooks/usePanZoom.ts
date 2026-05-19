@@ -56,7 +56,12 @@ export const usePanZoom = (ref: React.RefObject<HTMLElement | null>, store: Canv
       rafId = requestAnimationFrame(flushPending)
     }
 
+    const isEditing = (): boolean => store.getInteractionState().mode === 'editing'
+
     const onWheel = (e: WheelEvent) => {
+      // Lock camera while editing — textarea overlay is positioned at a
+      // fixed screen rect; letting the camera move would desync it.
+      if (isEditing()) return
       e.preventDefault()
       if (e.ctrlKey || e.metaKey) {
         // pinch-zoom signal (trackpads send wheel+ctrl)
@@ -72,6 +77,7 @@ export const usePanZoom = (ref: React.RefObject<HTMLElement | null>, store: Canv
     }
 
     const onPointerDown = (e: PointerEvent) => {
+      if (isEditing()) return
       // middle button = pan; or left button while space held
       if (e.button === 1 || (e.button === 0 && panActivatedBySpace)) {
         panning = true

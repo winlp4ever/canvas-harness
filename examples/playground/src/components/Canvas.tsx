@@ -5,6 +5,7 @@ import {
   type Renderer,
   asNodeId,
   createRenderer,
+  hitTestAny,
   screenToWorld,
 } from '@canvas-harness/core'
 import { useEffect, useRef, useState } from 'react'
@@ -14,6 +15,7 @@ import { useInteraction } from '../hooks/useInteraction'
 import { useOverlayHost } from '../hooks/useOverlayHost'
 import { usePanZoom } from '../hooks/usePanZoom'
 import { useResizeObserver } from '../hooks/useResizeObserver'
+import { EditorMount } from './EditorMount'
 
 export type CanvasProps = {
   store: CanvasStore
@@ -21,7 +23,7 @@ export type CanvasProps = {
   onRenderer?: (r: Renderer) => void
 }
 
-export type Tool = 'select' | 'rect' | 'ellipse' | 'diamond' | 'capsule' | 'arrow'
+export type Tool = 'select' | 'rect' | 'ellipse' | 'diamond' | 'capsule' | 'arrow' | 'text'
 
 const SHAPE_TOOLS = new Set(['rect', 'ellipse', 'diamond', 'capsule'])
 const TOOL_TO_TYPE: Record<
@@ -81,30 +83,69 @@ export function Canvas({ store, tool, onRenderer }: CanvasProps) {
     }
   }, [store, w, h, onRenderer, setMountedIds])
 
-  // click-to-create when a shape tool is active
+  // click-to-create when a shape tool is active; text tool creates an
+  // empty text node and immediately enters edit mode.
   useEffect(() => {
     const el = wrapRef.current
     if (!el) return
     const onClick = (e: MouseEvent) => {
       const t = toolRef.current
-      if (!SHAPE_TOOLS.has(t)) return
       const rect = el.getBoundingClientRect()
       const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top }
       const world = screenToWorld(screen, store.getCamera())
-      store.addNode({
-        id: asNodeId(store.generateId()),
-        type: TOOL_TO_TYPE[t as keyof typeof TOOL_TO_TYPE],
-        x: world.x - 60,
-        y: world.y - 40,
-        w: 120,
-        h: 80,
-        angle: 0,
-        z: 0,
-        groups: [],
-      })
+      if (SHAPE_TOOLS.has(t)) {
+        store.addNode({
+          id: asNodeId(store.generateId()),
+          type: TOOL_TO_TYPE[t as keyof typeof TOOL_TO_TYPE],
+          x: world.x - 60,
+          y: world.y - 40,
+          w: 120,
+          h: 80,
+          angle: 0,
+          z: 0,
+          groups: [],
+        })
+        return
+      }
+      if (t === 'text') {
+        const id = asNodeId(store.generateId())
+        store.addNode({
+          id,
+          type: 'text',
+          x: world.x - 100,
+          y: world.y - 16,
+          w: 200,
+          h: 32,
+          angle: 0,
+          z: 0,
+          groups: [],
+          content: '',
+          style: { fontSize: 'M', textAlign: 'left', autoFit: true },
+        })
+        store.beginEdit(id)
+      }
     }
     el.addEventListener('click', onClick)
     return () => el.removeEventListener('click', onClick)
+  }, [store])
+
+  // double-click any node to enter edit mode (select tool only).
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const onDoubleClick = (e: MouseEvent) => {
+      if (toolRef.current !== 'select') return
+      const rect = el.getBoundingClientRect()
+      const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+      const camera = store.getCamera()
+      const world = screenToWorld(screen, camera)
+      const hit = hitTestAny(store, world, camera.z)
+      if (hit && hit.kind === 'body' && 'nodeId' in hit) {
+        store.beginEdit(hit.nodeId)
+      }
+    }
+    el.addEventListener('dblclick', onDoubleClick)
+    return () => el.removeEventListener('dblclick', onDoubleClick)
   }, [store])
 
   // CSS transform on the overlay container so the children's world-coord
@@ -143,6 +184,7 @@ export function Canvas({ store, tool, onRenderer }: CanvasProps) {
         ref={interactiveRef}
         style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
       />
+      <EditorMount store={store} />
     </div>
   )
 }

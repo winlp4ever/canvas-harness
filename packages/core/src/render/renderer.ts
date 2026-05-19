@@ -154,23 +154,35 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       isEditing: false,
       theme: token => (theme ? theme(token) : undefined),
     }
+    const editingNodeId = interaction.editingNodeId
 
     for (const node of visible) {
       if (excludedNodes?.has(node.id)) continue
+
+      // The editing node's content is occluded by the textarea overlay —
+      // skip its bitmap paint so the canvas underneath doesn't show stale
+      // pixels through the textarea's translucent edges.
+      const isEditingThis = editingNodeId === node.id
 
       // Built-in primitive path: shape paint + optional content paint.
       if (isDrawablePrimitive(node.type)) {
         drawWithNodeTransform(staticSurface.ctx, node, () => {
           drawShape(staticSurface.ctx, node, scale, theme)
-          paintNodeContent(staticSurface.ctx, node, renderEnv)
+          if (!isEditingThis) paintNodeContent(staticSurface.ctx, node, renderEnv)
         })
         drawn++
         continue
       }
-      // Text-only shape: no fill/stroke, just content.
+      // Text-only shape: no fill/stroke, just content (or placeholder).
       if (node.type === 'text') {
         drawWithNodeTransform(staticSurface.ctx, node, () => {
-          paintNodeContent(staticSurface.ctx, node, renderEnv)
+          if (isEditingThis) return
+          const hasContent = node.content && node.content.trim().length > 0
+          if (hasContent) {
+            paintNodeContent(staticSurface.ctx, node, renderEnv)
+          } else {
+            paintEmptyTextPlaceholder(staticSurface.ctx, node, camera.z)
+          }
         })
         drawn++
         continue
@@ -294,6 +306,27 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     ctx.drawImage(bitmap.canvas, 0, 0, node.w, node.h)
   }
 
+  /**
+   * Paints "Type to edit…" centered in a text-typed node that has no
+   * content. Hidden during edit (the textarea covers the rect).
+   */
+  const paintEmptyTextPlaceholder = (
+    ctx: CanvasRenderingContext2D,
+    node: Node,
+    zoom: number,
+  ): void => {
+    const fontSize = node.style?.fontSize ?? 'M'
+    const fontPx = FONT_SIZE_MAP[fontSize]
+    if (fontPx * zoom < MIN_READABLE_FONT_PX) return
+    ctx.save()
+    ctx.fillStyle = '#94a3b8'
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'center'
+    ctx.font = `italic ${fontPx}px ${node.style?.fontFamily ?? 'sans-serif'}`
+    ctx.fillText('Type to edit…', node.w / 2, node.h / 2)
+    ctx.restore()
+  }
+
   const setsEqual = (a: ReadonlySet<NodeId>, b: ReadonlySet<NodeId>): boolean => {
     if (a.size !== b.size) return false
     for (const v of a) if (!b.has(v)) return false
@@ -345,10 +378,19 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // 1. Dragged / resizing nodes at their uncommitted positions.
     if (interaction.mode === 'dragging' || interaction.mode === 'resizing') {
       const inDragMap = mapDragPositions(interaction)
+      const dragEnv: RenderEnv = {
+        zoom: camera.z,
+        isMoving: true,
+        isSelected: true,
+        isHovered: false,
+        isEditing: false,
+        theme: token => (theme ? theme(token) : undefined),
+      }
       for (const node of inDragMap.values()) {
-        if (!isDrawablePrimitive(node.type)) continue
+        if (!isDrawablePrimitive(node.type) && node.type !== 'text') continue
         drawWithNodeTransform(ctx, node, () => {
-          drawShape(ctx, node, scale, theme)
+          if (isDrawablePrimitive(node.type)) drawShape(ctx, node, scale, theme)
+          paintNodeContent(ctx, node, dragEnv)
         })
       }
 
