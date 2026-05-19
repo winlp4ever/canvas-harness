@@ -1,0 +1,96 @@
+import type { ResizeHandle } from '../hit-test/handle'
+/**
+ * InteractionState — see ARCHITECTURE.md §10.11.
+ *
+ * Per-client ephemeral state: what's the user doing right now. Drives the
+ * interactive canvas paint, status bars, AI-mode gating, custom-node
+ * `env.isMoving`. NOT in the op log; not synced; not in undo stack.
+ *
+ * Phase 3 ships dragging / resizing / marqueeing modes. Pan/zoom/edit
+ * arrive later but the type covers them now to avoid breaking changes.
+ */
+import type { NodeId, Vec2, WorldRect } from '../types'
+
+export type InteractionMode =
+  | 'idle'
+  | 'panning'
+  | 'zooming'
+  | 'dragging'
+  | 'resizing'
+  | 'rotating'
+  | 'marqueeing'
+  | 'creating-edge'
+  | 'reconnecting-edge'
+  | 'editing'
+
+export type PointerInfo = {
+  worldX: number
+  worldY: number
+  screenX: number
+  screenY: number
+  pointerType: 'mouse' | 'touch' | 'pen'
+  pressure?: number
+}
+
+/**
+ * The frozen geometry of a node at drag-start, used to compute the
+ * uncommitted display position during drag (= original + delta).
+ */
+export type DragOriginal = {
+  id: NodeId
+  x: number
+  y: number
+  w: number
+  h: number
+  angle: number
+}
+
+export type InteractionState = {
+  mode: InteractionMode
+  pointer: PointerInfo | null
+
+  // Drag state — populated when mode is 'dragging' or 'resizing'.
+  draggedIds: NodeId[]
+  dragOriginals: DragOriginal[]
+  /** World-space delta from drag start; renderer applies this to draw the dragged set. */
+  dragDelta: Vec2
+
+  // Resize state — populated when mode is 'resizing'.
+  resizeHandle: ResizeHandle | null
+  /** Whether the user is holding Shift during a resize (aspect-lock). */
+  resizeLockAspect: boolean
+  /** Whether the user is holding Alt during a resize (resize from center). */
+  resizeFromCenter: boolean
+
+  // Marquee state — populated when mode is 'marqueeing'.
+  marqueeRect: WorldRect | null
+  /** Whether the marquee should add to (true, shift held) or replace selection. */
+  marqueeAdditive: boolean
+
+  // Edit state — populated when mode is 'editing' (phase 7).
+  editingNodeId: NodeId | null
+}
+
+export const idleInteractionState = (): InteractionState => ({
+  mode: 'idle',
+  pointer: null,
+  draggedIds: [],
+  dragOriginals: [],
+  dragDelta: { x: 0, y: 0 },
+  resizeHandle: null,
+  resizeLockAspect: false,
+  resizeFromCenter: false,
+  marqueeRect: null,
+  marqueeAdditive: false,
+  editingNodeId: null,
+})
+
+/**
+ * Convenience: any of panning/zooming/dragging/resizing/rotating is "moving".
+ */
+export const isMoving = (state: InteractionState): boolean => {
+  const m = state.mode
+  return (
+    m === 'panning' || m === 'zooming' || m === 'dragging' || m === 'resizing' || m === 'rotating'
+  )
+}

@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from 'react'
 import { Canvas, type Tool } from './components/Canvas'
 import { PerfOverlay } from './components/PerfOverlay'
 import { StressMenu } from './components/StressMenu'
+import { StylePanel } from './components/StylePanel'
 import { Toolbar } from './components/Toolbar'
 
 /**
@@ -26,7 +27,7 @@ export function App() {
   }
   const store = storeRef.current
 
-  const [tool, setTool] = useState<Tool>('rect')
+  const [tool, setTool] = useState<Tool>('select')
   const [renderer, setRenderer] = useState<Renderer | null>(null)
 
   const onRenderer = useCallback((r: Renderer) => {
@@ -41,6 +42,7 @@ export function App() {
       <Canvas store={store} tool={tool} onRenderer={onRenderer} />
       <Toolbar active={tool} onSelect={setTool} />
       <StressMenu store={store} />
+      <StylePanel store={store} />
       <PerfOverlay store={store} renderer={renderer} />
     </div>
   )

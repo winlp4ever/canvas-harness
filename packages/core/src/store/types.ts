@@ -18,6 +18,7 @@ import type {
 } from '../types'
 
 import type { IdGenerator } from '../ids'
+import type { InteractionState } from './interaction'
 
 export type StoreOptions = {
   initial?: import('../types').Scene
@@ -39,6 +40,8 @@ export type StoreEvents = {
   camera: CameraState
   /** Selection changed. */
   selection: (NodeId | EdgeId)[]
+  /** Interaction state changed (mode / pointer / drag / marquee / resize / edit). */
+  interaction: InteractionState
 }
 
 export type StoreEventName = keyof StoreEvents
@@ -98,6 +101,11 @@ export interface CanvasStore {
   setCamera(patch: Partial<CameraState>): void
   getSelection(): (NodeId | EdgeId)[]
   setSelection(ids: (NodeId | EdgeId)[]): void
+
+  // interaction state (§10.11)
+  getInteractionState(): InteractionState
+  setInteractionState(patch: Partial<InteractionState>): void
+  resetInteractionState(): void
 
   // events
   subscribe<E extends StoreEventName>(event: E, cb: StoreEventHandler<E>): Unsubscribe

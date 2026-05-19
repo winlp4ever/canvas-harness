@@ -6,6 +6,7 @@ import {
   screenToWorld,
 } from '@canvas-harness/core'
 import { useEffect, useRef } from 'react'
+import { useInteraction } from '../hooks/useInteraction'
 import { usePanZoom } from '../hooks/usePanZoom'
 import { useResizeObserver } from '../hooks/useResizeObserver'
 
@@ -34,6 +35,7 @@ export function Canvas({ store, tool, onRenderer }: CanvasProps) {
 
   const { w, h } = useResizeObserver(wrapRef)
   usePanZoom(wrapRef, store)
+  useInteraction(wrapRef, store, tool)
 
   // create the renderer once both canvases mount
   useEffect(() => {

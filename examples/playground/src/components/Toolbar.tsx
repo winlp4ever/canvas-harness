@@ -3,7 +3,7 @@ import type { Tool } from './Canvas'
 type ToolDef = { id: Tool; label: string; enabled: boolean }
 
 const TOOLS: ToolDef[] = [
-  { id: 'select', label: 'Select', enabled: false }, // phase 3
+  { id: 'select', label: 'Select', enabled: true },
   { id: 'rect', label: 'Rect', enabled: true },
   { id: 'ellipse', label: 'Ellipse', enabled: true },
   { id: 'diamond', label: 'Diamond', enabled: true },

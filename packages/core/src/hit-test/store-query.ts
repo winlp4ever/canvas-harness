@@ -1,0 +1,65 @@
+/**
+ * Higher-level hit queries that combine the spatial index with per-shape
+ * narrow-phase tests. Returns the topmost hit by z, or all hits inside a
+ * marquee rect.
+ */
+import type { CanvasStore } from '../store'
+import type { Node, NodeId, Vec2, WorldRect } from '../types'
+import { type ResizeHandle, hitTestHandles } from './handle'
+import { nodeIntersectsRect, pointInNode } from './node'
+
+export type NodeHit =
+  | { kind: 'body'; nodeId: NodeId }
+  | { kind: 'resize-handle'; nodeId: NodeId; handle: ResizeHandle }
+
+/**
+ * Returns the topmost node hit by a world-space point, plus the part hit
+ * (body or resize handle). Handles are tested before bodies (interactive
+ * elements always win over background — see ARCHITECTURE.md §7).
+ *
+ * If `selectedIds` is provided, only those nodes' handles are considered
+ * — handles only display when the node is selected.
+ */
+export const hitTestPoint = (
+  store: CanvasStore,
+  worldPoint: Vec2,
+  cameraZ: number,
+  selectedIds: ReadonlySet<NodeId> = new Set(),
+): NodeHit | null => {
+  // First try resize handles on selected nodes (drawn above bodies)
+  for (const id of selectedIds) {
+    const n = store.getNode(id)
+    if (!n) continue
+    const h = hitTestHandles(n, worldPoint, cameraZ)
+    if (h) return { kind: 'resize-handle', nodeId: id, handle: h }
+  }
+
+  // Then bodies, topmost-z first
+  const candidates = store.querySpatial({ point: worldPoint }).nodes
+  let best: Node | null = null
+  let bestZ = Number.NEGATIVE_INFINITY
+  for (const id of candidates) {
+    const n = store.getNode(id)
+    if (!n) continue
+    if (pointInNode(worldPoint, n) && n.z >= bestZ) {
+      best = n
+      bestZ = n.z
+    }
+  }
+  return best ? { kind: 'body', nodeId: best.id } : null
+}
+
+/**
+ * Returns ids of all nodes whose (rotated) rect intersects the given rect.
+ * Used for marquee selection.
+ */
+export const marqueeNodes = (store: CanvasStore, rect: WorldRect): NodeId[] => {
+  const candidates = store.querySpatial({ rect }).nodes
+  const result: NodeId[] = []
+  for (const id of candidates) {
+    const n = store.getNode(id)
+    if (!n) continue
+    if (nodeIntersectsRect(n, rect)) result.push(id)
+  }
+  return result
+}

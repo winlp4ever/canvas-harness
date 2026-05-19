@@ -31,6 +31,7 @@ import type {
   Vec2,
   WorldRect,
 } from '../types'
+import { type InteractionState, idleInteractionState } from './interaction'
 import type {
   CanvasStore,
   OpOrigin,
@@ -102,6 +103,7 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
 
   const cameraAtom = atom<CameraState>('camera', initial.camera)
   const selectionAtom = atom<(NodeId | EdgeId)[]>('selection', initial.selection)
+  const interactionAtom = atom<InteractionState>('interaction', idleInteractionState())
 
   const nodeIndex = new UniformGrid()
   const edgeIndex = new UniformGrid()
@@ -140,6 +142,7 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     change: new Set(),
     camera: new Set(),
     selection: new Set(),
+    interaction: new Set(),
   }
   const emit = <E extends StoreEventName>(event: E, payload: StoreEvents[E]): void => {
     for (const cb of subscribers[event]) cb(payload)
@@ -443,6 +446,18 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     setSelection(ids) {
       selectionAtom.set(ids)
       emit('selection', ids)
+    },
+
+    getInteractionState: () => interactionAtom.value,
+    setInteractionState(patch) {
+      const next: InteractionState = { ...interactionAtom.value, ...patch }
+      interactionAtom.set(next)
+      emit('interaction', next)
+    },
+    resetInteractionState() {
+      const next = idleInteractionState()
+      interactionAtom.set(next)
+      emit('interaction', next)
     },
 
     subscribe<E extends StoreEventName>(event: E, cb: StoreEventHandler<E>): Unsubscribe {

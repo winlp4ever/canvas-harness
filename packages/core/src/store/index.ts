@@ -10,3 +10,10 @@ export type {
   StoreOptions,
   Unsubscribe,
 } from './types'
+export type {
+  DragOriginal,
+  InteractionMode,
+  InteractionState,
+  PointerInfo,
+} from './interaction'
+export { idleInteractionState, isMoving } from './interaction'
