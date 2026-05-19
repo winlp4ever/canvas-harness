@@ -14,6 +14,7 @@ import {
   useCamera,
   useCanRedo,
   useCanUndo,
+  useIsPenActive,
   useNode,
   useNodes,
   useSelection,
@@ -129,6 +130,32 @@ describe('hooks', () => {
       store.setCamera({ z: 2.5 })
     })
     expect(lastZ).toBe(2.5)
+    await act(async () => m.cleanup())
+  })
+
+  test('useIsPenActive flips when pointer info reports a pen', async () => {
+    const store = createCanvasStore()
+    let isPen = false
+    const Probe = () => {
+      isPen = useIsPenActive()
+      return null
+    }
+    const m = mount(store, <Probe />)
+    await act(async () => m.render())
+    expect(isPen).toBe(false)
+    await act(async () => {
+      store.setInteractionState({
+        pointer: {
+          worldX: 0,
+          worldY: 0,
+          screenX: 0,
+          screenY: 0,
+          pointerType: 'pen',
+          pressure: 0.7,
+        },
+      })
+    })
+    expect(isPen).toBe(true)
     await act(async () => m.cleanup())
   })
 

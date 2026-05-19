@@ -62,6 +62,16 @@ export function useIsMoving(): boolean {
 }
 
 /**
+ * useIsPenActive — true when the last reported pointer was a pen.
+ * Useful for showing pen-specific UI (e.g. pressure-aware tools). Falls
+ * back to false when no pointer info is in the store yet.
+ */
+export function useIsPenActive(): boolean {
+  const cursor = useCursor()
+  return cursor?.pointerType === 'pen'
+}
+
+/**
  * useDraggedIds — ids currently being dragged/resized. Stable
  * reference between drag-start and drag-commit; new array on each
  * gesture. Empty array (constant) when idle so renders are bounded.

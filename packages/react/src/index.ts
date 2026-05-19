@@ -25,6 +25,7 @@ export {
   useInteractionMode,
   useInteractionState,
   useIsMoving,
+  useIsPenActive,
 } from './hooks/use-interaction'
 
 // Presence hooks

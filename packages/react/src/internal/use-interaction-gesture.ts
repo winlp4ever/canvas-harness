@@ -17,16 +17,25 @@ import {
   type Vec2,
   type WorldRect,
   computeAutoFitHeight,
+  createPalmRejectionState,
   hitTestAny,
   marqueeNodes,
+  notePenActive,
+  notePenInactive,
   projectToNodeBoundary,
   screenToWorld,
   shouldAutoFit,
+  shouldRejectTouch,
   worldToNodeLocal,
 } from '@canvas-harness/core'
 import { useEffect } from 'react'
 
 const CLICK_MAX_PIXELS = 4 // pointerup within this many pixels of pointerdown = click
+
+/** Touch hold time (ms) before a stationary pointerdown promotes to drag. */
+const LONG_PRESS_MS = 500
+/** Max pixel movement during the long-press window without canceling it. */
+const LONG_PRESS_MAX_MOVE_PX = 10
 
 export type InteractionTool =
   | 'select'
@@ -66,6 +75,16 @@ export const useInteractionGesture = (
     let rotateNodeId: NodeId | null = null
     let rotateOriginAngle = 0 // node.angle at gesture start
     let rotatePointerStartAngle = 0 // pointer angle from node center at gesture start
+
+    // Phase 11 — palm rejection + long-press.
+    const palm = createPalmRejectionState()
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null
+    const clearLongPress = (): void => {
+      if (longPressTimer !== null) {
+        clearTimeout(longPressTimer)
+        longPressTimer = null
+      }
+    }
 
     const screenFromEvent = (e: PointerEvent): Vec2 => {
       const rect = el.getBoundingClientRect()
@@ -230,6 +249,8 @@ export const useInteractionGesture = (
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return
+      if (e.pointerType === 'pen') notePenActive(palm)
+      else if (e.pointerType === 'touch' && shouldRejectTouch(palm, Date.now())) return
       pointerDownAt = screenFromEvent(e)
       const world = worldFromEvent(e)
       const camera = store.getCamera()
@@ -292,6 +313,21 @@ export const useInteractionGesture = (
         }
         activeGesture = 'click-pending'
         el.setPointerCapture(e.pointerId)
+        // Touch can't hover, so a stationary press should promote to
+        // drag after LONG_PRESS_MS. Mouse / pen rely on the existing
+        // pixel-threshold path.
+        if (e.pointerType === 'touch') {
+          const targetIds = e.shiftKey
+            ? ([...selectedNodeIds, hit.nodeId] as NodeId[])
+            : [hit.nodeId]
+          clearLongPress()
+          longPressTimer = setTimeout(() => {
+            longPressTimer = null
+            if (activeGesture !== 'click-pending') return
+            activeGesture = 'drag'
+            beginDrag(targetIds)
+          }, LONG_PRESS_MS)
+        }
         e.preventDefault()
         return
       }
@@ -323,6 +359,12 @@ export const useInteractionGesture = (
       const screen = screenFromEvent(e)
       const dx = screen.x - pointerDownAt.x
       const dy = screen.y - pointerDownAt.y
+
+      // Movement past LONG_PRESS_MAX_MOVE_PX cancels the long-press
+      // promotion (user is dragging, not holding still).
+      if (longPressTimer !== null && (Math.abs(dx) > LONG_PRESS_MAX_MOVE_PX || Math.abs(dy) > LONG_PRESS_MAX_MOVE_PX)) {
+        clearLongPress()
+      }
 
       // First time pointermove crosses click threshold: decide gesture.
       if (activeGesture === 'click-pending') {
@@ -423,6 +465,8 @@ export const useInteractionGesture = (
     }
 
     const onPointerUp = (e: PointerEvent) => {
+      if (e.pointerType === 'pen') notePenInactive(palm, Date.now())
+      clearLongPress()
       if (!pointerDownAt) return
       if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
       switch (activeGesture) {

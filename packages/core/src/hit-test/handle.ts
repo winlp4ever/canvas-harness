@@ -12,17 +12,21 @@ export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 
 export const RESIZE_HANDLES: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 
-/** Screen-pixel size of a resize-handle hit target. Visual size matches. */
-export const RESIZE_HANDLE_SIZE_PX = 10
+/**
+ * Screen-pixel size of a resize-handle hit target. Visual size matches.
+ * Sized for touch reach (~14px) without being intrusive on desktop;
+ * tldraw uses a similar value.
+ */
+export const RESIZE_HANDLE_SIZE_PX = 14
 
 /**
  * Screen-pixel distance from the top edge of the node to the rotation
  * handle center. Visual + hit-target match.
  */
-export const ROTATE_HANDLE_OFFSET_PX = 22
+export const ROTATE_HANDLE_OFFSET_PX = 24
 
 /** Screen-pixel radius of the rotation-handle hit target. */
-export const ROTATE_HANDLE_RADIUS_PX = 7
+export const ROTATE_HANDLE_RADIUS_PX = 9
 
 /**
  * World-space centers of all 8 resize handles for the given node.
