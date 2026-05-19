@@ -17,6 +17,14 @@ import { applyCameraTransform, drawWithNodeTransform, worldViewport } from './tr
 /** A small overscan keeps shapes near the viewport edge from popping. */
 const VIEWPORT_OVERSCAN_PX = 64
 
+/**
+ * Minimum on-screen size (in logical CSS pixels) for a shape to be worth drawing.
+ * Below this both dimensions, the shape can't be perceived anyway; skipping it
+ * saves the entire path build + fill/stroke for that node. Single biggest win
+ * for zoomed-out scenes with many shapes.
+ */
+const MIN_ON_SCREEN_SIZE_PX = 1.5
+
 export type RendererOptions = {
   store: CanvasStore
   staticCanvas: HTMLCanvasElement
@@ -80,12 +88,18 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     const viewport = inflateRect(worldViewport(staticSurface, camera), VIEWPORT_OVERSCAN_PX)
     const ids = store.querySpatial({ rect: viewport }).nodes
     const result: Node[] = []
+    // World size that maps to MIN_ON_SCREEN_SIZE_PX on screen at current zoom.
+    // Smaller than this in BOTH dimensions → skip the draw entirely.
+    const minWorldSize = MIN_ON_SCREEN_SIZE_PX / camera.z
     for (const id of ids as NodeId[]) {
       const n = store.getNode(id)
-      // narrow phase: confirm the rotated node AABB still intersects the
+      if (!n) continue
+      // Cheap zoom-aware LOD: skip shapes that would be sub-pixel on screen.
+      if (n.w < minWorldSize && n.h < minWorldSize) continue
+      // Narrow phase: confirm the rotated node AABB still intersects the
       // (overscanned) viewport — handles index stale-ness from coarse
       // updates without forcing a reindex on every camera change.
-      if (n && intersectsViewport(n, viewport)) result.push(n)
+      if (intersectsViewport(n, viewport)) result.push(n)
     }
     return result
   }

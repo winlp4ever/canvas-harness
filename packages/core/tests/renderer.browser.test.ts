@@ -203,6 +203,36 @@ describe('Renderer (browser)', () => {
     cleanup(staticCanvas, interactiveCanvas)
   })
 
+  test('skip-tiny LOD: sub-pixel-on-screen shapes are culled', async () => {
+    const { staticCanvas, interactiveCanvas } = makeCanvases()
+    const store = createCanvasStore({ clientId: asClientId('u-test') })
+    // Two on-screen rects: one large, one tiny.
+    store.addNode(rectNode('big', { x: 100, y: 100, w: 200, h: 200 }))
+    store.addNode(rectNode('tiny', { x: 10, y: 10, w: 4, h: 4 }))
+
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 800,
+      height: 600,
+    })
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+    // At zoom 1, the 4x4 rect is still visible; both should draw.
+    expect(renderer.lastDrawCount()).toBe(2)
+
+    // Zoom way out — the 4x4 rect drops below 1.5 logical px and should be culled.
+    store.setCamera({ x: 0, y: 0, z: 0.1 })
+    await waitFrame()
+    await waitFrame()
+    expect(renderer.lastDrawCount()).toBe(1)
+
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
+
   test('benchmark: paints 1000 rects in under 16ms (phase-2 perf gate)', async () => {
     const { staticCanvas, interactiveCanvas } = makeCanvases(1200, 800)
     const store = createCanvasStore({ clientId: asClientId('u-test') })

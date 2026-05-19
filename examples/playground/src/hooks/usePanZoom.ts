@@ -3,7 +3,11 @@ import { useEffect } from 'react'
 
 /**
  * Wires up mouse-wheel zoom and middle-button / spacebar pan on a target element.
- * Updates the camera via store.setCamera; no local state.
+ *
+ * Pointermove fires faster than the display refreshes (often 120-240Hz). Calling
+ * store.setCamera on every event saturates the main thread at large scene sizes.
+ * Instead we accumulate pending deltas and flush once per rAF, so the store sees
+ * at most one camera update per frame regardless of input rate.
  *
  * Phase 2 interaction: just enough to navigate at scale. Drag-to-select etc.
  * arrive in phase 3.
@@ -18,23 +22,53 @@ export const usePanZoom = (ref: React.RefObject<HTMLElement | null>, store: Canv
     let lastX = 0
     let lastY = 0
 
+    // Per-frame buffers — flushed in flushPending via rAF.
+    let pendingDx = 0
+    let pendingDy = 0
+    let pendingZoomFactor = 1
+    let pendingZoomAnchor: { x: number; y: number } | null = null
+    let scheduled = false
+    let rafId = 0
+
+    const flushPending = (): void => {
+      scheduled = false
+      rafId = 0
+      // Apply zoom first; pan applies on top of the new camera so order is intuitive.
+      if (pendingZoomFactor !== 1 && pendingZoomAnchor) {
+        const camera = store.getCamera()
+        store.setCamera(
+          zoomAtScreenPoint(camera, clampZoom(camera.z * pendingZoomFactor), pendingZoomAnchor),
+        )
+        pendingZoomFactor = 1
+        pendingZoomAnchor = null
+      }
+      if (pendingDx !== 0 || pendingDy !== 0) {
+        const camera = store.getCamera()
+        store.setCamera(panByScreen(camera, { x: pendingDx, y: pendingDy }))
+        pendingDx = 0
+        pendingDy = 0
+      }
+    }
+
+    const schedule = (): void => {
+      if (scheduled) return
+      scheduled = true
+      rafId = requestAnimationFrame(flushPending)
+    }
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      const camera = store.getCamera()
       if (e.ctrlKey || e.metaKey) {
         // pinch-zoom signal (trackpads send wheel+ctrl)
         const factor = Math.exp(-e.deltaY * 0.01)
+        pendingZoomFactor *= factor
         const rect = el.getBoundingClientRect()
-        store.setCamera(
-          zoomAtScreenPoint(camera, clampZoom(camera.z * factor), {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top,
-          }),
-        )
+        pendingZoomAnchor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
       } else {
-        // wheel = pan
-        store.setCamera(panByScreen(camera, { x: -e.deltaX, y: -e.deltaY }))
+        pendingDx += -e.deltaX
+        pendingDy += -e.deltaY
       }
+      schedule()
     }
 
     const onPointerDown = (e: PointerEvent) => {
@@ -54,7 +88,9 @@ export const usePanZoom = (ref: React.RefObject<HTMLElement | null>, store: Canv
       const dy = e.clientY - lastY
       lastX = e.clientX
       lastY = e.clientY
-      store.setCamera(panByScreen(store.getCamera(), { x: dx, y: dy }))
+      pendingDx += dx
+      pendingDy += dy
+      schedule()
     }
 
     const onPointerUp = (e: PointerEvent) => {
@@ -83,6 +119,7 @@ export const usePanZoom = (ref: React.RefObject<HTMLElement | null>, store: Canv
       el.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
+      if (rafId !== 0) cancelAnimationFrame(rafId)
     }
   }, [ref, store])
 }
