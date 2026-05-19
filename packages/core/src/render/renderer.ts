@@ -29,6 +29,7 @@ import {
   drawEdgeEndpointHandles,
   drawMarquee,
   drawResizeHandles,
+  drawRotateHandle,
   drawSelectionOutline,
 } from './overlay'
 import { type ThemeResolver, drawShape, isDrawablePrimitive } from './shapes'
@@ -432,12 +433,15 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         if (!node) continue
         drawSelectionOutline(ctx, node, scale)
       }
-      // Resize handles only for non-dragging selection. (During a drag, the
-      // handles would jitter with the dragged geometry — Excalidraw hides
-      // them mid-drag for the same reason.)
+      // Resize + rotate handles only for non-dragging selection. (During
+      // a drag, the handles would jitter with the dragged geometry —
+      // Excalidraw hides them mid-drag for the same reason.)
       if (interaction.mode !== 'dragging' && selectedNodeIds.length === 1) {
         const node = inDragMap.get(selectedNodeIds[0]!) ?? store.getNode(selectedNodeIds[0]!)
-        if (node) drawResizeHandles(ctx, node, scale)
+        if (node) {
+          drawResizeHandles(ctx, node, scale)
+          drawRotateHandle(ctx, node, scale, camera.z)
+        }
       }
     }
     // Edge endpoint handles on selected edges.

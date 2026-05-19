@@ -48,14 +48,24 @@ export const useInteraction = (
     if (tool !== 'select') return // shape tools handle their own clicks in Canvas.tsx
 
     let pointerDownAt: { x: number; y: number } | null = null
-    let activeGesture: 'idle' | 'click-pending' | 'drag' | 'resize' | 'marquee' | 'reconnect-edge' =
-      'idle'
+    let activeGesture:
+      | 'idle'
+      | 'click-pending'
+      | 'drag'
+      | 'resize'
+      | 'rotate'
+      | 'marquee'
+      | 'reconnect-edge' = 'idle'
     let resizeHandle: ResizeHandle | null = null
     let dragOriginals: DragOriginal[] = []
     let marqueeStartWorld: Vec2 | null = null
     let marqueeShift = false
     let reconnectEdgeId: EdgeId | null = null
     let reconnectEnd: 'source' | 'target' | null = null
+    // Rotation gesture state.
+    let rotateNodeId: NodeId | null = null
+    let rotateOriginAngle = 0 // node.angle at gesture start
+    let rotatePointerStartAngle = 0 // pointer angle from node center at gesture start
 
     const screenFromEvent = (e: PointerEvent): Vec2 => {
       const rect = el.getBoundingClientRect()
@@ -94,6 +104,42 @@ export const useInteraction = (
         resizeLockAspect: false,
         resizeFromCenter: false,
       })
+    }
+
+    const pointerAngleFromCenter = (node: { x: number; y: number; w: number; h: number }, world: Vec2): number => {
+      const cx = node.x + node.w / 2
+      const cy = node.y + node.h / 2
+      return Math.atan2(world.y - cy, world.x - cx)
+    }
+
+    const beginRotate = (id: NodeId, worldAtStart: Vec2): void => {
+      const node = store.getNode(id)
+      if (!node) return
+      rotateNodeId = id
+      rotateOriginAngle = node.angle
+      rotatePointerStartAngle = pointerAngleFromCenter(node, worldAtStart)
+      store.setInteractionState({
+        mode: 'rotating',
+        draggedIds: [id],
+      })
+    }
+
+    /** Snap angle to 15° increments when Shift is held. */
+    const ROTATE_SNAP_RAD = (15 * Math.PI) / 180
+    const updateRotate = (worldPoint: Vec2, shift: boolean): void => {
+      if (!rotateNodeId) return
+      const node = store.getNode(rotateNodeId)
+      if (!node) return
+      const pointerAngle = pointerAngleFromCenter(node, worldPoint)
+      const delta = pointerAngle - rotatePointerStartAngle
+      let next = rotateOriginAngle + delta
+      if (shift) next = Math.round(next / ROTATE_SNAP_RAD) * ROTATE_SNAP_RAD
+      store.updateNode(rotateNodeId, { angle: next })
+    }
+
+    const commitRotate = (): void => {
+      rotateNodeId = null
+      store.resetInteractionState()
     }
 
     const updateDrag = (delta: Vec2): void => {
@@ -195,6 +241,14 @@ export const useInteraction = (
       }
       const hit = hitTestAny(store, world, camera.z, selectedNodeIds, selectedEdgeIds)
 
+      if (hit?.kind === 'rotate-handle') {
+        activeGesture = 'rotate'
+        beginRotate(hit.nodeId, world)
+        el.setPointerCapture(e.pointerId)
+        e.preventDefault()
+        return
+      }
+
       if (hit?.kind === 'resize-handle') {
         resizeHandle = hit.handle
         activeGesture = 'resize'
@@ -294,6 +348,8 @@ export const useInteraction = (
       } else if (activeGesture === 'resize') {
         const world = worldFromEvent(e)
         updateResize(world, { shift: e.shiftKey, alt: e.altKey })
+      } else if (activeGesture === 'rotate') {
+        updateRotate(worldFromEvent(e), e.shiftKey)
       } else if (activeGesture === 'marquee') {
         updateMarquee(worldFromEvent(e))
       } else if (activeGesture === 'reconnect-edge' && reconnectEdgeId && reconnectEnd) {
@@ -374,6 +430,9 @@ export const useInteraction = (
           break
         case 'resize':
           commitResize()
+          break
+        case 'rotate':
+          commitRotate()
           break
         case 'marquee':
           commitMarquee()

@@ -16,6 +16,15 @@ export const RESIZE_HANDLES: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 
 export const RESIZE_HANDLE_SIZE_PX = 10
 
 /**
+ * Screen-pixel distance from the top edge of the node to the rotation
+ * handle center. Visual + hit-target match.
+ */
+export const ROTATE_HANDLE_OFFSET_PX = 22
+
+/** Screen-pixel radius of the rotation-handle hit target. */
+export const ROTATE_HANDLE_RADIUS_PX = 7
+
+/**
  * World-space centers of all 8 resize handles for the given node.
  * Rotation-aware: handles rotate with the node so they sit on the corners
  * and edge midpoints of the rotated rect (not the rotated AABB).
@@ -89,4 +98,41 @@ export const hitTestHandles = (
     }
   }
   return null
+}
+
+/**
+ * World-space position of the rotation handle — sits a constant 22px
+ * (screen) above the node's top edge midpoint, perpendicular to the
+ * rotated top edge.
+ */
+export const rotateHandleWorldPosition = (node: Node, cameraZ: number): Vec2 => {
+  const offsetWorld = ROTATE_HANDLE_OFFSET_PX / cameraZ
+  const cx = node.x + node.w / 2
+  const cy = node.y + node.h / 2
+  // Local coords (relative to node center, y-up): midpoint of top edge is
+  // (0, -h/2 - offsetWorld). Apply rotation; node.angle is clockwise on
+  // a y-down canvas.
+  const localX = 0
+  const localY = -node.h / 2 - offsetWorld
+  const cos = Math.cos(node.angle)
+  const sin = Math.sin(node.angle)
+  return {
+    x: cx + localX * cos - localY * sin,
+    y: cy + localX * sin + localY * cos,
+  }
+}
+
+/**
+ * Returns true if `worldPoint` is over the rotation handle for the node.
+ */
+export const hitTestRotateHandle = (
+  node: Node,
+  worldPoint: Vec2,
+  cameraZ: number,
+): boolean => {
+  const center = rotateHandleWorldPosition(node, cameraZ)
+  const rWorld = ROTATE_HANDLE_RADIUS_PX / cameraZ
+  const dx = worldPoint.x - center.x
+  const dy = worldPoint.y - center.y
+  return dx * dx + dy * dy <= rWorld * rWorld
 }

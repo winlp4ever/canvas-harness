@@ -10,7 +10,12 @@
  * Visual sizes are constant in screen pixels — `scale` (camera.z × DPR)
  * is used to convert px → world for outline strokes and handle sizes.
  */
-import { RESIZE_HANDLE_SIZE_PX, handleWorldPositions } from '../hit-test/handle'
+import {
+  RESIZE_HANDLE_SIZE_PX,
+  ROTATE_HANDLE_RADIUS_PX,
+  handleWorldPositions,
+  rotateHandleWorldPosition,
+} from '../hit-test/handle'
 import type { Node, Vec2, WorldRect } from '../types'
 
 export const SELECTION_COLOR = '#3b82f6'
@@ -86,6 +91,50 @@ export const drawResizeHandles = (
     ctx.fill()
     ctx.stroke()
   }
+  ctx.restore()
+}
+
+/**
+ * Draws the rotation handle — circle above the top edge midpoint,
+ * connected by a tether line. Constant screen size; rotation-aware so
+ * the handle stays "above" the rotated top edge.
+ *
+ * cameraZ is passed separately from `scale` because the handle's
+ * world-space offset depends on plain zoom (not DPR-multiplied scale).
+ */
+export const drawRotateHandle = (
+  ctx: CanvasRenderingContext2D,
+  node: Node,
+  scale: number,
+  cameraZ: number,
+): void => {
+  const center = rotateHandleWorldPosition(node, cameraZ)
+  const radiusWorld = ROTATE_HANDLE_RADIUS_PX / scale
+
+  // Tether: top edge midpoint → handle center, in the node's local frame.
+  const cx = node.x + node.w / 2
+  const cy = node.y + node.h / 2
+  const cos = Math.cos(node.angle)
+  const sin = Math.sin(node.angle)
+  const topMidLocalY = -node.h / 2
+  const topMidWorld = {
+    x: cx + 0 * cos - topMidLocalY * sin,
+    y: cy + 0 * sin + topMidLocalY * cos,
+  }
+
+  ctx.save()
+  ctx.strokeStyle = SELECTION_COLOR
+  ctx.lineWidth = SELECTION_OUTLINE_PX / scale
+  ctx.beginPath()
+  ctx.moveTo(topMidWorld.x, topMidWorld.y)
+  ctx.lineTo(center.x, center.y)
+  ctx.stroke()
+
+  ctx.fillStyle = '#fff'
+  ctx.beginPath()
+  ctx.arc(center.x, center.y, radiusWorld, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
   ctx.restore()
 }
 

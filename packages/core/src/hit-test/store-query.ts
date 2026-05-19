@@ -6,12 +6,13 @@
 import type { CanvasStore } from '../store'
 import type { EdgeId, Node, NodeId, Vec2, WorldRect } from '../types'
 import { type EdgeHit, hitTestEdge } from './edge'
-import { type ResizeHandle, hitTestHandles } from './handle'
+import { type ResizeHandle, hitTestHandles, hitTestRotateHandle } from './handle'
 import { nodeIntersectsRect, pointInNode } from './node'
 
 export type NodeHit =
   | { kind: 'body'; nodeId: NodeId }
   | { kind: 'resize-handle'; nodeId: NodeId; handle: ResizeHandle }
+  | { kind: 'rotate-handle'; nodeId: NodeId }
 
 /** A hit covers either a node or an edge sub-region. */
 export type Hit = NodeHit | EdgeHit
@@ -30,10 +31,15 @@ export const hitTestPoint = (
   cameraZ: number,
   selectedIds: ReadonlySet<NodeId> = new Set(),
 ): NodeHit | null => {
-  // First try resize handles on selected nodes (drawn above bodies)
+  // First try rotation + resize handles on selected nodes (drawn above
+  // bodies). Rotate handle sits OUTSIDE the node bounds so it gets
+  // priority over neighboring bodies underneath.
   for (const id of selectedIds) {
     const n = store.getNode(id)
     if (!n) continue
+    if (hitTestRotateHandle(n, worldPoint, cameraZ)) {
+      return { kind: 'rotate-handle', nodeId: id }
+    }
     const h = hitTestHandles(n, worldPoint, cameraZ)
     if (h) return { kind: 'resize-handle', nodeId: id, handle: h }
   }
@@ -67,10 +73,13 @@ export const hitTestAny = (
   selectedNodes: ReadonlySet<NodeId> = new Set(),
   selectedEdges: ReadonlySet<EdgeId> = new Set(),
 ): Hit | null => {
-  // 1. node resize handles (selected only)
+  // 1. node rotate + resize handles (selected only)
   for (const id of selectedNodes) {
     const n = store.getNode(id)
     if (!n) continue
+    if (hitTestRotateHandle(n, worldPoint, cameraZ)) {
+      return { kind: 'rotate-handle', nodeId: id }
+    }
     const h = hitTestHandles(n, worldPoint, cameraZ)
     if (h) return { kind: 'resize-handle', nodeId: id, handle: h }
   }
