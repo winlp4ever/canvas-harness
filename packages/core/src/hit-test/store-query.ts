@@ -4,13 +4,17 @@
  * marquee rect.
  */
 import type { CanvasStore } from '../store'
-import type { Node, NodeId, Vec2, WorldRect } from '../types'
+import type { EdgeId, Node, NodeId, Vec2, WorldRect } from '../types'
+import { type EdgeHit, hitTestEdge } from './edge'
 import { type ResizeHandle, hitTestHandles } from './handle'
 import { nodeIntersectsRect, pointInNode } from './node'
 
 export type NodeHit =
   | { kind: 'body'; nodeId: NodeId }
   | { kind: 'resize-handle'; nodeId: NodeId; handle: ResizeHandle }
+
+/** A hit covers either a node or an edge sub-region. */
+export type Hit = NodeHit | EdgeHit
 
 /**
  * Returns the topmost node hit by a world-space point, plus the part hit
@@ -47,6 +51,44 @@ export const hitTestPoint = (
     }
   }
   return best ? { kind: 'body', nodeId: best.id } : null
+}
+
+/**
+ * Combined node + edge hit testing. Order: node handles > edge endpoint
+ * handles > node bodies > edge bodies.
+ *
+ * Node bodies take priority over edge bodies because clicking ON a node
+ * shouldn't accidentally select the edge passing behind it.
+ */
+export const hitTestAny = (
+  store: CanvasStore,
+  worldPoint: Vec2,
+  cameraZ: number,
+  selectedNodes: ReadonlySet<NodeId> = new Set(),
+  selectedEdges: ReadonlySet<EdgeId> = new Set(),
+): Hit | null => {
+  // 1. node resize handles (selected only)
+  for (const id of selectedNodes) {
+    const n = store.getNode(id)
+    if (!n) continue
+    const h = hitTestHandles(n, worldPoint, cameraZ)
+    if (h) return { kind: 'resize-handle', nodeId: id, handle: h }
+  }
+
+  // 2. edge endpoint handles (selected only)
+  for (const id of selectedEdges) {
+    const partial = hitTestEdge(store, worldPoint, cameraZ, new Set([id]))
+    if (partial && (partial.kind === 'source-handle' || partial.kind === 'target-handle')) {
+      return partial
+    }
+  }
+
+  // 3. node bodies
+  const nodeHit = hitTestPoint(store, worldPoint, cameraZ, selectedNodes)
+  if (nodeHit) return nodeHit
+
+  // 4. edge bodies
+  return hitTestEdge(store, worldPoint, cameraZ)
 }
 
 /**

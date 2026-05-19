@@ -8,6 +8,7 @@ const TOOLS: ToolDef[] = [
   { id: 'ellipse', label: 'Ellipse', enabled: true },
   { id: 'diamond', label: 'Diamond', enabled: true },
   { id: 'capsule', label: 'Capsule', enabled: true },
+  { id: 'arrow', label: 'Arrow', enabled: true },
 ]
 
 export function Toolbar({

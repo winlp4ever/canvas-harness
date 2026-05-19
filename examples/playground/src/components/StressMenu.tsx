@@ -5,6 +5,7 @@ import {
   clearScene,
   fixture1kMixed,
   fixture1kRects,
+  fixture5kEdges,
   fixture10kRects,
   fixture100Rects,
 } from '../fixtures'
@@ -15,6 +16,7 @@ const ENTRIES: Entry[] = [
   { label: '+ 1k rects', fn: fixture1kRects },
   { label: '+ 1k mixed', fn: fixture1kMixed },
   { label: '+ 10k rects', fn: fixture10kRects },
+  { label: '+ 5k edges', fn: fixture5kEdges },
   { label: 'Clear scene', fn: clearScene },
 ]
 

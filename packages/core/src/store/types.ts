@@ -17,6 +17,7 @@ import type {
   WorldRect,
 } from '../types'
 
+import type { EdgeGeometry } from '../edges/cache'
 import type { IdGenerator } from '../ids'
 import type { InteractionState } from './interaction'
 
@@ -95,6 +96,21 @@ export interface CanvasStore {
   /** O(1) count without materializing the full list. */
   getGroupCount(): number
   querySpatial(q: SpatialQuery): SpatialResult
+
+  /**
+   * Returns the (cached) world-space geometry for an edge — sample
+   * polyline, AABB, attached-node ids, self-loop flag. Re-computes if
+   * any input has changed since the last read. Used by the renderer
+   * and edge hit-test. See ARCHITECTURE.md §6.12.
+   */
+  getEdgeGeometry(id: EdgeId): EdgeGeometry | undefined
+
+  /**
+   * Returns the edge ids incident to a given node (either endpoint
+   * attaches to it). Maintained internally so it's O(1) to query when
+   * a node moves and we need to refresh its edges.
+   */
+  getIncidentEdges(id: NodeId): EdgeId[]
 
   // camera + selection
   getCamera(): CameraState

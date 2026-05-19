@@ -6,6 +6,7 @@ import {
   screenToWorld,
 } from '@canvas-harness/core'
 import { useEffect, useRef } from 'react'
+import { useArrowTool } from '../hooks/useArrowTool'
 import { useInteraction } from '../hooks/useInteraction'
 import { usePanZoom } from '../hooks/usePanZoom'
 import { useResizeObserver } from '../hooks/useResizeObserver'
@@ -16,9 +17,13 @@ export type CanvasProps = {
   onRenderer?: (r: Renderer) => void
 }
 
-export type Tool = 'select' | 'rect' | 'ellipse' | 'diamond' | 'capsule'
+export type Tool = 'select' | 'rect' | 'ellipse' | 'diamond' | 'capsule' | 'arrow'
 
-const TOOL_TO_TYPE: Record<Exclude<Tool, 'select'>, 'rect' | 'ellipse' | 'diamond' | 'capsule'> = {
+const SHAPE_TOOLS = new Set(['rect', 'ellipse', 'diamond', 'capsule'])
+const TOOL_TO_TYPE: Record<
+  'rect' | 'ellipse' | 'diamond' | 'capsule',
+  'rect' | 'ellipse' | 'diamond' | 'capsule'
+> = {
   rect: 'rect',
   ellipse: 'ellipse',
   diamond: 'diamond',
@@ -36,6 +41,7 @@ export function Canvas({ store, tool, onRenderer }: CanvasProps) {
   const { w, h } = useResizeObserver(wrapRef)
   usePanZoom(wrapRef, store)
   useInteraction(wrapRef, store, tool)
+  useArrowTool(wrapRef, store, tool === 'arrow')
 
   // create the renderer once both canvases mount
   useEffect(() => {
@@ -66,13 +72,13 @@ export function Canvas({ store, tool, onRenderer }: CanvasProps) {
     if (!el) return
     const onClick = (e: MouseEvent) => {
       const t = toolRef.current
-      if (t === 'select') return
+      if (!SHAPE_TOOLS.has(t)) return
       const rect = el.getBoundingClientRect()
       const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top }
       const world = screenToWorld(screen, store.getCamera())
       store.addNode({
         id: asNodeId(store.generateId()),
-        type: TOOL_TO_TYPE[t],
+        type: TOOL_TO_TYPE[t as keyof typeof TOOL_TO_TYPE],
         x: world.x - 60,
         y: world.y - 40,
         w: 120,

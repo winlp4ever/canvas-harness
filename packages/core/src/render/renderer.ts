@@ -1,6 +1,7 @@
+import { computeEdgeGeometry, drawEdge } from '../edges'
 import { inflateRect, nodeAABB } from '../spatial'
 import type { CanvasStore, InteractionState } from '../store'
-import type { CameraState, EdgeId, Node, NodeId } from '../types'
+import type { CameraState, Edge, EdgeId, Node, NodeId, WorldRect } from '../types'
 import { clearSurface, setupSurface, sizeSurface } from './canvas-setup'
 import { type FrameLoop, type FrameStats, createFrameLoop } from './frame-loop'
 /**
@@ -16,7 +17,12 @@ import { type FrameLoop, type FrameStats, createFrameLoop } from './frame-loop'
  *               shape currently being dragged at its uncommitted position.
  *               Redrawn every rAF tick while interaction.mode !== 'idle'.
  */
-import { drawMarquee, drawResizeHandles, drawSelectionOutline } from './overlay'
+import {
+  drawEdgeEndpointHandles,
+  drawMarquee,
+  drawResizeHandles,
+  drawSelectionOutline,
+} from './overlay'
 import { type ThemeResolver, drawShape, isDrawablePrimitive } from './shapes'
 import { applyCameraTransform, drawWithNodeTransform, worldViewport } from './transform'
 
@@ -88,23 +94,70 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     applyCameraTransform(staticSurface, camera)
     const scale = camera.z * staticSurface.dpr
     const interaction = store.getInteractionState()
-    // Per ARCHITECTURE.md §4.2: nodes currently being dragged or resized are
-    // excluded from static and drawn on interactive instead.
-    const excluded =
+    // Per ARCHITECTURE.md §4.2: nodes currently being dragged or resized,
+    // AND edges incident to them, are excluded from static and drawn on
+    // the interactive canvas at their uncommitted positions instead.
+    const excludedNodes =
       interaction.mode === 'dragging' || interaction.mode === 'resizing'
         ? new Set(interaction.draggedIds)
         : null
-    const visible = visibleNodes(camera)
+    const excludedEdges = excludedNodes ? incidentEdgeIds(excludedNodes) : null
+    const viewport = inflateRect(worldViewport(staticSurface, camera), VIEWPORT_OVERSCAN_PX)
+
+    // ---- nodes ----
+    const visible = visibleNodes(camera, viewport)
     let drawn = 0
     for (const node of visible) {
       if (!isDrawablePrimitive(node.type)) continue
-      if (excluded?.has(node.id)) continue
+      if (excludedNodes?.has(node.id)) continue
       drawWithNodeTransform(staticSurface.ctx, node, () => {
         drawShape(staticSurface.ctx, node, scale, theme)
       })
       drawn++
     }
+
+    // ---- edges ----
+    const visEdges = visibleEdges(viewport)
+    for (const edge of visEdges) {
+      if (excludedEdges?.has(edge.id)) continue
+      paintOneEdge(staticSurface.ctx, edge, scale)
+      drawn++
+    }
     lastDrawn = drawn
+  }
+
+  /**
+   * Union of edge ids incident to any of the given node ids. Used by the
+   * "exclude from static during drag" rule (§4.2). O(node count) via the
+   * store's internal incidentEdges map.
+   */
+  const incidentEdgeIds = (nodeIds: ReadonlySet<NodeId>): ReadonlySet<EdgeId> => {
+    const result = new Set<EdgeId>()
+    for (const nid of nodeIds) {
+      for (const eid of store.getIncidentEdges(nid)) result.add(eid)
+    }
+    return result
+  }
+
+  /**
+   * Helper: paint a single edge using its cached geometry from the store.
+   */
+  const paintOneEdge = (ctx: CanvasRenderingContext2D, edge: Edge, scale: number): void => {
+    const geom = store.getEdgeGeometry(edge.id)
+    if (!geom) return
+    const sourceNode = geom.sourceNodeId ? (store.getNode(geom.sourceNodeId) ?? null) : null
+    const targetNode = geom.targetNodeId ? (store.getNode(geom.targetNodeId) ?? null) : null
+    drawEdge(ctx, edge, geom, sourceNode, targetNode, scale, theme)
+  }
+
+  const visibleEdges = (viewport: WorldRect): Edge[] => {
+    const ids = store.querySpatial({ rect: viewport }).edges
+    const result: Edge[] = []
+    for (const id of ids as EdgeId[]) {
+      const e = store.getEdge(id)
+      if (e) result.push(e)
+    }
+    return result
   }
 
   const paintInteractive = (): void => {
@@ -117,21 +170,48 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
 
     // 1. Dragged / resizing nodes at their uncommitted positions.
     if (interaction.mode === 'dragging' || interaction.mode === 'resizing') {
-      const inDrag = computeDragPositions(interaction)
-      for (const node of inDrag) {
+      const inDragMap = mapDragPositions(interaction)
+      for (const node of inDragMap.values()) {
         if (!isDrawablePrimitive(node.type)) continue
         drawWithNodeTransform(ctx, node, () => {
           drawShape(ctx, node, scale, theme)
         })
       }
+
+      // Edges incident to a dragged node redraw with the offset applied.
+      // We wrap getNode so endpoint projection sees the dragged position.
+      const wrapGetNode = (id: NodeId): Node | undefined => inDragMap.get(id) ?? store.getNode(id)
+      const drawnEdgeIds = new Set<EdgeId>()
+      for (const nodeId of inDragMap.keys()) {
+        for (const eid of store.getIncidentEdges(nodeId)) {
+          if (drawnEdgeIds.has(eid)) continue
+          drawnEdgeIds.add(eid)
+          const edge = store.getEdge(eid)
+          if (!edge) continue
+          // Compute geometry directly — bypass the cache so we get the
+          // uncommitted positions. Cheap; samples-per-frame is bounded
+          // by drag size, not scene size.
+          const geom = computeEdgeGeometry(edge, wrapGetNode)
+          if (!geom) continue
+          const sourceNode = geom.sourceNodeId ? (wrapGetNode(geom.sourceNodeId) ?? null) : null
+          const targetNode = geom.targetNodeId ? (wrapGetNode(geom.targetNodeId) ?? null) : null
+          drawEdge(ctx, edge, geom, sourceNode, targetNode, scale, theme)
+        }
+      }
     }
 
     // 2. Selection outlines + handles for selected nodes (uses current /
     //    in-progress geometry).
-    const selectedIds = store.getSelection().filter(isNodeId)
-    if (selectedIds.length > 0) {
+    const selection = store.getSelection()
+    const selectedNodeIds: NodeId[] = []
+    const selectedEdgeIds: EdgeId[] = []
+    for (const id of selection) {
+      if (store.getNode(id as NodeId)) selectedNodeIds.push(id as NodeId)
+      else if (store.getEdge(id as EdgeId)) selectedEdgeIds.push(id as EdgeId)
+    }
+    if (selectedNodeIds.length > 0) {
       const inDragMap = mapDragPositions(interaction)
-      for (const id of selectedIds) {
+      for (const id of selectedNodeIds) {
         const node = inDragMap.get(id) ?? store.getNode(id)
         if (!node) continue
         drawSelectionOutline(ctx, node, scale)
@@ -139,42 +219,43 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       // Resize handles only for non-dragging selection. (During a drag, the
       // handles would jitter with the dragged geometry — Excalidraw hides
       // them mid-drag for the same reason.)
-      if (interaction.mode !== 'dragging' && selectedIds.length === 1) {
-        const node = inDragMap.get(selectedIds[0]!) ?? store.getNode(selectedIds[0]!)
+      if (interaction.mode !== 'dragging' && selectedNodeIds.length === 1) {
+        const node = inDragMap.get(selectedNodeIds[0]!) ?? store.getNode(selectedNodeIds[0]!)
         if (node) drawResizeHandles(ctx, node, scale)
       }
+    }
+    // Edge endpoint handles on selected edges.
+    for (const id of selectedEdgeIds) {
+      const geom = store.getEdgeGeometry(id)
+      if (geom) drawEdgeEndpointHandles(ctx, geom.source, geom.target, scale)
     }
 
     // 3. Marquee rect.
     if (interaction.mode === 'marqueeing' && interaction.marqueeRect) {
       drawMarquee(ctx, interaction.marqueeRect, scale)
     }
-  }
 
-  /**
-   * Returns the current (offset-applied) Node values for the set of nodes
-   * being dragged or resized. Allocates only when there's a drag in progress.
-   */
-  const computeDragPositions = (interaction: InteractionState): Node[] => {
-    const result: Node[] = []
-    if (interaction.mode === 'dragging') {
-      const { dragDelta } = interaction
-      for (const orig of interaction.dragOriginals) {
-        const live = store.getNode(orig.id)
-        if (!live) continue
-        result.push({ ...live, x: orig.x + dragDelta.x, y: orig.y + dragDelta.y })
+    // 4. Draft edge during creation / reconnection.
+    if (
+      (interaction.mode === 'creating-edge' || interaction.mode === 'reconnecting-edge') &&
+      interaction.draftEdge
+    ) {
+      const draft: Edge = {
+        id: 'draft' as EdgeId,
+        source: interaction.draftEdge.source,
+        target: interaction.draftEdge.target,
+        pathStyle: 'bezier',
+        z: 0,
+        groups: [],
+        style: { strokeColor: '#3b82f6' },
       }
-    } else if (interaction.mode === 'resizing') {
-      // Phase 3 ships dragDelta-driven resize for single-node selection;
-      // multi-select resize uses the same originals and adds a scale factor
-      // in the playground hook before setting dragDelta.
-      for (const orig of interaction.dragOriginals) {
-        const live = store.getNode(orig.id)
-        if (!live) continue
-        result.push(live)
+      const geom = computeEdgeGeometry(draft, id => store.getNode(id))
+      if (geom) {
+        const sNode = geom.sourceNodeId ? (store.getNode(geom.sourceNodeId) ?? null) : null
+        const tNode = geom.targetNodeId ? (store.getNode(geom.targetNodeId) ?? null) : null
+        drawEdge(ctx, draft, geom, sNode, tNode, scale, theme)
       }
     }
-    return result
   }
 
   const mapDragPositions = (interaction: InteractionState): Map<NodeId, Node> => {
@@ -196,8 +277,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     return m
   }
 
-  const visibleNodes = (camera: CameraState): Node[] => {
-    const viewport = inflateRect(worldViewport(staticSurface, camera), VIEWPORT_OVERSCAN_PX)
+  const visibleNodes = (camera: CameraState, viewport: WorldRect): Node[] => {
     const ids = store.querySpatial({ rect: viewport }).nodes
     const result: Node[] = []
     const minWorldSize = MIN_ON_SCREEN_SIZE_PX / camera.z
@@ -291,12 +371,4 @@ const intersectsViewport = (
     a.y < viewport.y + viewport.h &&
     a.y + a.h > viewport.y
   )
-}
-
-/** Heuristic: NodeIds have no specific marker in the union — narrow by membership. */
-const isNodeId = (id: NodeId | EdgeId): id is NodeId => {
-  // Treat all selection ids as NodeIds for phase 3 (edges are phase 4).
-  // Phase 4 will add edge-id detection via the store's lookup.
-  void id
-  return true
 }

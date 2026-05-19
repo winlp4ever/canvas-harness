@@ -13,6 +13,7 @@
 import { type Atom, atom, transact } from 'signia'
 
 import { DEFAULT_CAMERA } from '../camera'
+import { type EdgeGeometry, EdgeGeometryCache } from '../edges/cache'
 import { type IdGenerator, makeIdGenerator, randomClientId } from '../ids'
 import { UniformGrid, nodeAABB } from '../spatial'
 import { SCHEMA_VERSION, asBatchId, isAttached } from '../types'
@@ -28,8 +29,6 @@ import type {
   Op,
   OpBatch,
   Scene,
-  Vec2,
-  WorldRect,
 } from '../types'
 import { type InteractionState, idleInteractionState } from './interaction'
 import type {
@@ -52,37 +51,6 @@ const EMPTY_SCENE = (): Scene => ({
   camera: DEFAULT_CAMERA,
   selection: [],
 })
-
-/**
- * Approximate AABB for an edge — enough for the spatial index in phase 1.
- * Phase 4 (edge system) replaces this with bezier-sample bounds + padding.
- */
-const edgeAABB = (edge: Edge, getNodeBounds: (id: NodeId) => WorldRect | null): WorldRect => {
-  const ends: Vec2[] = []
-  for (const end of [edge.source, edge.target]) {
-    if (isAttached(end)) {
-      const b = getNodeBounds(end.nodeId)
-      if (b) {
-        // crude: use the node's AABB top-left + localOffset
-        ends.push({ x: b.x + end.localOffset.x, y: b.y + end.localOffset.y })
-      }
-    } else {
-      ends.push(end.worldPoint)
-    }
-  }
-  if (ends.length === 0) return { x: 0, y: 0, w: 0, h: 0 }
-  if (ends.length === 1) {
-    const p = ends[0]!
-    return { x: p.x - 4, y: p.y - 4, w: 8, h: 8 }
-  }
-  const a = ends[0]!
-  const b = ends[1]!
-  const x = Math.min(a.x, b.x) - 4
-  const y = Math.min(a.y, b.y) - 4
-  const w = Math.abs(b.x - a.x) + 8
-  const h = Math.abs(b.y - a.y) + 8
-  return { x, y, w, h }
-}
 
 export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
   const clientId: ClientId = opts.clientId ?? randomClientId()
@@ -107,10 +75,14 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
 
   const nodeIndex = new UniformGrid()
   const edgeIndex = new UniformGrid()
+  const edgeGeoCache = new EdgeGeometryCache()
 
-  // incidentEdges: nodeId -> set of edgeIds. Phase 4 uses this heavily for
-  // invalidation when nodes move; phase 1 maintains it so removeNode cascades.
+  // incidentEdges: nodeId -> set of edgeIds. Used by reindexEdge when a
+  // node moves (to refresh all its edges' AABBs in the spatial index) and
+  // by removeNode to cascade-delete attached edges.
   const incidentEdges = new Map<NodeId, Set<EdgeId>>()
+
+  const getNodeForGeo = (id: NodeId): Node | undefined => nodeAtoms.get(id)?.value
 
   // ---- batching ----------------------------------------------------------
   let currentBatchOps: Op[] | null = null
@@ -153,16 +125,20 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     nodeIndex.insert(node.id, nodeAABB(node))
   }
   const reindexEdge = (edge: Edge): void => {
-    edgeIndex.insert(
-      edge.id,
-      edgeAABB(edge, id => nodeIndex.getAABB(id) ?? null),
-    )
+    const geom = edgeGeoCache.get(edge, getNodeForGeo)
+    if (geom) {
+      edgeIndex.insert(edge.id, geom.aabb)
+    } else {
+      // Edge references a missing node; remove from index until things settle.
+      edgeIndex.remove(edge.id)
+    }
   }
   const unindexNode = (id: NodeId): void => {
     nodeIndex.remove(id)
   }
   const unindexEdge = (id: EdgeId): void => {
     edgeIndex.remove(id)
+    edgeGeoCache.delete(id)
   }
 
   const trackIncidence = (edge: Edge): void => {
@@ -425,6 +401,16 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     getNodeCount: () => nodeIdsAtom.value.length,
     getEdgeCount: () => edgeIdsAtom.value.length,
     getGroupCount: () => groupIdsAtom.value.length,
+
+    getEdgeGeometry(id: EdgeId): EdgeGeometry | undefined {
+      const edge = edgeAtoms.get(id)?.value
+      if (!edge) return undefined
+      return edgeGeoCache.get(edge, getNodeForGeo) ?? undefined
+    },
+    getIncidentEdges(id: NodeId): EdgeId[] {
+      const set = incidentEdges.get(id)
+      return set ? [...set] : []
+    },
 
     querySpatial(q: SpatialQuery): SpatialResult {
       const rect = q.rect ?? (q.point ? { x: q.point.x, y: q.point.y, w: 0, h: 0 } : null)

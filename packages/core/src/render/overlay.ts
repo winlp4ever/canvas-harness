@@ -90,6 +90,31 @@ export const drawResizeHandles = (
 }
 
 /**
+ * Draws the endpoint handles for a selected edge at the source/target
+ * world points. Used during edit/reconnection.
+ */
+export const drawEdgeEndpointHandles = (
+  ctx: CanvasRenderingContext2D,
+  source: { x: number; y: number },
+  target: { x: number; y: number },
+  scale: number,
+): void => {
+  const radiusPx = 5
+  const radiusWorld = radiusPx / scale
+  ctx.save()
+  ctx.fillStyle = '#fff'
+  ctx.strokeStyle = SELECTION_COLOR
+  ctx.lineWidth = SELECTION_OUTLINE_PX / scale
+  for (const p of [source, target]) {
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, radiusWorld, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+/**
  * Draws the marquee selection rectangle.
  */
 export const drawMarquee = (

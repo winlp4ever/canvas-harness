@@ -9,7 +9,7 @@ import type { ResizeHandle } from '../hit-test/handle'
  * Phase 3 ships dragging / resizing / marqueeing modes. Pan/zoom/edit
  * arrive later but the type covers them now to avoid breaking changes.
  */
-import type { NodeId, Vec2, WorldRect } from '../types'
+import type { EdgeEnd, NodeId, Vec2, WorldRect } from '../types'
 
 export type InteractionMode =
   | 'idle'
@@ -67,6 +67,18 @@ export type InteractionState = {
   /** Whether the marquee should add to (true, shift held) or replace selection. */
   marqueeAdditive: boolean
 
+  // Edge-creation state — populated when mode is 'creating-edge' or
+  // 'reconnecting-edge'. `draftEdge` is the source/target the renderer
+  // should paint as a preview.
+  draftEdge: {
+    source: EdgeEnd
+    target: EdgeEnd
+    /** When reconnecting an existing edge, the id; null for new edges. */
+    reconnectingId: import('../types').EdgeId | null
+    /** Snap candidate (a node id the target endpoint is hovering over). */
+    snapTargetNodeId: NodeId | null
+  } | null
+
   // Edit state — populated when mode is 'editing' (phase 7).
   editingNodeId: NodeId | null
 }
@@ -82,6 +94,7 @@ export const idleInteractionState = (): InteractionState => ({
   resizeFromCenter: false,
   marqueeRect: null,
   marqueeAdditive: false,
+  draftEdge: null,
   editingNodeId: null,
 })
 

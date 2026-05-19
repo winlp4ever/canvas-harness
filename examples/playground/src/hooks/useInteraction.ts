@@ -10,19 +10,23 @@
 import {
   type CanvasStore,
   type DragOriginal,
+  type EdgeEnd,
+  type EdgeId,
   type NodeId,
   type ResizeHandle,
   type Vec2,
   type WorldRect,
-  hitTestPoint,
+  hitTestAny,
   marqueeNodes,
+  projectToNodeBoundary,
   screenToWorld,
+  worldToNodeLocal,
 } from '@canvas-harness/core'
 import { useEffect } from 'react'
 
 const CLICK_MAX_PIXELS = 4 // pointerup within this many pixels of pointerdown = click
 
-export type InteractionTool = 'select' | 'rect' | 'ellipse' | 'diamond' | 'capsule'
+export type InteractionTool = 'select' | 'rect' | 'ellipse' | 'diamond' | 'capsule' | 'arrow'
 
 export const useInteraction = (
   ref: React.RefObject<HTMLElement | null>,
@@ -35,11 +39,14 @@ export const useInteraction = (
     if (tool !== 'select') return // shape tools handle their own clicks in Canvas.tsx
 
     let pointerDownAt: { x: number; y: number } | null = null
-    let activeGesture: 'idle' | 'click-pending' | 'drag' | 'resize' | 'marquee' = 'idle'
+    let activeGesture: 'idle' | 'click-pending' | 'drag' | 'resize' | 'marquee' | 'reconnect-edge' =
+      'idle'
     let resizeHandle: ResizeHandle | null = null
     let dragOriginals: DragOriginal[] = []
     let marqueeStartWorld: Vec2 | null = null
     let marqueeShift = false
+    let reconnectEdgeId: EdgeId | null = null
+    let reconnectEnd: 'source' | 'target' | null = null
 
     const screenFromEvent = (e: PointerEvent): Vec2 => {
       const rect = el.getBoundingClientRect()
@@ -156,19 +163,18 @@ export const useInteraction = (
     }
 
     const onPointerDown = (e: PointerEvent) => {
-      // Ignore middle-button (pan) and right-button (reserved for context menu).
       if (e.button !== 0) return
-      // Don't begin gestures with modifier keys reserved for pan.
-      if (e.altKey === false && e.ctrlKey === false && (e.metaKey === false) === false) {
-        // (the condition is intentionally always-true; left here for symmetry.)
-      }
       pointerDownAt = screenFromEvent(e)
       const world = worldFromEvent(e)
       const camera = store.getCamera()
-      const selectedIds = new Set(
-        store.getSelection().filter(id => store.getNode(id as NodeId)) as NodeId[],
-      )
-      const hit = hitTestPoint(store, world, camera.z, selectedIds)
+      const selection = store.getSelection()
+      const selectedNodeIds = new Set<NodeId>()
+      const selectedEdgeIds = new Set<EdgeId>()
+      for (const id of selection) {
+        if (store.getNode(id as NodeId)) selectedNodeIds.add(id as NodeId)
+        else if (store.getEdge(id as EdgeId)) selectedEdgeIds.add(id as EdgeId)
+      }
+      const hit = hitTestAny(store, world, camera.z, selectedNodeIds, selectedEdgeIds)
 
       if (hit?.kind === 'resize-handle') {
         resizeHandle = hit.handle
@@ -179,19 +185,53 @@ export const useInteraction = (
         return
       }
 
-      if (hit?.kind === 'body') {
-        const alreadySelected = selectedIds.has(hit.nodeId)
+      if (hit?.kind === 'source-handle' || hit?.kind === 'target-handle') {
+        reconnectEdgeId = hit.edgeId
+        reconnectEnd = hit.kind === 'source-handle' ? 'source' : 'target'
+        activeGesture = 'reconnect-edge'
+        const edge = store.getEdge(hit.edgeId)
+        if (edge) {
+          store.setInteractionState({
+            mode: 'reconnecting-edge',
+            draftEdge: {
+              source: edge.source,
+              target: edge.target,
+              reconnectingId: hit.edgeId,
+              snapTargetNodeId: null,
+            },
+          })
+        }
+        el.setPointerCapture(e.pointerId)
+        e.preventDefault()
+        return
+      }
+
+      if (hit?.kind === 'body' && 'nodeId' in hit) {
+        const alreadySelected = selectedNodeIds.has(hit.nodeId)
         if (e.shiftKey) {
-          // toggle membership
-          const next = new Set(selectedIds)
+          const next = new Set(selectedNodeIds)
           if (alreadySelected) next.delete(hit.nodeId)
           else next.add(hit.nodeId)
           store.setSelection([...next])
         } else if (!alreadySelected) {
-          // replace selection
           store.setSelection([hit.nodeId])
         }
-        // Defer drag/click decision to pointermove.
+        activeGesture = 'click-pending'
+        el.setPointerCapture(e.pointerId)
+        e.preventDefault()
+        return
+      }
+
+      // Edge body hit.
+      if (hit?.kind === 'body' && 'edgeId' in hit) {
+        if (e.shiftKey) {
+          const next = new Set(selectedEdgeIds)
+          if (selectedEdgeIds.has(hit.edgeId)) next.delete(hit.edgeId)
+          else next.add(hit.edgeId)
+          store.setSelection([...selectedNodeIds, ...next])
+        } else {
+          store.setSelection([hit.edgeId])
+        }
         activeGesture = 'click-pending'
         el.setPointerCapture(e.pointerId)
         e.preventDefault()
@@ -215,10 +255,12 @@ export const useInteraction = (
         if (Math.abs(dx) < CLICK_MAX_PIXELS && Math.abs(dy) < CLICK_MAX_PIXELS) return
         const startWorld = screenToWorld(pointerDownAt, store.getCamera())
         const camera = store.getCamera()
-        const selectedIds = new Set(store.getSelection() as NodeId[])
+        const selectedIds = new Set(
+          store.getSelection().filter(id => store.getNode(id as NodeId)) as NodeId[],
+        )
         // re-test at the down-position; if it was over a node body, drag it
-        const hit = hitTestPoint(store, startWorld, camera.z, selectedIds)
-        if (hit?.kind === 'body' && selectedIds.has(hit.nodeId)) {
+        const hit = hitTestAny(store, startWorld, camera.z, selectedIds, new Set())
+        if (hit?.kind === 'body' && 'nodeId' in hit && selectedIds.has(hit.nodeId)) {
           activeGesture = 'drag'
           beginDrag([...selectedIds])
         } else {
@@ -235,7 +277,73 @@ export const useInteraction = (
         updateResize(world, { shift: e.shiftKey, alt: e.altKey })
       } else if (activeGesture === 'marquee') {
         updateMarquee(worldFromEvent(e))
+      } else if (activeGesture === 'reconnect-edge' && reconnectEdgeId && reconnectEnd) {
+        updateReconnect(worldFromEvent(e))
       }
+    }
+
+    const updateReconnect = (world: Vec2): void => {
+      if (!reconnectEdgeId || !reconnectEnd) return
+      const edge = store.getEdge(reconnectEdgeId)
+      if (!edge) return
+      const camera = store.getCamera()
+      // Follow the pointer; if over another node, snap to that node's
+      // boundary (clamped).
+      const newEnd = followingEnd(world, camera.z)
+      const draftSource = reconnectEnd === 'source' ? newEnd.end : edge.source
+      const draftTarget = reconnectEnd === 'target' ? newEnd.end : edge.target
+      store.setInteractionState({
+        mode: 'reconnecting-edge',
+        draftEdge: {
+          source: draftSource,
+          target: draftTarget,
+          reconnectingId: reconnectEdgeId,
+          snapTargetNodeId: newEnd.nodeId,
+        },
+      })
+    }
+
+    const followingEnd = (
+      world: Vec2,
+      cameraZ: number,
+    ): { end: EdgeEnd; nodeId: NodeId | null } => {
+      const hit = hitTestAny(store, world, cameraZ)
+      if (hit?.kind === 'body' && 'nodeId' in hit) {
+        const node = store.getNode(hit.nodeId)
+        if (node) {
+          const local = worldToNodeLocal(world, node)
+          const clamped = {
+            x: Math.max(0, Math.min(node.w, local.x)),
+            y: Math.max(0, Math.min(node.h, local.y)),
+          }
+          return { end: { nodeId: node.id, localOffset: clamped }, nodeId: node.id }
+        }
+      }
+      return { end: { worldPoint: world }, nodeId: null }
+    }
+
+    const commitReconnect = (e: PointerEvent): void => {
+      if (!reconnectEdgeId || !reconnectEnd) return
+      const world = worldFromEvent(e)
+      // For commit, snap to the boundary (so endpoint isn't inside the rect).
+      const hit = hitTestAny(store, world, store.getCamera().z)
+      let newEnd: EdgeEnd
+      if (hit?.kind === 'body' && 'nodeId' in hit) {
+        const node = store.getNode(hit.nodeId)
+        if (node) {
+          const localOffset = projectToNodeBoundary(world, node)
+          newEnd = { nodeId: node.id, localOffset }
+        } else {
+          newEnd = { worldPoint: world }
+        }
+      } else {
+        newEnd = { worldPoint: world }
+      }
+      store.updateEdge(
+        reconnectEdgeId,
+        reconnectEnd === 'source' ? { source: newEnd } : { target: newEnd },
+      )
+      store.resetInteractionState()
     }
 
     const onPointerUp = (e: PointerEvent) => {
@@ -251,6 +359,9 @@ export const useInteraction = (
         case 'marquee':
           commitMarquee()
           break
+        case 'reconnect-edge':
+          commitReconnect(e)
+          break
         // 'click-pending' was already handled in pointerdown (selection set);
         // nothing more to do.
       }
@@ -259,6 +370,8 @@ export const useInteraction = (
       resizeHandle = null
       dragOriginals = []
       marqueeStartWorld = null
+      reconnectEdgeId = null
+      reconnectEnd = null
     }
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -267,9 +380,12 @@ export const useInteraction = (
         store.resetInteractionState()
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && store.getSelection().length > 0) {
-        const ids = store.getSelection() as NodeId[]
+        const ids = store.getSelection()
         store.batch(() => {
-          for (const id of ids) store.removeNode(id)
+          for (const id of ids) {
+            if (store.getNode(id as NodeId)) store.removeNode(id as NodeId)
+            else if (store.getEdge(id as EdgeId)) store.removeEdge(id as EdgeId)
+          }
         })
         store.setSelection([])
       }

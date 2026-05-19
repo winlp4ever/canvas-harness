@@ -17,3 +17,4 @@ export type {
   PointerInfo,
 } from './interaction'
 export { idleInteractionState, isMoving } from './interaction'
+export type { EdgeGeometry } from '../edges/cache'

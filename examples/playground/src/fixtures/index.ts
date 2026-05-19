@@ -4,7 +4,7 @@
  * Each fixture mass-creates nodes via store.batch so the cost of generation
  * is captured by one OpBatch (and one repaint).
  */
-import { type CanvasStore, type Node, asNodeId } from '@canvas-harness/core'
+import { type CanvasStore, type Node, asEdgeId, asNodeId } from '@canvas-harness/core'
 
 type Primitive = 'rect' | 'ellipse' | 'diamond' | 'capsule'
 
@@ -48,6 +48,55 @@ export const fixture100Rects: Fixture = store => seedN(store, 100, 'mono')
 export const fixture1kRects: Fixture = store => seedN(store, 1000, 'mono')
 export const fixture10kRects: Fixture = store => seedN(store, 10000, 'mono')
 export const fixture1kMixed: Fixture = store => seedN(store, 1000, 'mixed')
+
+/**
+ * 1000 nodes (5 cols × 200 rows spread out) + 5000 bezier edges to random
+ * other nodes. Stresses edge auto-clip, hit testing, and the
+ * incidentEdges-driven drag invalidation.
+ */
+export const fixture5kEdges: Fixture = store => {
+  const t0 = performance.now()
+  const nodeCount = 1000
+  const edgeCount = 5000
+  let added = 0
+  store.batch(() => {
+    const nodeIds: import('@canvas-harness/core').NodeId[] = []
+    for (let i = 0; i < nodeCount; i++) {
+      const cols = 25
+      const x = (i % cols) * 180
+      const y = Math.floor(i / cols) * 120
+      const id = asNodeId(store.generateId())
+      nodeIds.push(id)
+      store.addNode({
+        id,
+        type: 'rect',
+        x,
+        y,
+        w: 80,
+        h: 50,
+        angle: 0,
+        z: 0,
+        groups: [],
+      })
+      added++
+    }
+    for (let i = 0; i < edgeCount; i++) {
+      const a = nodeIds[Math.floor(Math.random() * nodeIds.length)]!
+      let b = nodeIds[Math.floor(Math.random() * nodeIds.length)]!
+      if (b === a) b = nodeIds[(nodeIds.indexOf(a) + 1) % nodeIds.length]!
+      store.addEdge({
+        id: asEdgeId(store.generateId()),
+        source: { nodeId: a, localOffset: { x: 80, y: 25 } },
+        target: { nodeId: b, localOffset: { x: 0, y: 25 } },
+        pathStyle: 'bezier',
+        z: 0,
+        groups: [],
+      })
+      added++
+    }
+  })
+  return { added, ms: performance.now() - t0 }
+}
 
 export const clearScene: Fixture = store => {
   const t0 = performance.now()

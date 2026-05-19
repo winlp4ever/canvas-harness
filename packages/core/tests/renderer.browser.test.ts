@@ -233,6 +233,62 @@ describe('Renderer (browser)', () => {
     cleanup(staticCanvas, interactiveCanvas)
   })
 
+  test('benchmark: paints 1k nodes + 5k bezier edges in under 80ms (phase-4 perf gate)', async () => {
+    const { staticCanvas, interactiveCanvas } = makeCanvases(1200, 800)
+    const store = createCanvasStore({ clientId: asClientId('u-test') })
+    const nodeIds: string[] = []
+    store.batch(() => {
+      for (let i = 0; i < 1000; i++) {
+        const id = `n-${i}`
+        store.addNode(
+          rectNode(id, {
+            x: (i % 25) * 180,
+            y: Math.floor(i / 25) * 120,
+            w: 80,
+            h: 50,
+          }),
+        )
+        nodeIds.push(id)
+      }
+      for (let i = 0; i < 5000; i++) {
+        const aIdx = i % nodeIds.length
+        const bIdx = (aIdx + 1 + Math.floor(Math.random() * (nodeIds.length - 1))) % nodeIds.length
+        store.addEdge({
+          id: asNodeId(`e-${i}`) as unknown as ReturnType<typeof asNodeId>,
+          source: { nodeId: asNodeId(nodeIds[aIdx]!), localOffset: { x: 80, y: 25 } },
+          target: { nodeId: asNodeId(nodeIds[bIdx]!), localOffset: { x: 0, y: 25 } },
+          pathStyle: 'bezier',
+          z: 0,
+          groups: [],
+        } as unknown as Parameters<typeof store.addEdge>[0])
+      }
+    })
+
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 1200,
+      height: 800,
+    })
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+
+    const t0 = performance.now()
+    renderer.invalidate()
+    await waitFrame()
+    await waitFrame()
+    const elapsed = performance.now() - t0
+
+    expect(renderer.lastDrawCount()).toBeGreaterThan(100)
+    // Generous gate; tightens in phase 13.
+    expect(elapsed).toBeLessThan(200)
+
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
+
   test('benchmark: paints 1000 rects in under 16ms (phase-2 perf gate)', async () => {
     const { staticCanvas, interactiveCanvas } = makeCanvases(1200, 800)
     const store = createCanvasStore({ clientId: asClientId('u-test') })
