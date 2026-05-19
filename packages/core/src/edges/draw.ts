@@ -28,6 +28,25 @@ const DEFAULT_EDGE_STYLE: Required<
 
 const STROKE_VISIBILITY_THRESHOLD_PX = 0.5
 
+/** Below this on-screen length, an arrowhead is invisible noise; skip it. */
+const ARROWHEAD_VISIBILITY_THRESHOLD_PX = 2
+
+/**
+ * How many polyline samples to skip per drawn segment when painting the
+ * body. The cached sample array is 32 segments for visual smoothness at
+ * full zoom, but at low zoom adjacent samples are within a fraction of a
+ * pixel — drawing every-Nth is indistinguishable but cuts work N-fold.
+ *
+ * Hit-test, auto-clip, and arrowhead-tangent still walk the full sample
+ * array — only the per-frame path build skips. So no correctness impact.
+ */
+const samplePaintStride = (scale: number): number => {
+  if (scale < 0.15) return 8
+  if (scale < 0.3) return 4
+  if (scale < 0.7) return 2
+  return 1
+}
+
 export const drawEdge = (
   ctx: CanvasRenderingContext2D,
   edge: Edge,
@@ -61,12 +80,24 @@ export const drawEdge = (
     : clipSamples(samples, sourceNode, targetNode)
   if (!clip.visible) return
 
+  // Arrowheads vanish at sub-perceivable on-screen size; the line still
+  // shows, just without the cap.
+  const headStartWorld = arrowheadLength(sourceArrowhead, strokeWidth)
+  const headEndWorld = arrowheadLength(targetArrowhead, strokeWidth)
+  const drawSourceArrow =
+    sourceArrowhead !== 'none' && headStartWorld * scale >= ARROWHEAD_VISIBILITY_THRESHOLD_PX
+  const drawTargetArrow =
+    targetArrowhead !== 'none' && headEndWorld * scale >= ARROWHEAD_VISIBILITY_THRESHOLD_PX
+
   // Pull the rendered polyline endpoints back by the arrowhead length so
-  // the line tail doesn't poke through the arrow tip.
-  const headStart = arrowheadLength(sourceArrowhead, strokeWidth)
-  const headEnd = arrowheadLength(targetArrowhead, strokeWidth)
-  const lineStart = retreatFromPoint(samples, clip.startIndex, clip.startPoint, headStart, +1)
-  const lineEnd = retreatFromPoint(samples, clip.endIndex, clip.endPoint, headEnd, -1)
+  // the line tail doesn't poke through the arrow tip — only when actually
+  // drawing the arrow.
+  const lineStart = drawSourceArrow
+    ? retreatFromPoint(samples, clip.startIndex, clip.startPoint, headStartWorld, +1)
+    : clip.startPoint
+  const lineEnd = drawTargetArrow
+    ? retreatFromPoint(samples, clip.endIndex, clip.endPoint, headEndWorld, -1)
+    : clip.endPoint
 
   // ---- body ----
   ctx.save()
@@ -77,7 +108,11 @@ export const drawEdge = (
   ctx.setLineDash(dashPatternFor(style?.strokeStyle, strokeWidth))
   ctx.beginPath()
   ctx.moveTo(lineStart.x, lineStart.y)
-  for (let i = clip.startIndex + 1; i <= clip.endIndex - 1; i++) {
+  // Adaptive sampling: stride through the cached polyline at low zoom.
+  // Hit-test / clip still use the full samples; only paint skips.
+  const stride = samplePaintStride(scale)
+  const limit = clip.endIndex - 1
+  for (let i = clip.startIndex + stride; i <= limit; i += stride) {
     const p = samples[i]!
     ctx.lineTo(p.x, p.y)
   }
@@ -86,7 +121,7 @@ export const drawEdge = (
   ctx.restore()
 
   // ---- arrowheads ----
-  if (sourceArrowhead !== 'none') {
+  if (drawSourceArrow) {
     const tipDir = directionTowardTip(samples, clip.startIndex, clip.startPoint, +1)
     drawArrowhead(
       ctx,
@@ -97,7 +132,7 @@ export const drawEdge = (
       strokeWidth,
     )
   }
-  if (targetArrowhead !== 'none') {
+  if (drawTargetArrow) {
     const tipDir = directionTowardTip(samples, clip.endIndex, clip.endPoint, -1)
     drawArrowhead(ctx, targetArrowhead, clip.endPoint, tipDir, strokeColor, strokeWidth)
   }
