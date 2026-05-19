@@ -4,6 +4,7 @@ import {
   Canvas as LibCanvas,
   type CanvasCreateDragEvent,
   type CanvasPointerEvent,
+  type ThemeResolver,
   useCanvasStore,
 } from '@canvas-harness/react'
 import { useCallback, useMemo } from 'react'
@@ -32,10 +33,12 @@ export function Canvas({
   tool,
   onRenderer,
   background,
+  theme,
 }: {
   tool: Tool
   onRenderer?: Parameters<typeof LibCanvas>[0]['onRenderer']
   background?: CanvasBackground
+  theme?: ThemeResolver
 }) {
   const store = useCanvasStore()
   const styleMemory = useStyleMemory(store)
@@ -153,6 +156,7 @@ export function Canvas({
       onCreateDrag={handleCreateDrag}
       arrowDefaults={arrowDefaults}
       background={background}
+      theme={theme}
       renderCustomNodeView={id => {
         const node = store.getNode(id)
         if (!node) return null

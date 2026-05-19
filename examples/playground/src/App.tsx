@@ -11,6 +11,9 @@ import { AiContextButton } from './components/AiContextButton'
 import { BackgroundPanel, useBackgroundState } from './components/BackgroundPanel'
 import { Canvas, type Tool } from './components/Canvas'
 import { ExportControls } from './components/ExportControls'
+import { ThemeToggle } from './components/ThemeToggle'
+import { swapSceneColors } from './hooks/swap-theme-colors'
+import { getThemeBackground, useThemeMode } from './hooks/useThemeMode'
 import { ExtensionsMenu } from './components/ExtensionsMenu'
 import { HistoryControls } from './components/HistoryControls'
 import { PerfOverlay } from './components/PerfOverlay'
@@ -49,6 +52,18 @@ export function App() {
   const [tool, setTool] = useState<Tool>('select')
   const [renderer, setRenderer] = useState<Renderer | null>(null)
   const { background, setBackground } = useBackgroundState()
+  const themeMode = useThemeMode()
+  // Couple the theme toggle to the BackgroundPanel state: flipping
+  // mode replaces the user's chosen background with the new preset
+  // (user can still re-edit afterward via BackgroundPanel).
+  const handleThemeToggle = useCallback(() => {
+    const nextMode = themeMode.mode === 'light' ? 'dark' : 'light'
+    themeMode.setMode(nextMode)
+    setBackground(getThemeBackground(nextMode))
+    // Demo-fidelity: swap shape colors that match the playground's
+    // known palette. Custom user colors stay untouched.
+    swapSceneColors(store, themeMode.mode, nextMode)
+  }, [themeMode, setBackground, store])
 
   const onRenderer = useCallback((r: Renderer) => {
     setRenderer(r)
@@ -99,9 +114,15 @@ export function App() {
   return (
     <CanvasProvider store={store}>
       <div style={{ position: 'fixed', inset: 0 }}>
-        <Canvas tool={tool} onRenderer={onRenderer} background={background} />
+        <Canvas
+          tool={tool}
+          onRenderer={onRenderer}
+          background={background}
+          theme={themeMode.theme}
+        />
         <Toolbar active={tool} onSelect={setTool} />
         <HistoryControls store={store} />
+        <ThemeToggle mode={themeMode.mode} onToggle={handleThemeToggle} />
         <BackgroundPanel value={background} onChange={setBackground} />
         <ExportControls store={store} />
         <AiContextButton store={store} />
