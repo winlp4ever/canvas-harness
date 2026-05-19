@@ -8,6 +8,7 @@ export const VERSION = '0.0.0'
 
 export { Canvas } from './Canvas'
 export type { CanvasCreateDragEvent, CanvasPointerEvent, CanvasProps } from './Canvas'
+export type { ArrowToolDefaults } from './internal/use-arrow-tool'
 export { CanvasProvider, useCanvasStore } from './context'
 export type { CanvasProviderProps } from './context'
 export type { ThemeResolver } from './types'

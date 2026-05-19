@@ -23,15 +23,32 @@ import {
   screenToWorld,
   worldToNodeLocal,
 } from '@canvas-harness/core'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 const CLICK_MAX_PIXELS = 4
+
+/**
+ * Defaults applied to every edge the arrow tool creates. Lets a
+ * consumer (e.g. a style-memory hook) inject the user's last-used
+ * pathStyle / arrowheads / style without forcing every edge through
+ * a custom factory.
+ */
+export type ArrowToolDefaults = {
+  pathStyle?: import('@canvas-harness/core').PathStyle
+  style?: import('@canvas-harness/core').EdgeStyle
+}
 
 export const useArrowTool = (
   ref: React.RefObject<HTMLElement | null>,
   store: CanvasStore,
   enabled: boolean,
+  defaults?: ArrowToolDefaults,
 ): void => {
+  // Refs so the create handler always reads the latest defaults
+  // without forcing the listener effect to re-mount on every change.
+  const defaultsRef = useRef(defaults)
+  defaultsRef.current = defaults
+
   useEffect(() => {
     if (!enabled) return
     const el = ref.current
@@ -119,13 +136,15 @@ export const useArrowTool = (
       if (wasActive && sourceEnd) {
         const world = worldFromEvent(e)
         const { end: target } = endFromWorldPoint(world)
+        const d = defaultsRef.current
         store.addEdge({
           id: asEdgeId(store.generateId()),
           source: sourceEnd,
           target,
-          pathStyle: 'bezier',
+          pathStyle: d?.pathStyle ?? 'bezier',
           z: 0,
           groups: [],
+          ...(d?.style ? { style: d.style } : {}),
         })
       }
 

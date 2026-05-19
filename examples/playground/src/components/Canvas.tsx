@@ -1,12 +1,14 @@
 import { asNodeId, hitTestAny } from '@canvas-harness/core'
 import {
+  type ArrowToolDefaults,
   Canvas as LibCanvas,
   type CanvasCreateDragEvent,
   type CanvasPointerEvent,
   useCanvasStore,
 } from '@canvas-harness/react'
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { ChartCardView } from '../custom-nodes/chart-card'
+import { useStyleMemory } from '../hooks/useStyleMemory'
 
 export type Tool = 'select' | 'rect' | 'ellipse' | 'diamond' | 'capsule' | 'arrow' | 'text'
 
@@ -34,6 +36,7 @@ export function Canvas({
   onRenderer?: Parameters<typeof LibCanvas>[0]['onRenderer']
 }) {
   const store = useCanvasStore()
+  const styleMemory = useStyleMemory(store)
 
   // Tap-to-create: places a default-size shape at the click point.
   // Drag-to-create handles the resize-on-create gesture; sub-threshold
@@ -42,6 +45,7 @@ export function Canvas({
     (e: CanvasPointerEvent) => {
       const t = e.tool as Tool
       if (SHAPE_TOOLS.has(t)) {
+        const remembered = styleMemory.getNodeStyle(t)
         store.addNode({
           id: asNodeId(store.generateId()),
           type: TOOL_TO_TYPE[t as keyof typeof TOOL_TO_TYPE],
@@ -52,11 +56,13 @@ export function Canvas({
           angle: 0,
           z: 0,
           groups: [],
+          ...(remembered ? { style: remembered } : {}),
         })
         return
       }
       if (t === 'text') {
         const id = asNodeId(store.generateId())
+        const remembered = styleMemory.getNodeStyle('text')
         store.addNode({
           id,
           type: 'text',
@@ -68,12 +74,12 @@ export function Canvas({
           z: 0,
           groups: [],
           content: '',
-          style: { fontSize: 'M', textAlign: 'left' },
+          style: { fontSize: 'M', textAlign: 'left', ...remembered },
         })
         store.beginEdit(id)
       }
     },
-    [store],
+    [store, styleMemory],
   )
 
   // Double-click on empty board → spawn an empty text node and enter
@@ -85,6 +91,7 @@ export function Canvas({
       const camera = store.getCamera()
       if (hitTestAny(store, e.world, camera.z)) return
       const id = asNodeId(store.generateId())
+      const remembered = styleMemory.getNodeStyle('text')
       store.addNode({
         id,
         type: 'text',
@@ -96,11 +103,11 @@ export function Canvas({
         z: 0,
         groups: [],
         content: '',
-        style: { fontSize: 'M', textAlign: 'left' },
+        style: { fontSize: 'M', textAlign: 'left', ...remembered },
       })
       store.beginEdit(id)
     },
-    [store],
+    [store, styleMemory],
   )
 
   // Drag-to-create: shape sized to the dragged rect.
@@ -108,6 +115,7 @@ export function Canvas({
     (e: CanvasCreateDragEvent) => {
       const t = e.tool as Tool
       if (!SHAPE_TOOLS.has(t)) return
+      const remembered = styleMemory.getNodeStyle(t)
       store.addNode({
         id: asNodeId(store.generateId()),
         type: TOOL_TO_TYPE[t as keyof typeof TOOL_TO_TYPE],
@@ -118,9 +126,20 @@ export function Canvas({
         angle: 0,
         z: 0,
         groups: [],
+        ...(remembered ? { style: remembered } : {}),
       })
     },
-    [store],
+    [store, styleMemory],
+  )
+
+  // Threaded to the arrow tool so new edges pick up the last-used
+  // path style / arrowheads / stroke etc.
+  const arrowDefaults = useMemo<ArrowToolDefaults>(
+    () => ({
+      pathStyle: styleMemory.getEdgePathStyle(),
+      style: styleMemory.getEdgeStyle(),
+    }),
+    [styleMemory],
   )
 
   return (
@@ -130,6 +149,7 @@ export function Canvas({
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onCreateDrag={handleCreateDrag}
+      arrowDefaults={arrowDefaults}
       renderCustomNodeView={id => {
         const node = store.getNode(id)
         if (!node) return null

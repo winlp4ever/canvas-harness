@@ -41,6 +41,7 @@ These came out of specific stress runs; baseline numbers reported are on a mid-r
 - **Drag handle on edge label for `labelArcLength` adjust** — S. Currently the field exists; UI to drag the label along its edge would close the loop on the §6.11 spec.
 - **`getSnapshot` cache with async support** — M. Phase 5 ships sync-only; async-returning snapshots are no-ops. The cache layer is documented but not built. Useful for consumers shipping heavy custom node React views.
 - **First-party `@canvas-harness/sync-yjs` adapter** — M. The interface is proven via BroadcastChannel; a Yjs-backed adapter unlocks real cross-machine collab.
+- **Promote `useStyleMemory` to `@canvas-harness/react`** — S. The playground ships a working sticky-style hook (last-used style per node type + edge, persisted to localStorage). Mature it into a library hook with a storage adapter (consumer brings localStorage / async store) and tests. Pair with a generic `arrowDefaults` consumer pattern doc.
 - **`opSchemasAsOpenAITools()` / `…GeminiTools()`** — XS each. Same wrapper pattern as the Anthropic one. ~30 LOC per vendor.
 - **Anthropic tool-call demo in the playground** — S. Wires `opSchemasAsAnthropicTools()` to a sandbox key + a chat sidebar so the user can say "add a sticky labeled 'idea'" and watch it land. Pure demo, not a library feature.
 

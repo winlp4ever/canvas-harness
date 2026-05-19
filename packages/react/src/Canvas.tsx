@@ -13,7 +13,7 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { CanvasProvider, useCanvasStore } from './context'
 import { EditorMount } from './internal/editor-mount'
-import { useArrowTool } from './internal/use-arrow-tool'
+import { type ArrowToolDefaults, useArrowTool } from './internal/use-arrow-tool'
 import {
   type InteractionTool,
   useInteractionGesture,
@@ -91,6 +91,13 @@ export type CanvasProps = {
    */
   onCreateDrag?: (e: CanvasCreateDragEvent) => void
   /**
+   * Defaults applied to every edge the built-in arrow tool creates.
+   * Lets a consumer remember the user's last-used pathStyle / style /
+   * arrowheads. Shape + text tools route through `onClick` /
+   * `onCreateDrag` so consumer controls those defaults directly.
+   */
+  arrowDefaults?: ArrowToolDefaults
+  /**
    * Render a custom node's React subtree. Called once per
    * library-mounted custom-node id; positioning is handled by the
    * overlay container (consumer fills the slot).
@@ -155,6 +162,7 @@ function CanvasSurface({
   onClick,
   onDoubleClick,
   onCreateDrag,
+  arrowDefaults,
   renderCustomNodeView,
   children,
 }: CanvasProps) {
@@ -170,7 +178,7 @@ function CanvasSurface({
   const { w, h } = useResizeObserver(wrapRef)
   usePanZoom(wrapRef, store)
   useInteractionGesture(wrapRef, store, tool as InteractionTool)
-  useArrowTool(wrapRef, store, tool === 'arrow')
+  useArrowTool(wrapRef, store, tool === 'arrow', arrowDefaults)
 
   const { mountedIds, setMountedIds } = useOverlayHost()
   const [camera, setCamera] = useState(() => store.getCamera())
