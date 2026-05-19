@@ -1,4 +1,5 @@
 import {
+  type CanvasBackground,
   type CanvasStore,
   type EditorAdapterFactory,
   type NodeId,
@@ -98,6 +99,15 @@ export type CanvasProps = {
    */
   arrowDefaults?: ArrowToolDefaults
   /**
+   * Page background + optional infinite dot/grid pattern. Local-only
+   * (not part of the synced scene). Update by changing the prop —
+   * `<Canvas>` calls `renderer.setBackground` and forces a repaint.
+   *
+   * @example
+   * <Canvas background={{ color: '#fffaf3', pattern: 'dots', gap: 24 }} />
+   */
+  background?: CanvasBackground
+  /**
    * Render a custom node's React subtree. Called once per
    * library-mounted custom-node id; positioning is handled by the
    * overlay container (consumer fills the slot).
@@ -163,6 +173,7 @@ function CanvasSurface({
   onDoubleClick,
   onCreateDrag,
   arrowDefaults,
+  background,
   renderCustomNodeView,
   children,
 }: CanvasProps) {
@@ -199,6 +210,7 @@ function CanvasSurface({
       theme,
       width: w,
       height: h,
+      background,
       onOverlayChange: ids => setMountedIds(ids),
     })
     r.start()
@@ -208,7 +220,16 @@ function CanvasSurface({
       r.dispose()
       rendererRef.current = null
     }
+    // `background` intentionally omitted — we forward updates via the
+    // separate effect below so the renderer isn't torn down on every
+    // background prop change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store, theme, w, h, onRenderer, setMountedIds])
+
+  // Forward background prop updates without re-creating the renderer.
+  useEffect(() => {
+    rendererRef.current?.setBackground(background)
+  }, [background])
 
   // Surface-level click — fires for any unhandled click (gesture hooks
   // consume their own). Consumer uses this to implement shape-tool /

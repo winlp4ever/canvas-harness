@@ -32,3 +32,6 @@ export type { Group } from './group'
 export type { CameraState, Scene, SerializedScene } from './scene'
 
 export type { Op, OpBatch } from './op'
+
+export type { CanvasBackground, CanvasBackgroundPattern } from './background'
+export { DEFAULT_BACKGROUND } from './background'

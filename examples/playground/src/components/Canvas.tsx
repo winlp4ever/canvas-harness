@@ -1,4 +1,4 @@
-import { asNodeId, hitTestAny } from '@canvas-harness/core'
+import { type CanvasBackground, asNodeId, hitTestAny } from '@canvas-harness/core'
 import {
   type ArrowToolDefaults,
   Canvas as LibCanvas,
@@ -31,9 +31,11 @@ const TOOL_TO_TYPE: Record<
 export function Canvas({
   tool,
   onRenderer,
+  background,
 }: {
   tool: Tool
   onRenderer?: Parameters<typeof LibCanvas>[0]['onRenderer']
+  background?: CanvasBackground
 }) {
   const store = useCanvasStore()
   const styleMemory = useStyleMemory(store)
@@ -150,6 +152,7 @@ export function Canvas({
       onDoubleClick={handleDoubleClick}
       onCreateDrag={handleCreateDrag}
       arrowDefaults={arrowDefaults}
+      background={background}
       renderCustomNodeView={id => {
         const node = store.getNode(id)
         if (!node) return null

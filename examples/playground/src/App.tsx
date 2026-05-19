@@ -8,6 +8,7 @@ import { CanvasProvider } from '@canvas-harness/react'
 import { createBroadcastSyncAdapter } from '@canvas-harness/sync-broadcast'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AiContextButton } from './components/AiContextButton'
+import { BackgroundPanel, useBackgroundState } from './components/BackgroundPanel'
 import { Canvas, type Tool } from './components/Canvas'
 import { ExportControls } from './components/ExportControls'
 import { ExtensionsMenu } from './components/ExtensionsMenu'
@@ -47,6 +48,7 @@ export function App() {
 
   const [tool, setTool] = useState<Tool>('select')
   const [renderer, setRenderer] = useState<Renderer | null>(null)
+  const { background, setBackground } = useBackgroundState()
 
   const onRenderer = useCallback((r: Renderer) => {
     setRenderer(r)
@@ -97,9 +99,10 @@ export function App() {
   return (
     <CanvasProvider store={store}>
       <div style={{ position: 'fixed', inset: 0 }}>
-        <Canvas tool={tool} onRenderer={onRenderer} />
+        <Canvas tool={tool} onRenderer={onRenderer} background={background} />
         <Toolbar active={tool} onSelect={setTool} />
         <HistoryControls store={store} />
+        <BackgroundPanel value={background} onChange={setBackground} />
         <ExportControls store={store} />
         <AiContextButton store={store} />
         <StressMenu store={store} />

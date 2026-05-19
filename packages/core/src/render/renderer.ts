@@ -9,7 +9,8 @@ import {
   getOrRenderTextBitmap,
   subscribeFontEpoch,
 } from '../text'
-import type { CameraState, Edge, EdgeId, Node, NodeId, WorldRect } from '../types'
+import type { CameraState, CanvasBackground, Edge, EdgeId, Node, NodeId, WorldRect } from '../types'
+import { paintBackground } from './background'
 import { clearSurface, setupSurface, sizeSurface } from './canvas-setup'
 import { type FrameLoop, type FrameStats, createFrameLoop } from './frame-loop'
 /**
@@ -64,6 +65,11 @@ export type RendererOptions = {
   width: number
   height: number
   /**
+   * Optional page background + dot/grid pattern. Local-only (not in
+   * the synced scene). Update at runtime via `Renderer.setBackground`.
+   */
+  background?: CanvasBackground
+  /**
    * Fires when the set of custom nodes that should be rendered in the DOM
    * overlay changes. Consumers use this to mount/unmount React subtrees
    * (or whatever framework). See ARCHITECTURE.md §5.2 lifecycle.
@@ -83,6 +89,8 @@ export type Renderer = {
   invalidate(): void
   /** Resize both canvases to a new CSS-pixel viewport. */
   setSize(cssW: number, cssH: number): void
+  /** Update the page background / pattern. Triggers a static repaint. */
+  setBackground(bg: CanvasBackground | undefined): void
   /** Per-frame timing (FPS, lastMs, avgMs, frames). */
   stats(): FrameStats
   /** Number of items the most recent paint actually drew. */
@@ -97,6 +105,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   const { store, theme, onOverlayChange } = opts
   const staticSurface = setupSurface(opts.staticCanvas)
   const interactiveSurface = setupSurface(opts.interactiveCanvas)
+  let background: CanvasBackground | undefined = opts.background
   sizeSurface(staticSurface, opts.width, opts.height)
   sizeSurface(interactiveSurface, opts.width, opts.height)
 
@@ -135,6 +144,9 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         : null
     const excludedEdges = excludedNodes ? incidentEdgeIds(excludedNodes) : null
     const viewport = inflateRect(worldViewport(staticSurface, camera), VIEWPORT_OVERSCAN_PX)
+
+    // ---- background (page color + dot/grid pattern) ----
+    paintBackground(staticSurface.ctx, { viewport, zoom: camera.z, background })
 
     // ---- nodes ----
     const visible = visibleNodes(camera, viewport)
@@ -588,6 +600,11 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         interactiveDirty = true
         loop.requestFrame()
       }
+    },
+    setBackground(bg) {
+      background = bg
+      staticDirty = true
+      loop.requestFrame()
     },
     stats: () => loop.stats(),
     lastDrawCount: () => lastDrawn,
