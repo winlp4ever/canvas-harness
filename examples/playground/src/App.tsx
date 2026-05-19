@@ -8,6 +8,7 @@ import { CanvasProvider } from '@canvas-harness/react'
 import { createBroadcastSyncAdapter } from '@canvas-harness/sync-broadcast'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Canvas, type Tool } from './components/Canvas'
+import { ExportControls } from './components/ExportControls'
 import { HistoryControls } from './components/HistoryControls'
 import { PerfOverlay } from './components/PerfOverlay'
 import { PresenceOverlay } from './components/PresenceOverlay'
@@ -96,6 +97,7 @@ export function App() {
         <Canvas tool={tool} onRenderer={onRenderer} />
         <Toolbar active={tool} onSelect={setTool} />
         <HistoryControls store={store} />
+        <ExportControls store={store} />
         <StressMenu store={store} />
         <StylePanel store={store} />
         <PresenceOverlay store={store} />

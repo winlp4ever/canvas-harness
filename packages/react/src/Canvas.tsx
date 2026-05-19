@@ -3,8 +3,11 @@ import {
   type EditorAdapterFactory,
   type NodeId,
   type Renderer,
+  copy,
   createRenderer,
+  cut,
   hitTestAny,
+  paste,
   screenToWorld,
 } from '@canvas-harness/core'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
@@ -175,6 +178,29 @@ function CanvasSurface({
       el.removeEventListener('dblclick', onDoubleClickHandler)
     }
   }, [store, onClick, onDoubleClick])
+
+  // Cmd/Ctrl+C/X/V — copy/cut/paste. Skip when an input is focused so
+  // the editor's native text-clipboard isn't hijacked.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
+      const meta = e.metaKey || e.ctrlKey
+      if (!meta) return
+      if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault()
+        void copy(store)
+      } else if (e.key === 'x' || e.key === 'X') {
+        e.preventDefault()
+        void cut(store)
+      } else if (e.key === 'v' || e.key === 'V') {
+        e.preventDefault()
+        void paste(store)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [store])
 
   // CSS transform on overlay div so child positions in world coords follow camera with one composite op.
   const overlayTransform = `translate(${-camera.x * camera.z}px, ${-camera.y * camera.z}px) scale(${camera.z})`
