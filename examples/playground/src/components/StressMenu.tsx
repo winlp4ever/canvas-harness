@@ -8,6 +8,7 @@ import {
   fixture5kEdges,
   fixture10kRects,
   fixture100Rects,
+  fixture200Cards,
 } from '../fixtures'
 
 type Entry = { label: string; fn: Fixture }
@@ -17,6 +18,7 @@ const ENTRIES: Entry[] = [
   { label: '+ 1k mixed', fn: fixture1kMixed },
   { label: '+ 10k rects', fn: fixture10kRects },
   { label: '+ 5k edges', fn: fixture5kEdges },
+  { label: '+ 200 cards', fn: fixture200Cards },
   { label: 'Clear scene', fn: clearScene },
 ]
 

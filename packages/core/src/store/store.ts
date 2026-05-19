@@ -77,6 +77,12 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
   const edgeIndex = new UniformGrid()
   const edgeGeoCache = new EdgeGeometryCache()
 
+  // Custom node type registry — keyed by NodeTypeDef.type.
+  const nodeTypeRegistry = new Map<string, import('../node-types').NodeTypeDef>()
+  for (const def of opts.nodeTypes ?? []) {
+    nodeTypeRegistry.set(def.type, def)
+  }
+
   // Per-edge integer version. Bumped on edge.add/update and on node.update
   // for incident edges. Drives the EdgeGeometryCache invalidation without
   // having to compare full-state strings. See ARCHITECTURE.md §6.12.
@@ -426,6 +432,9 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     getIncidentEdges(id: NodeId): EdgeId[] {
       const set = incidentEdges.get(id)
       return set ? [...set] : []
+    },
+    getNodeTypeDef(type: string) {
+      return nodeTypeRegistry.get(type)
     },
 
     querySpatial(q: SpatialQuery): SpatialResult {

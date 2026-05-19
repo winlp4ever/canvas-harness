@@ -5,6 +5,7 @@ import { PerfOverlay } from './components/PerfOverlay'
 import { StressMenu } from './components/StressMenu'
 import { StylePanel } from './components/StylePanel'
 import { Toolbar } from './components/Toolbar'
+import { chartCardDef } from './custom-nodes/chart-card'
 
 /**
  * Phase 2 playground:
@@ -20,7 +21,7 @@ import { Toolbar } from './components/Toolbar'
 export function App() {
   const storeRef = useRef<CanvasStore | null>(null)
   if (!storeRef.current) {
-    storeRef.current = createCanvasStore()
+    storeRef.current = createCanvasStore({ nodeTypes: [chartCardDef] })
     if (typeof window !== 'undefined') {
       ;(window as unknown as { store: CanvasStore }).store = storeRef.current
     }

@@ -1,4 +1,5 @@
 import { computeEdgeGeometry, drawEdge } from '../edges'
+import type { NodeTypeDef, RenderEnv } from '../node-types'
 import { inflateRect, nodeAABB } from '../spatial'
 import type { CanvasStore, InteractionState } from '../store'
 import type { CameraState, Edge, EdgeId, Node, NodeId, WorldRect } from '../types'
@@ -44,6 +45,15 @@ export type RendererOptions = {
   /** Initial CSS-pixel size. Use `setSize()` to update on resize. */
   width: number
   height: number
+  /**
+   * Fires when the set of custom nodes that should be rendered in the DOM
+   * overlay changes. Consumers use this to mount/unmount React subtrees
+   * (or whatever framework). See ARCHITECTURE.md §5.2 lifecycle.
+   *
+   * The callback receives the FULL current set, not a delta — consumers
+   * compute the mount/unmount diff themselves.
+   */
+  onOverlayChange?: (mountedIds: NodeId[]) => void
 }
 
 export type Renderer = {
@@ -59,12 +69,14 @@ export type Renderer = {
   stats(): FrameStats
   /** Number of items the most recent paint actually drew. */
   lastDrawCount(): number
+  /** Current overlay-mounted custom-node ids. */
+  getOverlaySet(): NodeId[]
   /** Detach event listeners. The store is left untouched. */
   dispose(): void
 }
 
 export const createRenderer = (opts: RendererOptions): Renderer => {
-  const { store, theme } = opts
+  const { store, theme, onOverlayChange } = opts
   const staticSurface = setupSurface(opts.staticCanvas)
   const interactiveSurface = setupSurface(opts.interactiveCanvas)
   sizeSurface(staticSurface, opts.width, opts.height)
@@ -72,6 +84,8 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
 
   let staticDirty = true
   let interactiveDirty = false
+  /** Custom nodes whose React view is currently mounted in the overlay. */
+  let overlaySet: ReadonlySet<NodeId> = new Set()
   let lastDrawn = 0
 
   const isInteractive = (state: InteractionState): boolean =>
@@ -106,14 +120,66 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
 
     // ---- nodes ----
     const visible = visibleNodes(camera, viewport)
+    const isMoving =
+      interaction.mode === 'panning' ||
+      interaction.mode === 'zooming' ||
+      interaction.mode === 'dragging' ||
+      interaction.mode === 'resizing' ||
+      interaction.mode === 'rotating'
+    const minOnScreen = MIN_ON_SCREEN_SIZE_PX
+    const nextOverlaySet = new Set<NodeId>()
     let drawn = 0
+
     for (const node of visible) {
-      if (!isDrawablePrimitive(node.type)) continue
       if (excludedNodes?.has(node.id)) continue
-      drawWithNodeTransform(staticSurface.ctx, node, () => {
-        drawShape(staticSurface.ctx, node, scale, theme)
-      })
-      drawn++
+
+      // Built-in primitive path.
+      if (isDrawablePrimitive(node.type)) {
+        drawWithNodeTransform(staticSurface.ctx, node, () => {
+          drawShape(staticSurface.ctx, node, scale, theme)
+        })
+        drawn++
+        continue
+      }
+
+      // Custom-node dispatch (§5.3 LOD ladder).
+      const def = store.getNodeTypeDef(node.type)
+      if (!def) continue
+      // Sub-pixel skip — same threshold as built-ins.
+      if (node.w * camera.z < minOnScreen && node.h * camera.z < minOnScreen) continue
+      if (camera.z < def.lod.minZoomForPlaceholder) continue
+
+      // Render env passed to author callbacks.
+      const env: RenderEnv = {
+        zoom: camera.z,
+        isMoving,
+        isSelected: false,
+        isHovered: false,
+        isEditing: false,
+        theme: token => (theme ? theme(token) : undefined),
+      }
+
+      // Below the React threshold OR currently moving: prefer cheap canvas
+      // paths. Order: getSnapshot → drawPlaceholder → renderCanvas → skip.
+      const preferCanvas = camera.z < def.lod.minZoomForReact || isMoving
+      if (preferCanvas) {
+        if (paintCustomCanvasFallback(staticSurface.ctx, node, def, scale, env)) {
+          drawn++
+        }
+        continue
+      }
+
+      // Full quality: prefer React overlay; else renderCanvas; else skip.
+      if (def.view) {
+        nextOverlaySet.add(node.id)
+        continue
+      }
+      if (def.renderCanvas) {
+        drawWithNodeTransform(staticSurface.ctx, node, () => {
+          def.renderCanvas!(staticSurface.ctx, node, env)
+        })
+        drawn++
+      }
     }
 
     // ---- edges ----
@@ -124,6 +190,58 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       drawn++
     }
     lastDrawn = drawn
+
+    // Emit overlay event if the React-mount set changed.
+    if (!setsEqual(nextOverlaySet, overlaySet)) {
+      overlaySet = nextOverlaySet
+      onOverlayChange?.([...overlaySet])
+    }
+  }
+
+  /**
+   * Tries the cheap canvas paths in order; returns true if anything was
+   * painted. Order: getSnapshot → drawPlaceholder → renderCanvas.
+   * Async snapshot returns are treated as "no snapshot ready"; consumer's
+   * own caching is responsible for the eventual blit.
+   */
+  const paintCustomCanvasFallback = (
+    ctx: CanvasRenderingContext2D,
+    node: Node,
+    def: NodeTypeDef,
+    drawScale: number,
+    env: RenderEnv,
+  ): boolean => {
+    void drawScale
+    if (def.getSnapshot) {
+      const snap = def.getSnapshot(node, {
+        width: node.w,
+        height: node.h,
+        dpr: staticSurface.dpr,
+      })
+      // Phase 5 ships sync-only snapshot handling; promise-returning
+      // authors get a no-op until v2 adds the cache layer.
+      if (snap && !(snap instanceof Promise)) {
+        drawWithNodeTransform(ctx, node, () => {
+          ctx.drawImage(snap as CanvasImageSource, 0, 0, node.w, node.h)
+        })
+        return true
+      }
+    }
+    if (def.drawPlaceholder) {
+      drawWithNodeTransform(ctx, node, () => def.drawPlaceholder!(ctx, node, env))
+      return true
+    }
+    if (def.renderCanvas) {
+      drawWithNodeTransform(ctx, node, () => def.renderCanvas!(ctx, node, env))
+      return true
+    }
+    return false
+  }
+
+  const setsEqual = (a: ReadonlySet<NodeId>, b: ReadonlySet<NodeId>): boolean => {
+    if (a.size !== b.size) return false
+    for (const v of a) if (!b.has(v)) return false
+    return true
   }
 
   /**
@@ -347,6 +465,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     },
     stats: () => loop.stats(),
     lastDrawCount: () => lastDrawn,
+    getOverlaySet: () => [...overlaySet],
     dispose() {
       loop.stop()
       unsubChange()

@@ -19,12 +19,19 @@ import type {
 
 import type { EdgeGeometry } from '../edges/cache'
 import type { IdGenerator } from '../ids'
+import type { NodeTypeDef } from '../node-types'
 import type { InteractionState } from './interaction'
 
 export type StoreOptions = {
   initial?: import('../types').Scene
   clientId?: ClientId
   idGenerator?: IdGenerator
+  /**
+   * Custom node type registry. Each entry created via `defineNode`. The
+   * renderer consults this to decide between built-in shapes, canvas
+   * custom paint, and React-overlay views. See ARCHITECTURE.md §5.
+   */
+  nodeTypes?: NodeTypeDef[]
 }
 
 /**
@@ -111,6 +118,13 @@ export interface CanvasStore {
    * a node moves and we need to refresh its edges.
    */
   getIncidentEdges(id: NodeId): EdgeId[]
+
+  /**
+   * Returns the registered NodeTypeDef for a type id, or undefined if the
+   * type isn't a custom registered type (built-in shapes return undefined).
+   * Used by the renderer for custom-node dispatch.
+   */
+  getNodeTypeDef(type: string): NodeTypeDef | undefined
 
   // camera + selection
   getCamera(): CameraState

@@ -6,6 +6,9 @@
  */
 import { type CanvasStore, type Node, asEdgeId, asNodeId } from '@canvas-harness/core'
 
+const CARD_PALETTE = ['#fef3c7', '#fce7f3', '#dbeafe', '#dcfce7', '#ede9fe', '#fee2e2']
+const CARD_TITLES = ['Q3 Revenue', 'Active Users', 'Errors', 'Latency', 'Churn', 'Conversion']
+
 type Primitive = 'rect' | 'ellipse' | 'diamond' | 'capsule'
 
 const palette = ['#dbeafe', '#fef08a', '#fde68a', '#fecaca', '#bbf7d0', '#e9d5ff', '#fed7aa']
@@ -48,6 +51,40 @@ export const fixture100Rects: Fixture = store => seedN(store, 100, 'mono')
 export const fixture1kRects: Fixture = store => seedN(store, 1000, 'mono')
 export const fixture10kRects: Fixture = store => seedN(store, 10000, 'mono')
 export const fixture1kMixed: Fixture = store => seedN(store, 1000, 'mixed')
+
+/**
+ * 200 chart-card custom nodes. Stresses the DOM overlay viewport culling
+ * and the LOD ladder. The chart-card type must be registered with the
+ * store (via createCanvasStore({ nodeTypes: [chartCardDef] })) before
+ * loading this fixture; nothing will render otherwise.
+ */
+export const fixture200Cards: Fixture = store => {
+  const t0 = performance.now()
+  const count = 200
+  store.batch(() => {
+    for (let i = 0; i < count; i++) {
+      const cols = 12
+      const x = (i % cols) * 200
+      const y = Math.floor(i / cols) * 140
+      const palette = CARD_PALETTE[i % CARD_PALETTE.length]!
+      const title = CARD_TITLES[i % CARD_TITLES.length]!
+      const series = [3 + (i % 6), 1 + ((i * 7) % 9), 2 + ((i * 13) % 8), 4 + ((i * 5) % 5)]
+      store.addNode({
+        id: asNodeId(store.generateId()),
+        type: 'chart-card',
+        x,
+        y,
+        w: 180,
+        h: 120,
+        angle: 0,
+        z: 0,
+        groups: [],
+        data: { title, series, fill: palette },
+      })
+    }
+  })
+  return { added: count, ms: performance.now() - t0 }
+}
 
 /**
  * 1000 nodes (5 cols × 200 rows spread out) + 5000 bezier edges to random
