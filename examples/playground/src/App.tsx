@@ -7,11 +7,14 @@ import {
 import { CanvasProvider } from '@canvas-harness/react'
 import { createBroadcastSyncAdapter } from '@canvas-harness/sync-broadcast'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { AiContextButton } from './components/AiContextButton'
 import { Canvas, type Tool } from './components/Canvas'
 import { ExportControls } from './components/ExportControls'
+import { ExtensionsMenu } from './components/ExtensionsMenu'
 import { HistoryControls } from './components/HistoryControls'
 import { PerfOverlay } from './components/PerfOverlay'
 import { PresenceOverlay } from './components/PresenceOverlay'
+import { StatusBar } from './components/StatusBar'
 import { StressMenu } from './components/StressMenu'
 import { StylePanel } from './components/StylePanel'
 import { Toolbar } from './components/Toolbar'
@@ -98,9 +101,12 @@ export function App() {
         <Toolbar active={tool} onSelect={setTool} />
         <HistoryControls store={store} />
         <ExportControls store={store} />
+        <AiContextButton store={store} />
         <StressMenu store={store} />
         <StylePanel store={store} />
         <PresenceOverlay store={store} />
+        <ExtensionsMenu store={store} />
+        <StatusBar />
         <PerfOverlay store={store} renderer={renderer} />
       </div>
     </CanvasProvider>

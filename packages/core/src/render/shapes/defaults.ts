@@ -32,6 +32,21 @@ export const DEFAULT_STYLE: Required<
 /**
  * Resolves a style field with the precedence above.
  * `theme` lookup is optional and returns `undefined` if no override.
+ *
+ * Stable token catalog (consumer maps these to its design system):
+ *   - `strokeColor`            edge + shape stroke
+ *   - `strokeWidth`            shape + edge stroke width
+ *   - `backgroundColor`        shape fill
+ *   - `textColor`              shape text color
+ *   - `opacity`                shape opacity (0-100)
+ *   - `selection.outline`      selection outline color (overlay)
+ *   - `handle.fill`            resize/rotate handle fill
+ *   - `handle.stroke`          resize/rotate handle stroke
+ *   - `text.highlight`         markdown ==highlight== chip color
+ *   - `text.codeBackground`    markdown `code` chip color
+ *
+ * Tokens not in this list are passed through unchanged; consumers can
+ * extend with their own (e.g. `node.shadow.color`).
  */
 export type ThemeResolver = (token: string) => string | number | undefined
 
