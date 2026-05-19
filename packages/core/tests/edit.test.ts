@@ -79,7 +79,7 @@ describe('store edit lifecycle', () => {
     store.beginEdit(id)
     const state = store.getInteractionState()
     expect(state.mode).toBe('editing')
-    expect(state.editingNodeId).toBe(id)
+    expect(state.editingTarget).toEqual({ kind: 'node', id })
   })
 
   test('commitEdit writes content + autofit height + exits edit', () => {

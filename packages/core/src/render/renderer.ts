@@ -155,7 +155,8 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       isEditing: false,
       theme: token => (theme ? theme(token) : undefined),
     }
-    const editingNodeId = interaction.editingNodeId
+    const editingNodeId =
+      interaction.editingTarget?.kind === 'node' ? interaction.editingTarget.id : null
 
     for (const node of visible) {
       if (excludedNodes?.has(node.id)) continue

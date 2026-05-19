@@ -297,18 +297,21 @@ export interface CanvasStore {
   // ----- edit mode (text + markdown content) ----------------------------
 
   /**
-   * Enter edit mode for `id`. Flips interaction mode to `'editing'`
-   * and selects the node. The library's `EditorMount` picks up the
-   * change and mounts the configured editor adapter.
+   * Enter edit mode for `id`. Polymorphic — `id` may be a {@link NodeId}
+   * (to edit `node.content`) or an {@link EdgeId} (to edit
+   * `edge.content`, the edge label). Flips interaction mode to
+   * `'editing'`; the library's `EditorMount` picks up the change and
+   * mounts the configured editor adapter at the right anchor.
    *
    * @example
-   * // Double-click a node to edit:
+   * // Double-click a node body or an edge label to edit:
    * onDoubleClick={e => {
    *   const hit = hitTestAny(store, e.world, camera.z)
-   *   if (hit?.kind === 'body') store.beginEdit(hit.nodeId)
+   *   if (hit?.kind === 'body' && 'nodeId' in hit) store.beginEdit(hit.nodeId)
+   *   if (hit?.kind === 'label') store.beginEdit(hit.edgeId)
    * }}
    */
-  beginEdit(id: NodeId): void
+  beginEdit(id: NodeId | EdgeId): void
   /**
    * Write the new content + apply autofit (if opted in) + exit edit
    * mode. No-op when not editing.

@@ -588,31 +588,36 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     },
 
     beginEdit(id) {
-      if (!nodeAtoms.has(id)) return
+      // Polymorphic: id may belong to a node or an edge. Resolve which.
+      let target: import('./interaction').EditTarget | null = null
+      if (nodeAtoms.has(id as NodeId)) target = { kind: 'node', id: id as NodeId }
+      else if (edgeAtoms.has(id as EdgeId)) target = { kind: 'edge', id: id as EdgeId }
+      if (!target) return
       const next: InteractionState = {
         ...interactionAtom.value,
         mode: 'editing',
-        editingNodeId: id,
+        editingTarget: target,
       }
       interactionAtom.set(next)
       emit('interaction', next)
     },
     commitEdit(content) {
       const state = interactionAtom.value
-      if (state.mode !== 'editing' || !state.editingNodeId) return
-      const id = state.editingNodeId
+      if (state.mode !== 'editing' || !state.editingTarget) return
+      const target = state.editingTarget
       // Write content + autofit-derived height in one update so the
       // bitmap cache sees the final geometry on the next paint, not an
       // intermediate one.
-      this.updateNode(id, { content })
-      const idleState = { ...interactionAtom.value, mode: 'idle' as const, editingNodeId: null }
+      if (target.kind === 'node') this.updateNode(target.id, { content })
+      else this.updateEdge(target.id, { content })
+      const idleState = { ...interactionAtom.value, mode: 'idle' as const, editingTarget: null }
       interactionAtom.set(idleState)
       emit('interaction', idleState)
     },
     cancelEdit() {
       const state = interactionAtom.value
       if (state.mode !== 'editing') return
-      const idleState = { ...state, mode: 'idle' as const, editingNodeId: null }
+      const idleState = { ...state, mode: 'idle' as const, editingTarget: null }
       interactionAtom.set(idleState)
       emit('interaction', idleState)
     },

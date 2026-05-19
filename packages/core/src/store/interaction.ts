@@ -9,7 +9,7 @@ import type { ResizeHandle } from '../hit-test/handle'
  * Phase 3 ships dragging / resizing / marqueeing modes. Pan/zoom/edit
  * arrive later but the type covers them now to avoid breaking changes.
  */
-import type { EdgeEnd, NodeId, Vec2, WorldRect } from '../types'
+import type { EdgeEnd, EdgeId, NodeId, Vec2, WorldRect } from '../types'
 
 export type InteractionMode =
   | 'idle'
@@ -80,8 +80,10 @@ export type InteractionState = {
     snapTargetNodeId: NodeId | null
   } | null
 
-  // Edit state — populated when mode is 'editing' (phase 7).
-  editingNodeId: NodeId | null
+  // Edit state — populated when mode is 'editing' (phase 7 + 12.5).
+  // Phase 7 only edited node content; phase 12.5 generalizes to edge
+  // labels too, so the field is `editingTarget: { kind, id } | null`.
+  editingTarget: EditTarget | null
 
   // Drag-create state — populated while mode is 'creating-shape'.
   // The renderer paints `createDraftRect` as a preview on the
@@ -90,6 +92,10 @@ export type InteractionState = {
   createDraftRect: WorldRect | null
   createTool: string | null
 }
+
+/** Identifies what's currently being edited — a node (text content) or
+ *  an edge (label content). See `store.beginEdit`. */
+export type EditTarget = { kind: 'node'; id: NodeId } | { kind: 'edge'; id: EdgeId }
 
 export const idleInteractionState = (): InteractionState => ({
   mode: 'idle',
@@ -103,7 +109,7 @@ export const idleInteractionState = (): InteractionState => ({
   marqueeRect: null,
   marqueeAdditive: false,
   draftEdge: null,
-  editingNodeId: null,
+  editingTarget: null,
   createDraftRect: null,
   createTool: null,
 })

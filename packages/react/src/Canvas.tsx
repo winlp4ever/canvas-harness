@@ -220,8 +220,9 @@ function CanvasSurface({
     }
     const onClickHandler = (e: MouseEvent) => dispatch(e, onClick)
     const onDoubleClickHandler = (e: MouseEvent) => {
-      // Built-in: dbl-click a node body → beginEdit. Consumer's
-      // onDoubleClick fires too if provided.
+      // Built-in: dbl-click a node body OR an edge label → beginEdit.
+      // Consumer's onDoubleClick fires too if provided (e.g. for the
+      // "dbl-click empty board to create a text node" pattern).
       if (toolRef.current === 'select') {
         const rect = el.getBoundingClientRect()
         const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top }
@@ -230,6 +231,10 @@ function CanvasSurface({
         const hit = hitTestAny(store, world, camera.z)
         if (hit && hit.kind === 'body' && 'nodeId' in hit) {
           store.beginEdit(hit.nodeId)
+        } else if (hit && hit.kind === 'body' && 'edgeId' in hit) {
+          store.beginEdit(hit.edgeId)
+        } else if (hit && hit.kind === 'label') {
+          store.beginEdit(hit.edgeId)
         }
       }
       dispatch(e, onDoubleClick)

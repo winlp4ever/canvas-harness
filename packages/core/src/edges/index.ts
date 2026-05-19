@@ -10,8 +10,9 @@ export { clipSamples, fullVisibleClipResult } from './clip'
 export type { EdgeGeometry } from './cache'
 export { EdgeGeometryCache, computeEdgeGeometry } from './cache'
 export { edgeAABBFromSamples } from './aabb'
+export { getPointAndTangentAtArcLength } from './arc-length'
 export { drawArrowhead, arrowheadLength } from './arrowhead'
-export { drawEdge } from './draw'
+export { drawEdge, edgeLabelBoundsWorld } from './draw'
 export {
   nodeLocalToWorld,
   projectEndToWorld,

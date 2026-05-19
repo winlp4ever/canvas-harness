@@ -267,6 +267,22 @@ export function StylePanel({ store }: { store: CanvasStore }) {
               onChange={ah => applyEdgeStyle({ targetArrowhead: ah })}
             />
           </Field>
+          <Field label="Label">
+            <input
+              type="text"
+              value={sampleEdge?.content ?? ''}
+              placeholder="e.g. depends on"
+              onChange={e => {
+                for (const id of selectedEdgeIds) store.updateEdge(id, { content: e.target.value })
+              }}
+              style={{
+                fontSize: 12,
+                padding: '4px 6px',
+                border: '1px solid #cbd5e1',
+                borderRadius: 4,
+              }}
+            />
+          </Field>
         </>
       )}
     </div>

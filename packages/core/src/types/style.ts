@@ -40,4 +40,15 @@ export type Style = {
 export type EdgeStyle = Style & {
   sourceArrowhead?: Arrowhead
   targetArrowhead?: Arrowhead
+  /**
+   * Position of `edge.content` (the edge label) along the polyline,
+   * expressed as arc-length `[0..1]`. Default `0.5` (midpoint).
+   */
+  labelArcLength?: number
+  /**
+   * When true, the label rotates to follow the tangent of the edge at
+   * its anchor. Default false — labels stay upright. See
+   * ARCHITECTURE.md §6.11.
+   */
+  labelFollowsTangent?: boolean
 }

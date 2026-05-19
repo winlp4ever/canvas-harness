@@ -187,6 +187,81 @@ export const fixture5kEdges: Fixture = store => {
   return { added, ms: performance.now() - t0 }
 }
 
+/**
+ * 1000 labeled edges. Pairs the existing nodes (creating some if
+ * needed); applies short random labels from the rotation. Stresses the
+ * edge-label paint path (Phase 12.5) — `getOrRenderTextBitmap` for
+ * labels + arc-length anchor computation per frame.
+ */
+const LABEL_POOL = [
+  'depends on',
+  'blocks',
+  'yes',
+  'no',
+  'maybe',
+  'related',
+  'next',
+  'prev',
+  'parent',
+  'child',
+  '→',
+  'fork',
+  'merge',
+  'TODO',
+  'WIP',
+  'done',
+]
+export const fixture1kLabeledEdges: Fixture = store => {
+  const t0 = performance.now()
+  const edgeCount = 1000
+  let added = 0
+  store.batch(() => {
+    let nodeIds: import('@canvas-harness/core').NodeId[] = store
+      .getAllNodes()
+      .map(n => n.id)
+    // Ensure at least ~500 nodes so we have variety.
+    if (nodeIds.length < 500) {
+      const cols = 25
+      const need = 500 - nodeIds.length
+      for (let i = 0; i < need; i++) {
+        const x = (i % cols) * 180
+        const y = Math.floor(i / cols) * 120
+        const id = asNodeId(store.generateId())
+        nodeIds.push(id)
+        store.addNode({
+          id,
+          type: 'rect',
+          x,
+          y,
+          w: 80,
+          h: 50,
+          angle: 0,
+          z: 0,
+          groups: [],
+        })
+        added++
+      }
+    }
+    nodeIds = store.getAllNodes().map(n => n.id)
+    for (let i = 0; i < edgeCount; i++) {
+      const a = nodeIds[Math.floor(Math.random() * nodeIds.length)]!
+      let b = nodeIds[Math.floor(Math.random() * nodeIds.length)]!
+      if (b === a) b = nodeIds[(nodeIds.indexOf(a) + 1) % nodeIds.length]!
+      store.addEdge({
+        id: asEdgeId(store.generateId()),
+        source: { nodeId: a, localOffset: { x: 80, y: 25 } },
+        target: { nodeId: b, localOffset: { x: 0, y: 25 } },
+        pathStyle: 'bezier',
+        z: 0,
+        groups: [],
+        content: LABEL_POOL[i % LABEL_POOL.length],
+      })
+      added++
+    }
+  })
+  return { added, ms: performance.now() - t0 }
+}
+
 export const clearScene: Fixture = store => {
   const t0 = performance.now()
   const nodeCount = store.getAllNodes().length

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import {
   type Fixture,
   clearScene,
+  fixture1kLabeledEdges,
   fixture1kMixed,
   fixture1kRects,
   fixture5kEdges,
@@ -19,6 +20,7 @@ const ENTRIES: Entry[] = [
   { label: '+ 1k mixed', fn: fixture1kMixed },
   { label: '+ 10k rects', fn: fixture10kRects },
   { label: '+ 5k edges', fn: fixture5kEdges },
+  { label: '+ 1k labeled edges', fn: fixture1kLabeledEdges },
   { label: '+ 200 cards', fn: fixture200Cards },
   { label: '+ markdown-heavy', fn: fixtureMarkdownHeavy },
   { label: 'Clear scene', fn: clearScene },

@@ -5,6 +5,7 @@
  * distance over the cached samples. Sub-region detection: arrowhead tips
  * and (when selected) endpoint handles are tested before the body.
  */
+import { edgeLabelBoundsWorld } from '../edges/draw'
 import type { CanvasStore, EdgeGeometry } from '../store'
 import type { Edge, EdgeId, Vec2 } from '../types'
 
@@ -17,6 +18,7 @@ export type EdgeHit =
   | { kind: 'body'; edgeId: EdgeId; distance: number; arcLength: number }
   | { kind: 'source-handle'; edgeId: EdgeId; distance: number }
   | { kind: 'target-handle'; edgeId: EdgeId; distance: number }
+  | { kind: 'label'; edgeId: EdgeId }
 
 /**
  * Returns the topmost edge hit by a world point, or null.
@@ -55,7 +57,28 @@ export const hitTestEdge = (
   }
   const candidates = store.querySpatial({ rect: queryRect }).edges
 
-  let best: { hit: EdgeHit; z: number; edge: Edge } | null = null
+  // Label hits — checked before body so a click on a label doesn't
+  // accidentally select the edge body underneath. Iterates candidates
+  // again because labels can extend slightly beyond the body slop.
+  for (const id of candidates) {
+    const edge = store.getEdge(id)
+    if (!edge || edge.hidden || !edge.content || !edge.content.trim()) continue
+    const geom = store.getEdgeGeometry(id)
+    if (!geom) continue
+    const bounds = edgeLabelBoundsWorld(edge, geom)
+    if (!bounds) continue
+    if (
+      worldPoint.x >= bounds.x &&
+      worldPoint.x <= bounds.x + bounds.w &&
+      worldPoint.y >= bounds.y &&
+      worldPoint.y <= bounds.y + bounds.h
+    ) {
+      return { kind: 'label', edgeId: id }
+    }
+  }
+
+  type BodyHit = Extract<EdgeHit, { kind: 'body' }>
+  let best: { hit: BodyHit; z: number; edge: Edge } | null = null
   for (const id of candidates) {
     const edge = store.getEdge(id)
     if (!edge || edge.hidden) continue
