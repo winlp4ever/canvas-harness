@@ -1,4 +1,4 @@
-import { asNodeId } from '@canvas-harness/core'
+import { asNodeId, hitTestAny } from '@canvas-harness/core'
 import {
   Canvas as LibCanvas,
   type CanvasCreateDragEvent,
@@ -76,6 +76,33 @@ export function Canvas({
     [store],
   )
 
+  // Double-click on empty board → spawn an empty text node and enter
+  // edit mode (excalidraw-style). On a node, the library already calls
+  // beginEdit internally; here we cover the "miss" case.
+  const handleDoubleClick = useCallback(
+    (e: CanvasPointerEvent) => {
+      if (e.tool !== 'select') return
+      const camera = store.getCamera()
+      if (hitTestAny(store, e.world, camera.z)) return
+      const id = asNodeId(store.generateId())
+      store.addNode({
+        id,
+        type: 'text',
+        x: e.world.x - 100,
+        y: e.world.y - 16,
+        w: 200,
+        h: 32,
+        angle: 0,
+        z: 0,
+        groups: [],
+        content: '',
+        style: { fontSize: 'M', textAlign: 'left' },
+      })
+      store.beginEdit(id)
+    },
+    [store],
+  )
+
   // Drag-to-create: shape sized to the dragged rect.
   const handleCreateDrag = useCallback(
     (e: CanvasCreateDragEvent) => {
@@ -101,6 +128,7 @@ export function Canvas({
       tool={tool}
       onRenderer={onRenderer}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onCreateDrag={handleCreateDrag}
       renderCustomNodeView={id => {
         const node = store.getNode(id)
