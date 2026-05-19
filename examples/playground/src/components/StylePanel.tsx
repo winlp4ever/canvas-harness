@@ -3,9 +3,13 @@ import type {
   CanvasStore,
   EdgeId,
   EdgeStyle,
+  FontFamily,
+  FontSize,
   NodeId,
   PathStyle,
   Style,
+  TextAlign,
+  TextStyle,
 } from '@canvas-harness/core'
 import { useEffect, useState } from 'react'
 
@@ -49,6 +53,30 @@ const PATH_STYLE_OPTIONS: Array<{ label: string; value: PathStyle }> = [
   { label: 'bezier', value: 'bezier' },
   { label: 'polyline', value: 'polyline' },
 ]
+const FONT_FAMILY_OPTIONS: Array<{ label: string; value: FontFamily }> = [
+  { label: 'Hand', value: 'handwriting' },
+  { label: 'Sans', value: 'sans-serif' },
+  { label: 'Serif', value: 'serif' },
+  { label: 'Mono', value: 'monospace' },
+  { label: 'Casual', value: 'informal' },
+]
+const FONT_SIZE_OPTIONS: Array<{ label: string; value: FontSize }> = [
+  { label: 'S', value: 'S' },
+  { label: 'M', value: 'M' },
+  { label: 'L', value: 'L' },
+  { label: 'XL', value: 'XL' },
+]
+const TEXT_ALIGN_OPTIONS: Array<{ label: string; value: TextAlign }> = [
+  { label: '◧', value: 'left' },
+  { label: '▣', value: 'center' },
+  { label: '◨', value: 'right' },
+]
+const TEXT_STYLE_OPTIONS: Array<{ label: string; value: TextStyle }> = [
+  { label: 'N', value: 'normal' },
+  { label: 'B', value: 'bold' },
+  { label: 'I', value: 'italic' },
+]
+const TEXT_COLOR_PALETTE = ['#1f2937', '#ffffff', '#dc2626', '#0284c7', '#16a34a', '#9333ea']
 
 export function StylePanel({ store }: { store: CanvasStore }) {
   const [selectionIds, setSelectionIds] = useState<(NodeId | EdgeId)[]>(() => store.getSelection())
@@ -137,13 +165,55 @@ export function StylePanel({ store }: { store: CanvasStore }) {
       </div>
 
       {nodesOnly && (
-        <Field label="Fill">
-          <Palette
-            colors={FILL_PALETTE}
-            value={(sampleStyle as Style).backgroundColor}
-            onChange={color => applyNodeStyle({ backgroundColor: color })}
-          />
-        </Field>
+        <>
+          <Field label="Fill">
+            <Palette
+              colors={FILL_PALETTE}
+              value={(sampleStyle as Style).backgroundColor}
+              onChange={color => applyNodeStyle({ backgroundColor: color })}
+            />
+          </Field>
+
+          <Field label="Font">
+            <SegmentedControl
+              options={FONT_FAMILY_OPTIONS}
+              value={(sampleStyle as Style).fontFamily ?? 'handwriting'}
+              onChange={ff => applyNodeStyle({ fontFamily: ff })}
+            />
+          </Field>
+
+          <Field label="Size">
+            <SegmentedControl
+              options={FONT_SIZE_OPTIONS}
+              value={(sampleStyle as Style).fontSize ?? 'M'}
+              onChange={fs => applyNodeStyle({ fontSize: fs })}
+            />
+          </Field>
+
+          <Field label="Align">
+            <SegmentedControl
+              options={TEXT_ALIGN_OPTIONS}
+              value={(sampleStyle as Style).textAlign ?? 'center'}
+              onChange={ta => applyNodeStyle({ textAlign: ta })}
+            />
+          </Field>
+
+          <Field label="Text style">
+            <SegmentedControl
+              options={TEXT_STYLE_OPTIONS}
+              value={(sampleStyle as Style).textStyle ?? 'normal'}
+              onChange={ts => applyNodeStyle({ textStyle: ts })}
+            />
+          </Field>
+
+          <Field label="Text color">
+            <Palette
+              colors={TEXT_COLOR_PALETTE}
+              value={(sampleStyle as Style).textColor}
+              onChange={color => applyNodeStyle({ textColor: color })}
+            />
+          </Field>
+        </>
       )}
 
       <Field label="Stroke">

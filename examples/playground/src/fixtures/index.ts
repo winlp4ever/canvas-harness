@@ -52,6 +52,58 @@ export const fixture1kRects: Fixture = store => seedN(store, 1000, 'mono')
 export const fixture10kRects: Fixture = store => seedN(store, 10000, 'mono')
 export const fixture1kMixed: Fixture = store => seedN(store, 1000, 'mixed')
 
+const MARKDOWN_CONTENTS = [
+  '**Hire** Lara before _Q3_\n- write JD\n- schedule loop\n- get budget',
+  '`/api/users` returning 500s\n- need to check **logs**\n- ping the team',
+  'Goals:\n- ==focus==\n- ==ship== fast\n- *measure* impact',
+  '# meeting\n1. status\n2. blockers\n3. next steps',
+  '```\nconst x = 1\nconst y = 2\n```',
+  '_Reminder:_ deploy at __5pm__\n---\nrollback plan ready',
+  'See ~~old~~ **new** doc at [link](https://example.com)',
+  'Pros\n- fast\n- cheap\n\nCons\n- ~~ugly~~\n- tedious',
+  '**Status:** ==in progress==\n→ blocked on review',
+  'Idea: caching layer for **edge geometry**\n`O(1)` lookups',
+]
+const MARKDOWN_FAMILIES = ['handwriting', 'sans-serif', 'serif', 'monospace', 'informal'] as const
+const MARKDOWN_SIZES = ['S', 'M', 'L'] as const
+const MARKDOWN_FILLS = ['#fef9c3', '#fce7f3', '#dbeafe', '#dcfce7', '#fee2e2', '#ede9fe']
+
+/**
+ * 1000 rect stickies with multi-line markdown content. Stresses the
+ * tokenizer + layout + bitmap cache. Cache key includes font/size, so
+ * variety across the fixture exercises eviction.
+ */
+export const fixtureMarkdownHeavy: Fixture = store => {
+  const t0 = performance.now()
+  const count = 1000
+  store.batch(() => {
+    for (let i = 0; i < count; i++) {
+      const cols = 25
+      const x = (i % cols) * 240
+      const y = Math.floor(i / cols) * 180
+      store.addNode({
+        id: asNodeId(store.generateId()),
+        type: 'rect',
+        x,
+        y,
+        w: 220,
+        h: 160,
+        angle: 0,
+        z: 0,
+        groups: [],
+        content: MARKDOWN_CONTENTS[i % MARKDOWN_CONTENTS.length]!,
+        style: {
+          backgroundColor: MARKDOWN_FILLS[i % MARKDOWN_FILLS.length]!,
+          fontFamily: MARKDOWN_FAMILIES[i % MARKDOWN_FAMILIES.length]!,
+          fontSize: MARKDOWN_SIZES[i % MARKDOWN_SIZES.length]!,
+          textAlign: 'left',
+        },
+      })
+    }
+  })
+  return { added: count, ms: performance.now() - t0 }
+}
+
 /**
  * 200 chart-card custom nodes. Stresses the DOM overlay viewport culling
  * and the LOD ladder. The chart-card type must be registered with the

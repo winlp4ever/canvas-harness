@@ -2,6 +2,12 @@ import { computeEdgeGeometry, drawEdge } from '../edges'
 import type { NodeTypeDef, RenderEnv } from '../node-types'
 import { inflateRect, nodeAABB } from '../spatial'
 import type { CanvasStore, InteractionState } from '../store'
+import {
+  DEFAULT_HIGHLIGHT_COLOR,
+  DEFAULT_TEXT_COLOR,
+  getOrRenderTextBitmap,
+  subscribeFontEpoch,
+} from '../text'
 import type { CameraState, Edge, EdgeId, Node, NodeId, WorldRect } from '../types'
 import { clearSurface, setupSurface, sizeSurface } from './canvas-setup'
 import { type FrameLoop, type FrameStats, createFrameLoop } from './frame-loop'
@@ -130,13 +136,32 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     const nextOverlaySet = new Set<NodeId>()
     let drawn = 0
 
+    // Render env shared by built-in content rendering + custom-node dispatch.
+    const renderEnv: RenderEnv = {
+      zoom: camera.z,
+      isMoving,
+      isSelected: false,
+      isHovered: false,
+      isEditing: false,
+      theme: token => (theme ? theme(token) : undefined),
+    }
+
     for (const node of visible) {
       if (excludedNodes?.has(node.id)) continue
 
-      // Built-in primitive path.
+      // Built-in primitive path: shape paint + optional content paint.
       if (isDrawablePrimitive(node.type)) {
         drawWithNodeTransform(staticSurface.ctx, node, () => {
           drawShape(staticSurface.ctx, node, scale, theme)
+          paintNodeContent(staticSurface.ctx, node, renderEnv)
+        })
+        drawn++
+        continue
+      }
+      // Text-only shape: no fill/stroke, just content.
+      if (node.type === 'text') {
+        drawWithNodeTransform(staticSurface.ctx, node, () => {
+          paintNodeContent(staticSurface.ctx, node, renderEnv)
         })
         drawn++
         continue
@@ -149,21 +174,11 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       if (node.w * camera.z < minOnScreen && node.h * camera.z < minOnScreen) continue
       if (camera.z < def.lod.minZoomForPlaceholder) continue
 
-      // Render env passed to author callbacks.
-      const env: RenderEnv = {
-        zoom: camera.z,
-        isMoving,
-        isSelected: false,
-        isHovered: false,
-        isEditing: false,
-        theme: token => (theme ? theme(token) : undefined),
-      }
-
       // Below the React threshold OR currently moving: prefer cheap canvas
       // paths. Order: getSnapshot → drawPlaceholder → renderCanvas → skip.
       const preferCanvas = camera.z < def.lod.minZoomForReact || isMoving
       if (preferCanvas) {
-        if (paintCustomCanvasFallback(staticSurface.ctx, node, def, scale, env)) {
+        if (paintCustomCanvasFallback(staticSurface.ctx, node, def, scale, renderEnv)) {
           drawn++
         }
         continue
@@ -176,7 +191,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       }
       if (def.renderCanvas) {
         drawWithNodeTransform(staticSurface.ctx, node, () => {
-          def.renderCanvas!(staticSurface.ctx, node, env)
+          def.renderCanvas!(staticSurface.ctx, node, renderEnv)
         })
         drawn++
       }
@@ -236,6 +251,34 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       return true
     }
     return false
+  }
+
+  /**
+   * Paints node.content (lite markdown) via the bitmap cache. Caller is
+   * already inside drawWithNodeTransform (origin at node's top-left,
+   * rotation applied). No-op when content is empty.
+   */
+  const paintNodeContent = (ctx: CanvasRenderingContext2D, node: Node, env: RenderEnv): void => {
+    const content = node.content
+    if (!content || !content.trim()) return
+    const style = node.style
+    const bitmap = getOrRenderTextBitmap({
+      id: node.id,
+      text: content,
+      width: node.w,
+      height: node.h,
+      zoom: env.zoom,
+      dpr: staticSurface.dpr,
+      isMoving: env.isMoving,
+      align: style?.textAlign ?? 'center',
+      fontFamily: style?.fontFamily ?? 'handwriting',
+      fontSize: style?.fontSize ?? 'M',
+      textStyle: style?.textStyle ?? 'normal',
+      textColor: style?.textColor ?? DEFAULT_TEXT_COLOR,
+      highlightColor: DEFAULT_HIGHLIGHT_COLOR,
+    })
+    if (!bitmap) return
+    ctx.drawImage(bitmap.canvas, 0, 0, node.w, node.h)
   }
 
   const setsEqual = (a: ReadonlySet<NodeId>, b: ReadonlySet<NodeId>): boolean => {
@@ -438,6 +481,11 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   const unsubCamera = store.subscribe('camera', onCameraChange)
   const unsubSelection = store.subscribe('selection', onSelectionChange)
   const unsubInteraction = store.subscribe('interaction', onInteractionChange)
+  // Custom-font load → bitmap cache clears itself; we just need a repaint.
+  const unsubFontEpoch = subscribeFontEpoch(() => {
+    staticDirty = true
+    loop.requestFrame()
+  })
 
   return {
     start() {
@@ -472,6 +520,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       unsubCamera()
       unsubSelection()
       unsubInteraction()
+      unsubFontEpoch()
     },
   }
 }
