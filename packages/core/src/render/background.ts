@@ -39,9 +39,13 @@ export const paintBackground = (
 
   if (bg.pattern === 'none') return
 
-  // 2. LOD — densify the gap in octaves until each cell is at least
-  //    MIN_PATTERN_SCREEN_PX on-screen. Skip entirely when pattern
-  //    would be sub-visible.
+  // 2a. User-configured zoom cliffs — hide pattern outside [minZoom, maxZoom].
+  if (opts.zoom < bg.minZoom) return
+  if (opts.zoom > bg.maxZoom) return
+
+  // 2b. LOD — densify the gap in octaves until each cell is at least
+  //     MIN_PATTERN_SCREEN_PX on-screen. Skip entirely when pattern
+  //     would be sub-visible.
   let effectiveGap = bg.gap
   while (effectiveGap * opts.zoom < MIN_PATTERN_SCREEN_PX) {
     effectiveGap *= 2
@@ -72,15 +76,17 @@ const paintDots = (
   color: string,
   zoom: number,
 ): void => {
-  // Dot radius constant in screen px so dots don't get huge at high zoom.
-  const radiusWorld = Math.max(0.5, 1.2 / zoom)
+  // Use a tiny `fillRect` per dot rather than `arc + fill`. At 1-2px
+  // on-screen the corners aren't perceivable, and one canvas2d call
+  // replaces three (beginPath / arc / fill) plus the implicit curve
+  // approximation. ~3-5x faster across thousands of dots/frame.
+  const sizeWorld = Math.max(1, 2.4 / zoom)
+  const half = sizeWorld / 2
   ctx.save()
   ctx.fillStyle = color
   for (let y = minY; y <= maxY; y += gap) {
     for (let x = minX; x <= maxX; x += gap) {
-      ctx.beginPath()
-      ctx.arc(x, y, radiusWorld, 0, Math.PI * 2)
-      ctx.fill()
+      ctx.fillRect(x - half, y - half, sizeWorld, sizeWorld)
     }
   }
   ctx.restore()

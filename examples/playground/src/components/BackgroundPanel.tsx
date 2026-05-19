@@ -116,6 +116,20 @@ export function BackgroundPanel({
               style={{ width: '100%' }}
             />
           </Field>
+          <Field
+            label={`Hide below zoom ${(value.minZoom ?? 0).toFixed(2)}`}
+          >
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={value.minZoom ?? 0}
+              onChange={e => apply({ minZoom: Number(e.target.value) })}
+              style={{ width: '100%' }}
+              title="Pattern disappears when camera zoom drops below this. Helps perf at low zoom."
+            />
+          </Field>
         </>
       )}
     </div>

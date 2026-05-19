@@ -20,6 +20,19 @@ export type CanvasBackground = {
   gap?: number
   /** Color of the dots / grid lines. Default `'#cbd5e1'`. */
   patternColor?: string
+  /**
+   * Hide the pattern when `camera.z < minZoom`. Useful to declutter
+   * zoomed-out views and skip the per-frame pattern paint cost. Default
+   * `0` (no minimum — pattern shows at any zoom, subject to the LOD
+   * skip when individual cells would be sub-2px).
+   */
+  minZoom?: number
+  /**
+   * Hide the pattern when `camera.z > maxZoom`. Default `Infinity` (no
+   * maximum). Most consumers won't need this; useful if you want the
+   * pattern to disappear when zoomed in past a "detail" threshold.
+   */
+  maxZoom?: number
 }
 
 export const DEFAULT_BACKGROUND: Required<CanvasBackground> = {
@@ -27,4 +40,6 @@ export const DEFAULT_BACKGROUND: Required<CanvasBackground> = {
   pattern: 'none',
   gap: 20,
   patternColor: '#cbd5e1',
+  minZoom: 0,
+  maxZoom: Number.POSITIVE_INFINITY,
 }
