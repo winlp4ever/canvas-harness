@@ -185,7 +185,8 @@ export const useInteraction = (
         if (!node) continue
         if (!shouldAutoFit(node)) continue
         const fitted = computeAutoFitHeight(node)
-        if (fitted !== node.h) store.updateNode(node.id, { h: fitted })
+        // Grow-only — preserve a user's deliberately-tall node.
+        if (fitted > node.h) store.updateNode(node.id, { h: fitted })
       }
       store.resetInteractionState()
     }

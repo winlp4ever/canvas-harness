@@ -58,11 +58,16 @@ describe('withAutoFitHeight', () => {
     const node = makeNode({ type: 'rect', content: 'hello', style: { autoFit: false } })
     expect(withAutoFitHeight(node)).toBe(node)
   })
-  test('adjusts h when autofit is on', () => {
+  test('grows h when content needs more than current height', () => {
     const node = makeNode({ content: 'one\ntwo\nthree\nfour', h: 50 })
     const fitted = withAutoFitHeight(node)
-    expect(fitted.h).not.toBe(50)
     expect(fitted.h).toBeGreaterThan(50)
+  })
+
+  test('grow-only: does NOT shrink a deliberately-tall node', () => {
+    // 1 line of content but the node is 500px tall — keep it tall.
+    const node = makeNode({ content: 'hi', h: 500 })
+    expect(withAutoFitHeight(node)).toBe(node)
   })
 })
 

@@ -59,6 +59,8 @@ export const withAutoFitHeight = (node: Node): Node => {
   // we'd shrink every freshly-created shape to a single line.
   if (!node.content || !node.content.trim()) return node
   const fitted = computeAutoFitHeight(node)
-  if (fitted === node.h) return node
+  // Grow-only: never collapse a deliberately-tall node down to its
+  // content height. tldraw / excalidraw behave the same way.
+  if (fitted <= node.h) return node
   return { ...node, h: fitted }
 }

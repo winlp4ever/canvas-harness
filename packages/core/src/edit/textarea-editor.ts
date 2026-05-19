@@ -48,23 +48,43 @@ export const createDefaultTextareaEditor: EditorAdapterFactory = ({
   const screenW = node.w * camera.z
   const screenH = node.h * camera.z
 
+  const alignToFlex: Record<string, string> = {
+    left: 'flex-start',
+    center: 'center',
+    right: 'flex-end',
+  }
+
+  // Wrapper handles vertical centering so the textarea visually matches
+  // the canvas paint (which centers when content fits within node.h).
+  // When content grows past min-height, the wrapper grows with it.
+  const wrap = document.createElement('div')
+  wrap.style.position = 'absolute'
+  wrap.style.left = `${screenX}px`
+  wrap.style.top = `${screenY}px`
+  wrap.style.width = `${screenW}px`
+  wrap.style.minHeight = `${screenH}px`
+  wrap.style.display = 'flex'
+  wrap.style.flexDirection = 'column'
+  wrap.style.justifyContent = 'center'
+  wrap.style.alignItems = alignToFlex[align] ?? 'center'
+  wrap.style.boxSizing = 'border-box'
+  wrap.style.border = '1px solid #3b82f6'
+  wrap.style.borderRadius = '4px'
+  wrap.style.background = style.backgroundColor ?? '#ffffff'
+  wrap.style.zIndex = '20'
+
   const ta = document.createElement('textarea')
   ta.value = node.content ?? ''
   ta.spellcheck = false
-  ta.style.position = 'absolute'
-  ta.style.left = `${screenX}px`
-  ta.style.top = `${screenY}px`
-  ta.style.width = `${screenW}px`
-  ta.style.minHeight = `${screenH}px`
+  ta.style.width = '100%'
   ta.style.padding = '6px'
   ta.style.margin = '0'
   ta.style.boxSizing = 'border-box'
-  ta.style.border = '1px solid #3b82f6'
-  ta.style.borderRadius = '4px'
+  ta.style.border = 'none'
   ta.style.outline = 'none'
   ta.style.resize = 'none'
   ta.style.overflow = 'hidden'
-  ta.style.background = style.backgroundColor ?? '#ffffff'
+  ta.style.background = 'transparent'
   ta.style.color = color
   ta.style.fontFamily = FONT_FAMILY_MAP[fontFamily]
   ta.style.fontSize = `${fontPx * camera.z}px`
@@ -72,12 +92,10 @@ export const createDefaultTextareaEditor: EditorAdapterFactory = ({
   ta.style.textAlign = align
   ta.style.whiteSpace = 'pre-wrap'
   ta.style.wordBreak = 'break-word'
-  ta.style.zIndex = '20'
 
   const autosize = (): void => {
     ta.style.height = 'auto'
-    const min = screenH
-    ta.style.height = `${Math.max(min, ta.scrollHeight)}px`
+    ta.style.height = `${ta.scrollHeight}px`
   }
 
   const commitNow = (): void => {
@@ -151,7 +169,8 @@ export const createDefaultTextareaEditor: EditorAdapterFactory = ({
   ta.addEventListener('input', onInput)
   ta.addEventListener('blur', onBlur)
   ta.addEventListener('keydown', onKeyDown)
-  container.appendChild(ta)
+  wrap.appendChild(ta)
+  container.appendChild(wrap)
   // Defer focus until after mount to ensure layout settled.
   requestAnimationFrame(() => {
     ta.focus()
@@ -170,7 +189,7 @@ export const createDefaultTextareaEditor: EditorAdapterFactory = ({
       ta.removeEventListener('input', onInput)
       ta.removeEventListener('blur', onBlur)
       ta.removeEventListener('keydown', onKeyDown)
-      ta.remove()
+      wrap.remove()
     },
   }
 }
