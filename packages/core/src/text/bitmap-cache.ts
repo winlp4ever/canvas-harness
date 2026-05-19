@@ -62,9 +62,18 @@ type StoredEntry = {
 
 const renderCache = new Map<string, StoredEntry>()
 
+/**
+ * Memoize FNV-1a text hashes so the per-frame cache-key build doesn't
+ * re-walk the content string for every visible node. Bounded; cleared on
+ * font-epoch bump alongside the bitmap cache.
+ */
+const HASH_CACHE_MAX = 2000
+const textHashCache = new Map<string, string>()
+
 /** Listen for font load → invalidate. */
 subscribeFontEpoch(() => {
   renderCache.clear()
+  textHashCache.clear()
 })
 
 /**
@@ -107,9 +116,20 @@ const makeKey = (
   epoch: number,
 ): string => {
   // Cheap deterministic key — small string concat, no number formatting.
-  // textHash uses the FNV-1a hash from the input directly so multiple
-  // identical-content notes share an entry.
-  return `${epoch}:${textHash(req.text)}:${req.width}:${req.height}:${zoom}:${dpr}:${scale}:${req.align}:${req.fontFamily}:${req.fontSize}:${req.textStyle}:${req.textColor}:${req.highlightColor}`
+  // cachedTextHash memoizes the FNV-1a walk so a node's content is hashed
+  // once across frames, not on every cache lookup.
+  return `${epoch}:${cachedTextHash(req.text)}:${req.width}:${req.height}:${zoom}:${dpr}:${scale}:${req.align}:${req.fontFamily}:${req.fontSize}:${req.textStyle}:${req.textColor}:${req.highlightColor}`
+}
+
+const cachedTextHash = (value: string): string => {
+  const hit = textHashCache.get(value)
+  if (hit !== undefined) return hit
+  const hash = textHash(value)
+  // Cap is a simple bound; on overflow clear the whole table rather than
+  // pay LRU bookkeeping. The bitmap cache below it remains authoritative.
+  if (textHashCache.size >= HASH_CACHE_MAX) textHashCache.clear()
+  textHashCache.set(value, hash)
+  return hash
 }
 
 /**
@@ -179,6 +199,7 @@ const evictIfNeeded = (): void => {
 /** Test / debug aid. */
 export const clearTextBitmapCache = (): void => {
   renderCache.clear()
+  textHashCache.clear()
 }
 
 /** Test / debug aid. */

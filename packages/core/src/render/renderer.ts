@@ -5,6 +5,7 @@ import type { CanvasStore, InteractionState } from '../store'
 import {
   DEFAULT_HIGHLIGHT_COLOR,
   DEFAULT_TEXT_COLOR,
+  FONT_SIZE_MAP,
   getOrRenderTextBitmap,
   subscribeFontEpoch,
 } from '../text'
@@ -42,6 +43,14 @@ const VIEWPORT_OVERSCAN_PX = 64
  * saves the entire path build + fill/stroke for that node.
  */
 const MIN_ON_SCREEN_SIZE_PX = 1.5
+
+/**
+ * Minimum on-screen font size (in logical CSS pixels) for text to be worth
+ * rasterizing. Below ~3px nothing is readable; skipping the bitmap lookup +
+ * blit saves several μs/node and matters at extreme zoom-out with thousands
+ * of content-bearing nodes visible.
+ */
+const MIN_READABLE_FONT_PX = 3
 
 export type RendererOptions = {
   store: CanvasStore
@@ -262,6 +271,10 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     const content = node.content
     if (!content || !content.trim()) return
     const style = node.style
+    const fontSize = style?.fontSize ?? 'M'
+    // Readability skip — text below ~3px on-screen is unreadable noise.
+    // Bypasses cache lookup (FNV walk + concat) and the drawImage blit.
+    if (FONT_SIZE_MAP[fontSize] * env.zoom < MIN_READABLE_FONT_PX) return
     const bitmap = getOrRenderTextBitmap({
       id: node.id,
       text: content,
@@ -272,7 +285,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       isMoving: env.isMoving,
       align: style?.textAlign ?? 'center',
       fontFamily: style?.fontFamily ?? 'handwriting',
-      fontSize: style?.fontSize ?? 'M',
+      fontSize,
       textStyle: style?.textStyle ?? 'normal',
       textColor: style?.textColor ?? DEFAULT_TEXT_COLOR,
       highlightColor: DEFAULT_HIGHLIGHT_COLOR,
