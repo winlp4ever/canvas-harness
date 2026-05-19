@@ -85,6 +85,12 @@ export interface CanvasStore {
   getAllNodes(): Node[]
   getAllEdges(): Edge[]
   getAllGroups(): Group[]
+  /** O(1) count without materializing the full list. */
+  getNodeCount(): number
+  /** O(1) count without materializing the full list. */
+  getEdgeCount(): number
+  /** O(1) count without materializing the full list. */
+  getGroupCount(): number
   querySpatial(q: SpatialQuery): SpatialResult
 
   // camera + selection

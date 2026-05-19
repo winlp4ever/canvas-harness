@@ -47,8 +47,7 @@ export function PerfOverlay({
         <strong>{stats.avgMs.toFixed(1)}ms</strong>
       </div>
       <div>
-        drew <strong>{drawCount}</strong> / total {store.getAllNodes().length}n{' '}
-        {store.getAllEdges().length}e
+        drew <strong>{drawCount}</strong> / total {store.getNodeCount()}n {store.getEdgeCount()}e
       </div>
       <div>
         cam{' '}

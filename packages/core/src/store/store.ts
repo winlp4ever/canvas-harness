@@ -419,6 +419,9 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     getAllNodes: () => nodeIdsAtom.value.map(id => nodeAtoms.get(id)!.value),
     getAllEdges: () => edgeIdsAtom.value.map(id => edgeAtoms.get(id)!.value),
     getAllGroups: () => groupIdsAtom.value.map(id => groupAtoms.get(id)!.value),
+    getNodeCount: () => nodeIdsAtom.value.length,
+    getEdgeCount: () => edgeIdsAtom.value.length,
+    getGroupCount: () => groupIdsAtom.value.length,
 
     querySpatial(q: SpatialQuery): SpatialResult {
       const rect = q.rect ?? (q.point ? { x: q.point.x, y: q.point.y, w: 0, h: 0 } : null)
