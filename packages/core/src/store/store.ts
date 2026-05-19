@@ -77,6 +77,14 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
   const edgeIndex = new UniformGrid()
   const edgeGeoCache = new EdgeGeometryCache()
 
+  // Per-edge integer version. Bumped on edge.add/update and on node.update
+  // for incident edges. Drives the EdgeGeometryCache invalidation without
+  // having to compare full-state strings. See ARCHITECTURE.md §6.12.
+  const edgeVersions = new Map<EdgeId, number>()
+  const bumpEdgeVersion = (id: EdgeId): void => {
+    edgeVersions.set(id, (edgeVersions.get(id) ?? 0) + 1)
+  }
+
   // incidentEdges: nodeId -> set of edgeIds. Used by reindexEdge when a
   // node moves (to refresh all its edges' AABBs in the spatial index) and
   // by removeNode to cascade-delete attached edges.
@@ -125,7 +133,8 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     nodeIndex.insert(node.id, nodeAABB(node))
   }
   const reindexEdge = (edge: Edge): void => {
-    const geom = edgeGeoCache.get(edge, getNodeForGeo)
+    const version = edgeVersions.get(edge.id) ?? 0
+    const geom = edgeGeoCache.get(edge, version, getNodeForGeo)
     if (geom) {
       edgeIndex.insert(edge.id, geom.aabb)
     } else {
@@ -177,10 +186,12 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         const next = { ...a.value, ...op.patch }
         a.set(next)
         reindexNode(next)
-        // edges whose endpoint is on this node may now have stale AABBs
+        // Edges whose endpoint is on this node now have stale geometry.
+        // Bump each incident edge's version so the cache invalidates.
         const incident = incidentEdges.get(op.id)
         if (incident) {
           for (const eid of incident) {
+            bumpEdgeVersion(eid)
             const e = edgeAtoms.get(eid)
             if (e) reindexEdge(e.value)
           }
@@ -200,6 +211,7 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         edgeAtoms.set(op.edge.id, a)
         edgeIdsAtom.update(ids => [...ids, op.edge.id])
         trackIncidence(op.edge)
+        bumpEdgeVersion(op.edge.id)
         reindexEdge(op.edge)
         break
       }
@@ -211,6 +223,7 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         untrackIncidence(prev)
         trackIncidence(next)
         a.set(next)
+        bumpEdgeVersion(op.id)
         reindexEdge(next)
         break
       }
@@ -220,6 +233,7 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         if (a) untrackIncidence(a.value)
         edgeAtoms.delete(id)
         edgeIdsAtom.update(ids => ids.filter(x => x !== id))
+        edgeVersions.delete(id)
         unindexEdge(id)
         break
       }
@@ -282,6 +296,7 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
       edgeAtoms.set(edge.id, a)
       edgeIdsAtom.update(ids => [...ids, edge.id])
       trackIncidence(edge)
+      bumpEdgeVersion(edge.id)
       reindexEdge(edge)
     }
     for (const id of Object.keys(scene.groups)) {
@@ -405,7 +420,8 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     getEdgeGeometry(id: EdgeId): EdgeGeometry | undefined {
       const edge = edgeAtoms.get(id)?.value
       if (!edge) return undefined
-      return edgeGeoCache.get(edge, getNodeForGeo) ?? undefined
+      const version = edgeVersions.get(id) ?? 0
+      return edgeGeoCache.get(edge, version, getNodeForGeo) ?? undefined
     },
     getIncidentEdges(id: NodeId): EdgeId[] {
       const set = incidentEdges.get(id)
