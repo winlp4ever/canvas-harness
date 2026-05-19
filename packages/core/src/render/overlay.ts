@@ -139,6 +139,30 @@ export const drawRotateHandle = (
 }
 
 /**
+ * Draws a single midpoint handle at the visual midpoint of a selected
+ * bezier/polyline edge. Drag it to reshape the curve (the gesture in
+ * `useInteractionGesture` converts the drag point into cubic controls
+ * via `midpointToCubicControls`).
+ */
+export const drawEdgeMidpointHandle = (
+  ctx: CanvasRenderingContext2D,
+  midpoint: { x: number; y: number },
+  scale: number,
+): void => {
+  const radiusPx = 5
+  const radiusWorld = radiusPx / scale
+  ctx.save()
+  ctx.fillStyle = '#fff'
+  ctx.strokeStyle = SELECTION_COLOR
+  ctx.lineWidth = SELECTION_OUTLINE_PX / scale
+  ctx.beginPath()
+  ctx.arc(midpoint.x, midpoint.y, radiusWorld, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  ctx.restore()
+}
+
+/**
  * Draws the endpoint handles for a selected edge at the source/target
  * world points. Used during edit/reconnection.
  */

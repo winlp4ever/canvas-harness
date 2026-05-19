@@ -20,6 +20,7 @@ import {
   createPalmRejectionState,
   hitTestAny,
   marqueeNodes,
+  midpointToCubicControls,
   notePenActive,
   notePenInactive,
   projectToNodeBoundary,
@@ -64,13 +65,15 @@ export const useInteractionGesture = (
       | 'resize'
       | 'rotate'
       | 'marquee'
-      | 'reconnect-edge' = 'idle'
+      | 'reconnect-edge'
+      | 'edge-midpoint' = 'idle'
     let resizeHandle: ResizeHandle | null = null
     let dragOriginals: DragOriginal[] = []
     let marqueeStartWorld: Vec2 | null = null
     let marqueeShift = false
     let reconnectEdgeId: EdgeId | null = null
     let reconnectEnd: 'source' | 'target' | null = null
+    let midpointEdgeId: EdgeId | null = null
     // Rotation gesture state.
     let rotateNodeId: NodeId | null = null
     let rotateOriginAngle = 0 // node.angle at gesture start
@@ -280,6 +283,14 @@ export const useInteractionGesture = (
         return
       }
 
+      if (hit?.kind === 'midpoint-handle') {
+        midpointEdgeId = hit.edgeId
+        activeGesture = 'edge-midpoint'
+        el.setPointerCapture(e.pointerId)
+        e.preventDefault()
+        return
+      }
+
       if (hit?.kind === 'source-handle' || hit?.kind === 'target-handle') {
         reconnectEdgeId = hit.edgeId
         reconnectEnd = hit.kind === 'source-handle' ? 'source' : 'target'
@@ -397,7 +408,17 @@ export const useInteractionGesture = (
         updateMarquee(worldFromEvent(e))
       } else if (activeGesture === 'reconnect-edge' && reconnectEdgeId && reconnectEnd) {
         updateReconnect(worldFromEvent(e))
+      } else if (activeGesture === 'edge-midpoint' && midpointEdgeId) {
+        updateEdgeMidpoint(worldFromEvent(e))
       }
+    }
+
+    const updateEdgeMidpoint = (world: Vec2): void => {
+      if (!midpointEdgeId) return
+      const geom = store.getEdgeGeometry(midpointEdgeId)
+      if (!geom) return
+      const { c1, c2 } = midpointToCubicControls(geom.source, world, geom.target)
+      store.updateEdge(midpointEdgeId, { control: [c1, c2] })
     }
 
     const updateReconnect = (world: Vec2): void => {
@@ -485,6 +506,10 @@ export const useInteractionGesture = (
         case 'reconnect-edge':
           commitReconnect(e)
           break
+        case 'edge-midpoint':
+          // updateEdgeMidpoint already wrote each move via store.updateEdge;
+          // pointerup just clears the gesture state.
+          break
         // 'click-pending' was already handled in pointerdown (selection set);
         // nothing more to do.
       }
@@ -494,6 +519,7 @@ export const useInteractionGesture = (
       dragOriginals = []
       marqueeStartWorld = null
       reconnectEdgeId = null
+      midpointEdgeId = null
       reconnectEnd = null
     }
 

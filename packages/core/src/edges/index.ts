@@ -11,6 +11,7 @@ export type { EdgeGeometry } from './cache'
 export { EdgeGeometryCache, computeEdgeGeometry } from './cache'
 export { edgeAABBFromSamples } from './aabb'
 export { getPointAndTangentAtArcLength } from './arc-length'
+export { midpointToCubicControls } from './midpoint'
 export { drawArrowhead, arrowheadLength } from './arrowhead'
 export { drawEdge, edgeLabelBoundsWorld } from './draw'
 export {

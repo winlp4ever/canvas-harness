@@ -235,6 +235,9 @@ function CanvasSurface({
           store.beginEdit(hit.edgeId)
         } else if (hit && hit.kind === 'label') {
           store.beginEdit(hit.edgeId)
+        } else if (hit && hit.kind === 'midpoint-handle') {
+          // Dbl-click the midpoint → restore auto-route.
+          store.updateEdge(hit.edgeId, { control: undefined })
         }
       }
       dispatch(e, onDoubleClick)

@@ -84,10 +84,16 @@ export const hitTestAny = (
     if (h) return { kind: 'resize-handle', nodeId: id, handle: h }
   }
 
-  // 2. edge endpoint handles (selected only)
+  // 2. edge handles (selected only) — endpoint reconnect handles and
+  // the midpoint reshape handle.
   for (const id of selectedEdges) {
     const partial = hitTestEdge(store, worldPoint, cameraZ, new Set([id]))
-    if (partial && (partial.kind === 'source-handle' || partial.kind === 'target-handle')) {
+    if (
+      partial &&
+      (partial.kind === 'source-handle' ||
+        partial.kind === 'target-handle' ||
+        partial.kind === 'midpoint-handle')
+    ) {
       return partial
     }
   }

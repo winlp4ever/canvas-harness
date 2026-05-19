@@ -5,6 +5,7 @@
  * distance over the cached samples. Sub-region detection: arrowhead tips
  * and (when selected) endpoint handles are tested before the body.
  */
+import { getPointAndTangentAtArcLength } from '../edges/arc-length'
 import { edgeLabelBoundsWorld } from '../edges/draw'
 import type { CanvasStore, EdgeGeometry } from '../store'
 import type { Edge, EdgeId, Vec2 } from '../types'
@@ -13,11 +14,14 @@ import type { Edge, EdgeId, Vec2 } from '../types'
 export const EDGE_HIT_SLOP_PX = 8
 /** Hit-slop in screen pixels for endpoint / arrowhead handles. */
 export const EDGE_HANDLE_SLOP_PX = 12
+/** Hit-slop in screen pixels for the midpoint handle (Phase 12.6). */
+export const EDGE_MIDPOINT_SLOP_PX = 10
 
 export type EdgeHit =
   | { kind: 'body'; edgeId: EdgeId; distance: number; arcLength: number }
   | { kind: 'source-handle'; edgeId: EdgeId; distance: number }
   | { kind: 'target-handle'; edgeId: EdgeId; distance: number }
+  | { kind: 'midpoint-handle'; edgeId: EdgeId }
   | { kind: 'label'; edgeId: EdgeId }
 
 /**
@@ -35,6 +39,8 @@ export const hitTestEdge = (
   const handleSlopWorld = EDGE_HANDLE_SLOP_PX / cameraZ
 
   // Endpoint handles win over body (interactive-over-background rule).
+  // Midpoint handle slots between endpoint handles and the body.
+  const midpointSlopWorld = EDGE_MIDPOINT_SLOP_PX / cameraZ
   for (const id of selectedEdges) {
     const geom = store.getEdgeGeometry(id)
     if (!geom) continue
@@ -45,6 +51,10 @@ export const hitTestEdge = (
     const dTarget = distance(worldPoint, geom.target)
     if (dTarget <= handleSlopWorld) {
       return { kind: 'target-handle', edgeId: id, distance: dTarget }
+    }
+    const mid = getPointAndTangentAtArcLength(geom.samples, 0.5).point
+    if (distance(worldPoint, mid) <= midpointSlopWorld) {
+      return { kind: 'midpoint-handle', edgeId: id }
     }
   }
 

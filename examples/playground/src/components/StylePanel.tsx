@@ -173,23 +173,33 @@ export function StylePanel({ store }: { store: CanvasStore }) {
               onChange={color => applyNodeStyle({ backgroundColor: color })}
             />
           </Field>
+        </>
+      )}
 
-          <Field label="Font">
-            <SegmentedControl
-              options={FONT_FAMILY_OPTIONS}
-              value={(sampleStyle as Style).fontFamily ?? 'handwriting'}
-              onChange={ff => applyNodeStyle({ fontFamily: ff })}
-            />
-          </Field>
+      {/*
+        Font / size / textStyle / textColor apply to both node content
+        and edge labels — the renderer reads these from `style` on
+        either entity. Align stays node-only since edge labels are
+        centered around their anchor point.
+      */}
+      <Field label="Font">
+        <SegmentedControl
+          options={FONT_FAMILY_OPTIONS}
+          value={(sampleStyle as Style).fontFamily ?? 'handwriting'}
+          onChange={ff => applyAny({ fontFamily: ff })}
+        />
+      </Field>
 
-          <Field label="Size">
-            <SegmentedControl
-              options={FONT_SIZE_OPTIONS}
-              value={(sampleStyle as Style).fontSize ?? 'M'}
-              onChange={fs => applyNodeStyle({ fontSize: fs })}
-            />
-          </Field>
+      <Field label="Size">
+        <SegmentedControl
+          options={FONT_SIZE_OPTIONS}
+          value={(sampleStyle as Style).fontSize ?? 'M'}
+          onChange={fs => applyAny({ fontSize: fs })}
+        />
+      </Field>
 
+      {nodesOnly && (
+        <>
           <Field label="Align">
             <SegmentedControl
               options={TEXT_ALIGN_OPTIONS}
@@ -197,24 +207,24 @@ export function StylePanel({ store }: { store: CanvasStore }) {
               onChange={ta => applyNodeStyle({ textAlign: ta })}
             />
           </Field>
-
-          <Field label="Text style">
-            <SegmentedControl
-              options={TEXT_STYLE_OPTIONS}
-              value={(sampleStyle as Style).textStyle ?? 'normal'}
-              onChange={ts => applyNodeStyle({ textStyle: ts })}
-            />
-          </Field>
-
-          <Field label="Text color">
-            <Palette
-              colors={TEXT_COLOR_PALETTE}
-              value={(sampleStyle as Style).textColor}
-              onChange={color => applyNodeStyle({ textColor: color })}
-            />
-          </Field>
         </>
       )}
+
+      <Field label="Text style">
+        <SegmentedControl
+          options={TEXT_STYLE_OPTIONS}
+          value={(sampleStyle as Style).textStyle ?? 'normal'}
+          onChange={ts => applyAny({ textStyle: ts })}
+        />
+      </Field>
+
+      <Field label="Text color">
+        <Palette
+          colors={TEXT_COLOR_PALETTE}
+          value={(sampleStyle as Style).textColor}
+          onChange={color => applyAny({ textColor: color })}
+        />
+      </Field>
 
       <Field label="Stroke">
         <Palette

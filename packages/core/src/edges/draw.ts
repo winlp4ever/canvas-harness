@@ -191,7 +191,7 @@ const computeLabelDims = (edge: Edge): LabelDims | null => {
   const content = edge.content
   if (!content) return null
   const style = edge.style
-  const fontFamily = style?.fontFamily ?? 'sans-serif'
+  const fontFamily = style?.fontFamily ?? 'handwriting'
   const fontSize = style?.fontSize ?? 'M'
   const textStyle = style?.textStyle ?? 'normal'
   const cacheKey = `${content}|${fontFamily}|${fontSize}|${textStyle}`
@@ -294,7 +294,7 @@ const drawEdgeLabel = (
     dpr: 1,
     isMoving: false,
     align: 'center',
-    fontFamily: style?.fontFamily ?? 'sans-serif',
+    fontFamily: style?.fontFamily ?? 'handwriting',
     fontSize,
     textStyle: style?.textStyle ?? 'normal',
     textColor: style?.textColor ?? DEFAULT_TEXT_COLOR,

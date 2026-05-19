@@ -25,8 +25,10 @@ import { type FrameLoop, type FrameStats, createFrameLoop } from './frame-loop'
  *               shape currently being dragged at its uncommitted position.
  *               Redrawn every rAF tick while interaction.mode !== 'idle'.
  */
+import { getPointAndTangentAtArcLength } from '../edges/arc-length'
 import {
   drawEdgeEndpointHandles,
+  drawEdgeMidpointHandle,
   drawMarquee,
   drawResizeHandles,
   drawRotateHandle,
@@ -448,7 +450,17 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // Edge endpoint handles on selected edges.
     for (const id of selectedEdgeIds) {
       const geom = store.getEdgeGeometry(id)
-      if (geom) drawEdgeEndpointHandles(ctx, geom.source, geom.target, scale)
+      if (geom) {
+        drawEdgeEndpointHandles(ctx, geom.source, geom.target, scale)
+        // Midpoint handle — drag to reshape (Phase 12.6). Only on
+        // bezier; polyline / straight don't have a meaningful curve to
+        // sculpt with one drag point.
+        const edge = store.getEdge(id)
+        if (edge && edge.pathStyle === 'bezier') {
+          const mid = getPointAndTangentAtArcLength(geom.samples, 0.5).point
+          drawEdgeMidpointHandle(ctx, mid, scale)
+        }
+      }
     }
 
     // 3. Marquee rect.

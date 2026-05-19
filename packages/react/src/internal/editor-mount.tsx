@@ -118,6 +118,12 @@ const synthesizeLabelNode = (
   edge: Edge,
   geom: import('@canvas-harness/core').EdgeGeometry,
 ): Node | null => {
+  // Edge labels default to 'handwriting' (matches node content + the
+  // renderer's `drawEdgeLabel` default). Explicit so the textarea
+  // editor doesn't fall through to its own default and cause a font
+  // flicker on first edit commit.
+  const labelStyle = { fontFamily: 'handwriting' as const, ...edge.style }
+
   const bounds = edgeLabelBoundsWorld(edge, geom)
   if (!bounds) {
     // Empty content — fabricate a small box at the label's would-be
@@ -135,7 +141,7 @@ const synthesizeLabelNode = (
       z: 0,
       groups: [],
       content: '',
-      style: edge.style,
+      style: labelStyle,
     }
   }
   return {
@@ -149,6 +155,6 @@ const synthesizeLabelNode = (
     z: 0,
     groups: [],
     content: edge.content ?? '',
-    style: { ...edge.style, autoFit: false }, // labels don't autofit height
+    style: { ...labelStyle, autoFit: false }, // labels don't autofit height
   }
 }
