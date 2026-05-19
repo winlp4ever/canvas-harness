@@ -21,6 +21,7 @@ import type { EdgeGeometry } from '../edges/cache'
 import type { IdGenerator } from '../ids'
 import type { NodeTypeDef } from '../node-types'
 import type { InteractionState } from './interaction'
+import type { PresencePatch, PresenceState } from './presence'
 
 export type StoreOptions = {
   initial?: import('../types').Scene
@@ -41,6 +42,14 @@ export type StoreOptions = {
  */
 export type OpOrigin = 'local' | 'remote' | 'history'
 
+/**
+ * Presence change event payload. `removed: true` signals a remote client
+ * has left. Local-presence changes carry the full new state.
+ */
+export type PresenceEvent =
+  | { state: PresenceState; removed?: false }
+  | { clientId: ClientId; removed: true }
+
 export type StoreEvents = {
   /** Fires once per committed OpBatch (one batch per mutation or per `batch()` call). */
   change: OpBatch
@@ -50,6 +59,34 @@ export type StoreEvents = {
   selection: (NodeId | EdgeId)[]
   /** Interaction state changed (mode / pointer / drag / marquee / resize / edit). */
   interaction: InteractionState
+  /** Local or remote presence changed. Subscribers compare clientId to filter. */
+  presence: PresenceEvent
+  /**
+   * LWW conflict detected when applying a remote batch — `prev` slice
+   * didn't match local current value. The op was still applied (last
+   * writer wins); the event fires for telemetry / consumer UX.
+   */
+  conflict: { batch: OpBatch; conflicts: { op: Op; field: string }[] }
+}
+
+/** Public presence slice on the store. */
+export interface PresenceSlice {
+  /** Patch this client's presence; emits a 'presence' event + forwards via SyncAdapter. */
+  setLocal(patch: PresencePatch): void
+  /** Current local presence. */
+  getLocal(): PresenceState
+  /** Snapshot of a remote client's presence, or undefined. */
+  get(clientId: ClientId): PresenceState | undefined
+  /** Snapshot of all remote presences. */
+  getAll(): ReadonlyMap<ClientId, PresenceState>
+  /**
+   * Adapter-facing: apply a remote client's presence patch. `state === null`
+   * removes the remote client (they've left). Emits a 'presence' event so
+   * consumers can update overlay UI.
+   *
+   * @internal — used by `attachSync`. Not meant for app code.
+   */
+  applyRemote(clientId: ClientId, state: PresenceState | null): void
 }
 
 export type StoreEventName = keyof StoreEvents
@@ -88,6 +125,20 @@ export interface CanvasStore {
   batch(fn: () => void): void
   applyOp(op: Op, opts?: { origin?: OpOrigin }): void
   applyBatch(batch: OpBatch): void
+
+  // undo / redo (phase 8) — local committed batches push onto an undo
+  // stack capped at 50; remote and history batches don't.
+  canUndo(): boolean
+  canRedo(): boolean
+  /** Pops the most recent local batch and applies its inverse. Returns true if anything was undone. */
+  undo(): boolean
+  /** Re-applies a previously-undone batch. Returns true if anything was redone. */
+  redo(): boolean
+  /** Drops both undo and redo stacks. Used by `fromJSON` and any reset path. */
+  clearHistory(): void
+
+  /** Per-client ephemeral *synced* state — cursor / selection / editing / color / name. */
+  presence: PresenceSlice
 
   // reads (imperative, no subscription)
   getNode(id: NodeId): Node | undefined

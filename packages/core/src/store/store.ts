@@ -15,6 +15,8 @@ import { type Atom, atom, transact } from 'signia'
 import { DEFAULT_CAMERA } from '../camera'
 import { type EdgeGeometry, EdgeGeometryCache } from '../edges/cache'
 import { shouldAutoFit, withAutoFitHeight } from '../edit/auto-fit'
+import { detectConflicts } from './conflict'
+import { inverseBatch } from './inverse-op'
 import { type IdGenerator, makeIdGenerator, randomClientId } from '../ids'
 import { UniformGrid, nodeAABB } from '../spatial'
 import { SCHEMA_VERSION, asBatchId, isAttached } from '../types'
@@ -32,6 +34,7 @@ import type {
   Scene,
 } from '../types'
 import { type InteractionState, idleInteractionState } from './interaction'
+import { type PresencePatch, type PresenceState, emptyPresenceState } from './presence'
 import type {
   CanvasStore,
   OpOrigin,
@@ -73,6 +76,8 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
   const cameraAtom = atom<CameraState>('camera', initial.camera)
   const selectionAtom = atom<(NodeId | EdgeId)[]>('selection', initial.selection)
   const interactionAtom = atom<InteractionState>('interaction', idleInteractionState())
+  const localPresenceAtom = atom<PresenceState>('presence', emptyPresenceState(clientId))
+  const remotePresence = new Map<ClientId, PresenceState>()
 
   const nodeIndex = new UniformGrid()
   const edgeIndex = new UniformGrid()
@@ -123,6 +128,14 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     }
   }
 
+  // ---- undo / redo stacks ------------------------------------------------
+  // Local committed batches push onto undoStack; redoStack is cleared on
+  // any fresh local op (the standard "branching" rule). Remote and history
+  // batches do not push to undoStack — see emitChange below. Cap at 50.
+  const UNDO_STACK_CAP = 50
+  const undoStack: OpBatch[] = []
+  const redoStack: OpBatch[] = []
+
   // ---- event bus ---------------------------------------------------------
   type Subscribers = { [E in StoreEventName]: Set<StoreEventHandler<E>> }
   const subscribers: Subscribers = {
@@ -130,9 +143,27 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     camera: new Set(),
     selection: new Set(),
     interaction: new Set(),
+    presence: new Set(),
+    conflict: new Set(),
   }
   const emit = <E extends StoreEventName>(event: E, payload: StoreEvents[E]): void => {
     for (const cb of subscribers[event]) cb(payload)
+  }
+
+  /**
+   * Single entry point for 'change' emission. Centralizes the undo-stack
+   * bookkeeping so every call site (enqueueOp, removeNode cascade,
+   * applyOp, applyBatch) gets it for free. Only `origin: 'local'`
+   * batches enter the undo stack; remote and history batches don't.
+   */
+  const emitChange = (batch: OpBatch): void => {
+    if (batch.origin === 'local') {
+      undoStack.push(batch)
+      if (undoStack.length > UNDO_STACK_CAP) undoStack.shift()
+      // A fresh local op invalidates any redo branch.
+      redoStack.length = 0
+    }
+    emit('change', batch)
   }
 
   // ---- spatial-index helpers --------------------------------------------
@@ -271,7 +302,7 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
       currentBatchOps!.push(op)
       applyOpInternal(op)
       const batch = endBatch()
-      if (batch) emit('change', batch)
+      if (batch) emitChange(batch)
     } else {
       currentBatchOps.push(op)
       applyOpInternal(op)
@@ -366,7 +397,7 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         currentBatchOps!.push({ type: 'node.remove', node })
         applyOpInternal({ type: 'node.remove', node })
         const batch = endBatch()
-        if (batch) emit('change', batch)
+        if (batch) emitChange(batch)
       })
     },
 
@@ -402,7 +433,7 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
           fn()
         } finally {
           const batch = endBatch()
-          if (batch) emit('change', batch)
+          if (batch) emitChange(batch)
         }
       })
     },
@@ -412,7 +443,7 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
       if (origin !== 'local') {
         // remote / history ops bypass the local batch buffer; emit their own
         applyOpInternal(op)
-        emit('change', {
+        emitChange({
           id: asBatchId(idGenerator()),
           clientId,
           ts: Date.now(),
@@ -426,9 +457,60 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
 
     applyBatch(b) {
       transact(() => {
+        // Conflict detection runs BEFORE apply — the remote op's `prev`
+        // slice describes what the remote client expected; once we apply
+        // we lose the chance to compare. LWW still wins (we apply
+        // regardless), but consumers get a 'conflict' event for UX.
+        if (b.origin === 'remote') {
+          const conflicts = detectConflicts(
+            b,
+            id => nodeAtoms.get(id)?.value,
+            id => edgeAtoms.get(id)?.value,
+          )
+          if (conflicts.length > 0) emit('conflict', { batch: b, conflicts })
+        }
         for (const op of b.ops) applyOpInternal(op)
-        emit('change', b)
+        emitChange(b)
       })
+    },
+
+    canUndo: () => undoStack.length > 0,
+    canRedo: () => redoStack.length > 0,
+    undo() {
+      const batch = undoStack.pop()
+      if (!batch) return false
+      const ops = inverseBatch(batch)
+      const inverseB: OpBatch = {
+        id: asBatchId(idGenerator()),
+        clientId,
+        ts: Date.now(),
+        origin: 'history',
+        ops,
+      }
+      transact(() => {
+        for (const op of ops) applyOpInternal(op)
+        emit('change', inverseB) // bypass emitChange — history doesn't push
+      })
+      redoStack.push(batch)
+      return true
+    },
+    redo() {
+      const batch = redoStack.pop()
+      if (!batch) return false
+      // Replay with history origin so the inverse machinery stays clean,
+      // and the redo batch goes back onto the undo stack so the user can
+      // undo it again.
+      const redoB: OpBatch = { ...batch, origin: 'history' }
+      transact(() => {
+        for (const op of redoB.ops) applyOpInternal(op)
+        emit('change', redoB)
+      })
+      undoStack.push(batch)
+      return true
+    },
+    clearHistory() {
+      undoStack.length = 0
+      redoStack.length = 0
     },
 
     // reads
@@ -518,6 +600,25 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
       const idleState = { ...state, mode: 'idle' as const, editingNodeId: null }
       interactionAtom.set(idleState)
       emit('interaction', idleState)
+    },
+
+    presence: {
+      setLocal(patch: PresencePatch) {
+        const next: PresenceState = { ...localPresenceAtom.value, ...patch }
+        localPresenceAtom.set(next)
+        emit('presence', { state: next })
+      },
+      getLocal: () => localPresenceAtom.value,
+      get: (id: ClientId) => remotePresence.get(id),
+      getAll: () => remotePresence,
+      applyRemote(id: ClientId, state: PresenceState | null) {
+        if (state === null) {
+          if (remotePresence.delete(id)) emit('presence', { clientId: id, removed: true })
+          return
+        }
+        remotePresence.set(id, state)
+        emit('presence', { state })
+      },
     },
 
     subscribe<E extends StoreEventName>(event: E, cb: StoreEventHandler<E>): Unsubscribe {
