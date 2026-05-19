@@ -4,6 +4,7 @@ import {
   attachSync,
   createCanvasStore,
 } from '@canvas-harness/core'
+import { CanvasProvider } from '@canvas-harness/react'
 import { createBroadcastSyncAdapter } from '@canvas-harness/sync-broadcast'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Canvas, type Tool } from './components/Canvas'
@@ -90,14 +91,16 @@ export function App() {
   }, [store])
 
   return (
-    <div style={{ position: 'fixed', inset: 0 }}>
-      <Canvas store={store} tool={tool} onRenderer={onRenderer} />
-      <Toolbar active={tool} onSelect={setTool} />
-      <HistoryControls store={store} />
-      <StressMenu store={store} />
-      <StylePanel store={store} />
-      <PresenceOverlay store={store} />
-      <PerfOverlay store={store} renderer={renderer} />
-    </div>
+    <CanvasProvider store={store}>
+      <div style={{ position: 'fixed', inset: 0 }}>
+        <Canvas tool={tool} onRenderer={onRenderer} />
+        <Toolbar active={tool} onSelect={setTool} />
+        <HistoryControls store={store} />
+        <StressMenu store={store} />
+        <StylePanel store={store} />
+        <PresenceOverlay store={store} />
+        <PerfOverlay store={store} renderer={renderer} />
+      </div>
+    </CanvasProvider>
   )
 }

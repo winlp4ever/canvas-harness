@@ -1,26 +1,38 @@
 import {
   type CanvasStore,
+  type EditorAdapter,
+  type EditorAdapterFactory,
   type NodeId,
   createDefaultTextareaEditor,
 } from '@canvas-harness/core'
 import { useEffect, useRef } from 'react'
 
 /**
- * EditorMount — wires the core's `createDefaultTextareaEditor` adapter to
- * the in-canvas edit lifecycle. Mounts a `<textarea>` at the editing
- * node's screen position; tears it down on commit / cancel.
+ * EditorMount — wires an `EditorAdapter` to the in-canvas edit lifecycle.
+ * Mounts the adapter at the editing node's screen position; tears it
+ * down on commit / cancel.
  *
  * Camera is locked during edit (see `usePanZoom`) so the editor stays
  * pinned to the node it's editing without needing to chase pan/zoom.
+ *
+ * `factory` defaults to `createDefaultTextareaEditor` (a plain
+ * `<textarea>`). Consumers can plug Lexical/ProseMirror/TipTap by
+ * passing a custom factory.
  */
-export function EditorMount({ store }: { store: CanvasStore }) {
+export function EditorMount({
+  store,
+  factory = createDefaultTextareaEditor,
+}: {
+  store: CanvasStore
+  factory?: EditorAdapterFactory
+}) {
   const hostRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
 
-    let activeAdapter: ReturnType<typeof createDefaultTextareaEditor> | null = null
+    let activeAdapter: EditorAdapter | null = null
     let currentEditingId: NodeId | null = null
 
     const teardown = (): void => {
@@ -46,7 +58,7 @@ export function EditorMount({ store }: { store: CanvasStore }) {
       if (!node) return
 
       currentEditingId = editingId
-      activeAdapter = createDefaultTextareaEditor({
+      activeAdapter = factory({
         node,
         container: host,
         camera: store.getCamera(),
@@ -66,7 +78,7 @@ export function EditorMount({ store }: { store: CanvasStore }) {
       unsub()
       teardown()
     }
-  }, [store])
+  }, [store, factory])
 
   return (
     <div

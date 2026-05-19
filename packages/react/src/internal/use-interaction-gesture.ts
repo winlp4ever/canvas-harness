@@ -37,7 +37,7 @@ export type InteractionTool =
   | 'arrow'
   | 'text'
 
-export const useInteraction = (
+export const useInteractionGesture = (
   ref: React.RefObject<HTMLElement | null>,
   store: CanvasStore,
   tool: InteractionTool,
