@@ -5,6 +5,15 @@ export { createFrameLoop } from './frame-loop'
 export type { Renderer, RendererOptions } from './renderer'
 export { createRenderer } from './renderer'
 export { paintBackground } from './background'
+export type { MinimapContentOptions } from './minimap'
+export {
+  DEFAULT_MINIMAP_MAX_NODES,
+  drawMinimapViewport,
+  minimapScreenToWorld,
+  renderMinimapContent,
+  sceneBounds,
+  worldViewportFromCamera,
+} from './minimap'
 export type { PrimitiveType, ThemeResolver } from './shapes'
 export {
   DEFAULT_STYLE,

@@ -428,6 +428,7 @@ function CanvasSurface({
   return (
     <div
       ref={wrapRef}
+      data-canvas-host=""
       style={{
         position: 'absolute',
         inset: 0,

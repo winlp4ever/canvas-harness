@@ -4,7 +4,7 @@ import {
   attachSync,
   createCanvasStore,
 } from '@canvas-harness/core'
-import { CanvasProvider } from '@canvas-harness/react'
+import { CanvasProvider, Minimap } from '@canvas-harness/react'
 import { createBroadcastSyncAdapter } from '@canvas-harness/sync-broadcast'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AiContextButton } from './components/AiContextButton'
@@ -131,6 +131,26 @@ export function App() {
         <PresenceOverlay store={store} />
         <ExtensionsMenu store={store} />
         <StatusBar />
+        <Minimap
+          width={200}
+          height={140}
+          backgroundColor={themeMode.mode === 'dark' ? '#1e293b' : '#ffffff'}
+          borderColor={themeMode.mode === 'dark' ? '#334155' : '#cbd5e1'}
+          defaultNodeColor={themeMode.mode === 'dark' ? '#475569' : '#94a3b8'}
+          style={{
+            position: 'absolute',
+            bottom: 110,
+            right: 12,
+            width: 200,
+            height: 140,
+            background: themeMode.mode === 'dark' ? '#1e293b' : '#ffffff',
+            border: `1px solid ${themeMode.mode === 'dark' ? '#334155' : '#cbd5e1'}`,
+            borderRadius: 6,
+            boxShadow: '0 1px 3px rgba(0,0,0,.08)',
+            overflow: 'hidden',
+            zIndex: 10,
+          }}
+        />
         <PerfOverlay store={store} renderer={renderer} />
       </div>
     </CanvasProvider>
