@@ -72,12 +72,15 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     const camera = store.getCamera()
     clearSurface(staticSurface)
     applyCameraTransform(staticSurface, camera)
+    // World units → device pixels. Lifted out of the per-shape hot path so
+    // we don't allocate a DOMMatrix via ctx.getTransform() for every node.
+    const scale = camera.z * staticSurface.dpr
     const visible = visibleNodes(camera)
     let drawn = 0
     for (const node of visible) {
       if (!isDrawablePrimitive(node.type)) continue
       drawWithNodeTransform(staticSurface.ctx, node, () => {
-        drawShape(staticSurface.ctx, node, theme)
+        drawShape(staticSurface.ctx, node, scale, theme)
       })
       drawn++
     }
