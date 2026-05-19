@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.turbo/
+.DS_Store
+*.log
+.env
+.env.local
+coverage/
+.vite-cache/
+.tsbuildinfo
+*.tsbuildinfo
+
+# Sibling project, not part of canvas-harness
+/dim0/
+
+# Project-local AI memory store
+/.claude/
+
+# Vitest browser-mode failure screenshots
+**/tests/__screenshots__/

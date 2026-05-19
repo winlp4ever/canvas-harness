@@ -1,0 +1,23 @@
+{
+  "name": "canvas-harness",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @canvas-harness/playground dev",
+    "build": "pnpm --recursive --filter \"./packages/*\" build",
+    "test": "pnpm --recursive --filter \"./packages/*\" test",
+    "test:browser": "pnpm --recursive --filter \"./packages/*\" test:browser",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "pnpm --recursive --filter \"./packages/*\" typecheck && pnpm --filter @canvas-harness/playground typecheck"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

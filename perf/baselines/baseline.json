@@ -1,0 +1,5 @@
+{
+  "phase": 0,
+  "comment": "Empty baseline. Phase 2 (renderer) populates the first real perf scenarios.",
+  "scenarios": {}
+}
