@@ -24,56 +24,83 @@ import { useResizeObserver } from './internal/use-resize-observer'
 import type { ThemeResolver } from './types'
 
 /**
- * Screen-space + world-space pointer info delivered to event-prop
- * callbacks (`onClick`, `onDoubleClick`).
+ * Pointer info passed to `onClick` / `onDoubleClick`. Includes the
+ * point in both screen space and world space so consumers don't have
+ * to convert.
  */
 export type CanvasPointerEvent = {
+  /** Position relative to the canvas element. */
   screen: { x: number; y: number }
+  /** Position in scene coordinates (camera-adjusted). */
   world: { x: number; y: number }
   /** Tool active when the event fired. */
   tool: string
-  /** The native MouseEvent — caller can read modifiers, button, etc. */
+  /** The native MouseEvent — read modifiers, button, etc. */
   native: MouseEvent
 }
 
 /**
- * Drag-to-create event — fires on pointerup after the user dragged a
- * region of at least `DRAG_CREATE_MIN_SIZE_PX` on the canvas surface
- * with a non-select tool. Consumer maps the rect into a new node.
+ * Fired on pointerup after a drag-to-create gesture (non-select tool,
+ * drag larger than ~5px). The consumer maps the rect into a new node
+ * (defaults, type, style — all consumer policy).
  */
 export type CanvasCreateDragEvent = {
+  /** Bounding rect of the drag, in world coordinates. */
   rect: { x: number; y: number; w: number; h: number }
+  /** Tool active when the gesture ended. */
   tool: string
   native: PointerEvent
 }
 
 export type CanvasProps = {
-  /** Optional — if omitted, must be inside a `<CanvasProvider>`. */
+  /**
+   * Optional — when omitted, the component reads the store from
+   * `<CanvasProvider>` context. Pass directly for tests or
+   * standalone-canvas use.
+   */
   store?: CanvasStore
-  /** Current tool. The library handles 'select' and 'arrow' internally;
-   *  other strings are passed through so consumers can wire their own
-   *  shape-create / text-tool logic via `onClick`. */
+  /**
+   * Current tool. The library handles `'select'` and `'arrow'`
+   * internally; any other string passes through to `onClick` /
+   * `onCreateDrag` so consumers can wire their own shape-create /
+   * text-tool / lasso / ... logic.
+   */
   tool: string
-  /** Theme resolver — see ARCHITECTURE.md §13.10. */
+  /** Theme resolver — see ARCHITECTURE.md §13.10 for the token catalog. */
   theme?: ThemeResolver
-  /** Pluggable in-place editor factory; defaults to the DOM textarea. */
+  /**
+   * Pluggable in-place editor factory; defaults to the built-in
+   * `<textarea>`. Implement to swap in Lexical / ProseMirror / TipTap.
+   */
   editorAdapter?: EditorAdapterFactory
-  /** Called once when the renderer is mounted. */
+  /** Called once when the renderer is mounted. Useful for perf overlays. */
   onRenderer?: (r: Renderer) => void
-  /** Click on the canvas surface (not over a node interactive handle). */
+  /** Click on the canvas surface (not over a node handle). */
   onClick?: (e: CanvasPointerEvent) => void
-  /** Double-click anywhere on the surface. */
+  /** Double-click on the surface. The library has already triggered
+   *  `beginEdit` if the click landed on a node body. */
   onDoubleClick?: (e: CanvasPointerEvent) => void
   /**
-   * Drag-to-create. Fires on pointerup when the user dragged a region
-   * with a non-select tool. Consumer maps `rect + tool` into a new
-   * node. Sub-threshold drags fall through to `onClick`.
+   * Drag-to-create — fires on pointerup when the user dragged with a
+   * non-select tool. Sub-threshold drags fall through to `onClick`.
+   *
+   * @example
+   * onCreateDrag={({ rect, tool }) => {
+   *   if (tool === 'rect') store.addNode({ ...rect, type: 'rect', ... })
+   * }}
    */
   onCreateDrag?: (e: CanvasCreateDragEvent) => void
   /**
-   * Render a custom node's React view. Returning `null` falls back to
-   * the canvas paint path. Receives the node + its mount slot's screen
-   * geometry already applied by the overlay container.
+   * Render a custom node's React subtree. Called once per
+   * library-mounted custom-node id; positioning is handled by the
+   * overlay container (consumer fills the slot).
+   *
+   * @example
+   * renderCustomNodeView={id => {
+   *   const node = store.getNode(id)
+   *   if (node?.type === 'chart-card') return <ChartCardView node={node} />
+   *   return null
+   * }}
    */
   renderCustomNodeView?: (id: NodeId) => ReactNode
   /** Extra content rendered inside the canvas absolute container. */
@@ -81,15 +108,29 @@ export type CanvasProps = {
 }
 
 /**
- * `<Canvas>` — see ARCHITECTURE.md §13.
+ * Mounts the canvas surface (static + interactive layers + DOM overlay
+ * for custom-node views + in-place editor mount). Owns the renderer
+ * lifecycle, gesture hooks, resize observer.
  *
- * Mounts the static + interactive canvases plus the DOM overlay used
- * for custom-node React views and the in-place editor. Owns the
- * renderer lifecycle, the resize observer, and the gesture hooks.
+ * Use inside a {@link CanvasProvider} (or pass `store` directly).
  *
- * The store is read from `<CanvasProvider>` context; if a `store` prop
- * is also provided (rare — usually for tests / standalone usage), it
- * takes precedence and is wrapped in a local provider for descendants.
+ * @example
+ * function App() {
+ *   const store = useRef(createCanvasStore()).current
+ *   const [tool, setTool] = useState('select')
+ *   return (
+ *     <CanvasProvider store={store}>
+ *       <Canvas
+ *         tool={tool}
+ *         onClick={e => console.log('click at', e.world)}
+ *         onCreateDrag={e => {
+ *           store.addNode({ id: asNodeId(store.generateId()), type: e.tool, ...e.rect, angle: 0, z: 0, groups: [] })
+ *         }}
+ *       />
+ *       <Toolbar onSelect={setTool} />
+ *     </CanvasProvider>
+ *   )
+ * }
  */
 export function Canvas(props: CanvasProps) {
   if (props.store) {

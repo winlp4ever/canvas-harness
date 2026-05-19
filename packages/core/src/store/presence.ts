@@ -1,25 +1,24 @@
 import type { ClientId, EdgeId, NodeId, Vec2 } from '../types'
 
 /**
- * Presence — see ARCHITECTURE.md §10.5.
+ * Per-client awareness state that other clients see in real time.
+ * Synced over the {@link SyncAdapter}; never in the op log; never
+ * persisted by `toJSON`.
  *
- * Per-client ephemeral state that's *synced* (unlike InteractionState,
- * which is local-only). Cursor position, selection, color, name, and
- * which node the user is currently editing.
- *
- * Presence is NOT in the op log; it never enters undo/redo or
- * `toJSON`. The SyncAdapter delivers presence patches alongside op
- * batches but on its own channel.
+ * Set the local copy via `store.presence.setLocal({...})`. Read the
+ * remote copy via `usePresence()` / `usePresence(clientId)` (React) or
+ * `store.presence.get(...)` / `store.presence.getAll()`.
  */
 export type PresenceState = {
+  /** Stable id of the owning client. */
   clientId: ClientId
   /** Cursor world position; null when the cursor has left the surface. */
   cursor: Vec2 | null
-  /** Selected node + edge ids — surfaces to other clients for shared awareness. */
+  /** Ids the remote client has selected — for shared-awareness highlights. */
   selection: (NodeId | EdgeId)[]
-  /** Node id currently being edited (Phase 7 edit-mode); null when idle. */
+  /** Node id the remote client is currently editing (or null). */
   editing: NodeId | null
-  /** Display color (hex, e.g. '#ef4444') — used for remote cursors/outlines. */
+  /** Display color (hex). Used for remote cursors + selection outlines. */
   color: string
   /** Display name. */
   name: string

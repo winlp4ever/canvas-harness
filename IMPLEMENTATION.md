@@ -103,22 +103,45 @@ No library code yet. Pure plumbing.
 
 Each phase ends with a **demo** — a concrete thing you can run that proves the phase works. Demos are checked into `examples/playground/` and added to the perf harness where applicable.
 
-| # | Phase                                                              | Weeks | LOC   | Demo at end                                                                          |
-|---|--------------------------------------------------------------------|-------|-------|--------------------------------------------------------------------------------------|
-| 1 | Foundations — types + codec + store skeleton + spatial index + camera + ids | 1   | ~700  | Programmatic CRUD on a scene via JS console; round-trip `toJSON`/`fromJSON`.        |
-| 2 | Renderer + 4 simple shapes (rect/ellipse/diamond/capsule) + viewport cull + static/interactive split | 1 | ~1250 | **Render 1000 rects, pan/zoom 60fps. First perf measurement against §12 budget.**  |
-| 3 | Hit testing + selection + marquee + drag + resize handles          | 1     | ~700  | Click, multi-select, drag, resize 100 nodes at 60fps. Multi-select group resize works. |
-| 4 | **Edge system** — full §6 (storage, projection, auto-clip, bezier, polyline, hit testing, creation, reconnect, arrowheads, labels) | **2** | **~1800** | Connect any two nodes with a bezier edge, drag endpoints, rotate a node and watch endpoint follow. 5k-edge perf test. |
-| 5 | Custom-node API + DOM overlay + viewport culling + LOD + `getSnapshot` plumbing | 1 | ~730 | 200 custom React `<ChartCard>` nodes mount/unmount at viewport edge without jank.   |
-| 6 | Rich text port from `dim0/webui/canvas-lite-markdown.tsx` + output-stage rewrite to offscreen canvas | 1 | ~900  | Sticky notes with bold/italic/lists/code render correctly; font-epoch invalidation works on Google Fonts load. |
-| 7 | Edit mode — textarea + autosize + Cmd+B/I/U/strike/code/link + auto-list + empty-content placeholder + custom-editor adapter interface | 1 | ~900 | Dbl-click any text-bearing shape, type markdown, Esc to commit. Tab through shapes. |
-| 8 | Op log + undo/redo + presence + `SyncAdapter` interface + LWW conflict resolution + experimental flag | 1.5 | ~1380 | Undo/redo across complex multi-node ops works. BroadcastChannel adapter syncs two tabs side-by-side. |
-| 9 | React layer — `<Canvas>` + all 13 hooks + event prop bridging      | 0.5   | ~650  | Playground rewritten to use the React API; ergonomic feel matches react-flow.       |
-| 10 | Copy/paste (MIME dual-write + ID remap) + screenshot/export (PNG; SVG opt-in) | 0.5 | ~400 | Round-trip copy-paste between canvas instances. `exportSelection` produces a real PNG. |
-| 11 | Pointer/pen input + gesture recognition + palm rejection           | 1     | ~400  | Works on trackpad, touchscreen, stylus. Pinch-zoom, long-press-drag, pen pressure propagates. |
-| 12 | AI context (`getContext` + `opSchemas`) + InteractionState observability + theming + extension system | 0.5 | ~460 | `getContext({ format: "markdown" })` output snapshot test. Status bar reads `useInteractionState()`. |
-| 13 | **Perf pass + integration bugs + polish**                          | **2** | —     | All perf budget assertions green in CI. 10k-node demo scene feels smooth.            |
-|   | **Total**                                                          | **~14 weeks** | **~10K LOC** |                                                                          |
+| # | Status | Phase                                                              | Weeks | LOC plan / actual | Demo at end                                                                          |
+|---|--------|--------------------------------------------------------------------|-------|-------------------|--------------------------------------------------------------------------------------|
+| 1 | ✓ done | Foundations — types + codec + store skeleton + spatial index + camera + ids | 1   | ~700 / ~750  | Programmatic CRUD on a scene via JS console; round-trip `toJSON`/`fromJSON`.        |
+| 2 | ✓ done | Renderer + 4 simple shapes (rect/ellipse/diamond/capsule) + viewport cull + static/interactive split | 1 | ~1250 / ~1300 | **Render 1000 rects, pan/zoom 60fps. First perf measurement against §12 budget.**  |
+| 3 | ✓ done | Hit testing + selection + marquee + drag + resize handles          | 1     | ~700 / ~750  | Click, multi-select, drag, resize 100 nodes at 60fps. Multi-select group resize works. |
+| 4 | ✓ done | **Edge system** — full §6 (storage, projection, auto-clip, bezier, polyline, hit testing, creation, reconnect, arrowheads, labels) | **2** | **~1800 / ~1850** | Connect any two nodes with a bezier edge, drag endpoints, rotate a node and watch endpoint follow. 5k-edge perf test. |
+| 5 | ✓ done | Custom-node API + DOM overlay + viewport culling + LOD + `getSnapshot` plumbing | 1 | ~730 / ~780 | 200 custom React `<ChartCard>` nodes mount/unmount at viewport edge without jank.   |
+| 6 | ✓ done | Rich text port from `dim0/webui/canvas-lite-markdown.tsx` + output-stage rewrite to offscreen canvas | 1 | ~900 / ~950 | Sticky notes with bold/italic/lists/code render correctly; font-epoch invalidation works on Google Fonts load. |
+| 7 | ✓ done | Edit mode — textarea + autosize + Cmd+B/I/U/strike/code/link + auto-list + empty-content placeholder + custom-editor adapter interface | 1 | ~900 / ~1000 | Dbl-click any text-bearing shape, type markdown, Esc to commit. Tab-through deferred to v1.x. |
+| 8 | ✓ done | Op log + undo/redo + presence + `SyncAdapter` interface + LWW conflict resolution + experimental flag | 1.5 | ~1380 / ~1220 | Undo/redo across complex multi-node ops works. BroadcastChannel adapter syncs two tabs side-by-side. |
+| 9 | ✓ done | React layer — `<Canvas>` + 15 hooks + event prop bridging          | 0.5   | ~650 / ~700  | Playground rewritten to use the React API; idiomatic feel.                          |
+| 10 | ✓ done | Copy/paste (MIME dual-write + ID remap) + screenshot/export (PNG + SVG) | 0.5 | ~400 / ~940 | Round-trip copy-paste between canvas instances. `exportSelection` produces a real PNG with optional transparent background. |
+| 11 | ✓ done | Pointer/pen input + gesture recognition + palm rejection + drag-to-create + dbl-click-text | 1     | ~400 / ~550 | Two-finger pinch, long-press-drag, pen pressure propagates; drag-to-create on shape tools; touch handle reach. |
+| 12 | ✓ done | AI context (`getContext` + `opSchemas`) + InteractionState observability + theming docs + extension system | 0.5 | ~460 / ~530 | One-click "Copy AI context" in the playground; status bar reads `useInteractionState()`; snap-to-grid example extension. |
+| 13 | next   | **Perf pass + integration bugs + polish**                          | **2** | —     | All perf budget assertions green in CI. 10k-node demo scene feels smooth. Mobile polish (editor + virtual keyboard, narrow-screen layout, real-device pass). |
+|   |        | **Total**                                                          | **~14 weeks** | **~12K LOC actual** (incl. tests + playground) |                                                            |
+
+> Plan estimates excluded tests + playground; actuals include both. The ~6K of pure library + ~2.8K of tests + ~1.5K of playground/sync-broadcast tracks the original estimate within ~15%.
+
+### 3.1.b Implementation deviations from the original plan
+
+These are the calls made during the build that differ from the doc above. Each was an explicit choice point during the corresponding phase.
+
+| Deviation | Phase | Reason |
+|-----------|-------|--------|
+| `signia-react` considered, then dropped in favor of `useSyncExternalStore` | 9 | Our store hides its atoms behind methods; `signia-react`'s `track()` HOC needs exposed signals to be useful. Standard React 18 API was a cleaner fit and removed a dep. |
+| 15 hooks shipped, not 13 | 9 | Added `useLocalPresence`, `useCanUndo`, `useCanRedo`, `useIsPenActive`. Dropped the doc's planned `useCanvasApi` / `useCanvasStore<T>(selector)` — `useCanvasStore()` (zero-arg) returns the store; consumers compose selectors themselves. |
+| Drag-to-create + dbl-click-text spawn | 11 | Slipped in as polish after the phase-11 input pass. Excalidraw-style; matched the existing tap-to-create as a fall-through under a 5px threshold. |
+| PNG export ~250 LOC, SVG export ~150 LOC, exceeded ~400 target | 10 | Both formats turned out to be worth shipping in v1 since they share the bounding-rect + padding scaffolding. Added `transparentBackground` option to both. |
+| `snap-to-grid` ships only as a playground demo, not a library export | 12 | Extension *mechanism* is library; extension *policy* (grid size, snap behavior) is consumer territory. |
+| Autofit is grow-only, not exact-fit | 7 | A deliberately-tall node should not collapse when content is brief. Matches tldraw / excalidraw. Empty content is also a no-op so freshly-created shapes preserve their explicit `h`. |
+| Edit-mode tab-through deferred to v1.x | 7 | Required deciding iteration order (z-order vs spatial vs selection); user opted to defer rather than pick prematurely. |
+| Bitmap-cache key memoization (FNV hash cache) | 6 | Phase-6 perf pass: re-walking content for the cache key on every visible node per frame at zoom 0.08 / 10k nodes was a measurable cost. Added a bounded `Map<text,hash>` cleared on font-epoch bump. |
+| Readability skip for text below ~3px on-screen | 6 | Same perf pass — `fontSize * zoom < 3` skips the bitmap lookup + blit entirely. ~50% FPS recovery at extreme zoom-out on markdown-heavy fixtures. |
+| Integer edge-cache versions instead of stringified geometry keys | 4 | Phase-4 perf pass: `toFixed(2)` per node attribute multiplied across 5k edges per frame was ~14 string allocs per edge. Replaced with a `Map<EdgeId, number>` version counter bumped on add/update + on incident node update. |
+| Rotation handle + gesture | 4.5 | Data model + hit-test math were already in place from phase 3-4 (SAT, rotation-aware AABB); the UI gesture slid in between phases 7 and 8 since it was ~150 LOC and useful for testing rotated-node interactions. |
+| `<Canvas>` accepts uncontrolled props only (no `selection={ids}` etc.) | 9 | Store is the controlled source. Controlled-prop variants would create two sources of truth. |
+| Conflict event includes per-field record, not just batch | 8 | The doc said `conflict: { batch, conflicts }` — we ship `conflicts: { op, field }[]` so a consumer toast can name the property that was overwritten ("background color was just changed by Alice"). |
+| Undo stack capped at 50 (not unlimited or 200) | 8 | Excalidraw is unlimited; Photoshop default is 50. User picked 50 as a memory safety net; size easily configurable later. |
 
 ### 3.1 Playground UI deliverables per phase
 
@@ -208,14 +231,17 @@ Missing from v1: collab bones, screenshot/export, pointer/pen polish, AI context
 
 To keep scope honest, called out so they don't get smuggled back in:
 
-- **No concrete sync adapter implementation.** Consumer plugs in their own (Yjs, WebSocket, BroadcastChannel adapter is a *test* fixture only). v2 may ship `@canvas-harness/sync-yjs`.
-- **No rough.js shipped active.** Lazy-loaded only when `style.roughness > 0`.
-- **No `getSnapshot` polyfill.** Authors own rasterization (`html-to-image`, hand-built canvas, etc.).
-- **No concurrent text-in-node collab.** Edit-mode lock instead (§9.9). v2 candidate.
+- **No production-grade sync adapter.** `@canvas-harness/sync-broadcast` ships as a single-machine multi-tab demo and proves the `SyncAdapter` interface; consumer plugs in their own (Yjs, WebSocket) for cross-machine. v2 may ship `@canvas-harness/sync-yjs`.
+- **No rough.js shipped active.** Lazy-loaded only when `style.roughness > 0`. Not wired yet.
+- **No `getSnapshot` polyfill.** Authors own rasterization (`html-to-image`, hand-built canvas, etc.). The plumbing is in place; only sync snapshots are honored in v1, async returns are no-ops.
+- **No concurrent text-in-node collab.** Edit-mode lock instead (§9.9). The local edit lock is enforced; the *remote-edit-blocks-local* path needs the sync adapter to surface peer `editing` presence, which is plumbed but not enforced in v1. v2 candidate.
 - **No accessibility DOM mirror.** Planned for v2.
-- **No SVG export polish.** PNG ships; SVG is opt-in and lossy for custom React nodes.
-- **No mobile-specific UI chrome.** Touch gestures supported, UI is consumer territory.
+- **No SVG export of markdown styling.** SVG export emits shape geometry + plain text (strips `**bold**`, `==hl==`, etc.); PNG preserves all markdown via the bitmap pipeline. v2 candidate to support tspan-based styling.
+- **No mobile-specific UI chrome.** Touch gestures supported (pinch / pan / long-press), handle reach bumped to 14px, but the playground panels don't reflow on narrow screens and the editor doesn't anchor to the virtual keyboard. Real-device polish in Phase 13.
 - **No auto-routing for polyline edges.** Polyline is a data shape; routing is an extension.
+- **No tab-to-next-shape during edit.** Requires picking an iteration order (z / spatial / selection). Deferred so the choice isn't premature.
+- **No store-side `fromJSON` / `clearHistory` integration with the codec.** The codec serializes; `store.clearHistory` exists; gluing the two on `fromJSON` is a small Phase-13 task.
+- **No Anthropic-tool execution wired in the playground.** `opSchemasAsAnthropicTools()` returns the schemas; running a live tool-use loop against the canvas is a separate demo, out of v1 scope.
 
 ---
 
@@ -377,5 +403,21 @@ Track choices made AFTER this plan is committed, so future devs can read the rea
 | 2026-05-18 | All pre-flight decisions in §1 | See `ARCHITECTURE.md` discussion thread | yes |
 | 2026-05-19 | Vitest browser mode replaces standalone Playwright | One tool covers unit + perf; Playwright was over-engineering | yes |
 | 2026-05-19 | Playground UI built incrementally per phase (option A); progressive style controls; minimal perf overlay (upgrade in phase 13); React state for tool/brush state, library store for scene state | Excalidraw-shaped UI needed for manual + stress testing; distributing keeps each phase's demo coherent and avoids dead time | yes |
+| 2026-05-19 | Phase 2 perf wins: rAF-coalesce pan input, sub-pixel shape skip, plain-rect for sub-pixel rounded corners, sub-pixel stroke skip, skip `ctx.save/restore` at opacity=1, lift `scale` out of `drawShape` hot path | Profiling at 20k–30k rects showed `setCamera` per pointermove + per-shape allocations as the bottlenecks | yes |
+| 2026-05-19 | Phase 4 perf wins: integer edge-cache versions (replaced `toFixed(2)` string keys), skip sub-pixel arrowheads, adaptive bezier sample stride (1/2/4/8 based on scale) | At 5k edges, string allocs for cache keys dominated. Integer versions cut ~14 allocs/edge/frame | yes |
+| 2026-05-19 | Phase 6: keep dim0's tokenizer/layout/measure-cache/font-epoch verbatim, replace `toBlob` + `<img>` output stage with synchronous offscreen-canvas (or detached `HTMLCanvasElement`) bitmap LRU | The async stage was 150 LOC of plumbing that exists to bridge DOM. Canvas-in-canvas can be sync | yes |
+| 2026-05-19 | Phase 6 perf wins: readability skip below ~3px on-screen font size; memoize FNV-1a text hash for cache keys | At zoom 0.08 with 10k markdown nodes, the bitmap blit + hash walk dominated. Skip eliminates both | yes |
+| 2026-05-19 | Phase 7: plain `<textarea>` (not contenteditable); lock pan/zoom while editing; commit-boundary autofit only (not per-keystroke); autofit grow-only | Markdown is plain text by design; native undo + a11y; camera-lock removes positioning math; grow-only matches tldraw/excalidraw and preserves user intent | yes |
+| 2026-05-19 | Phase 7: dbl-click on empty board spawns an editable text node (consumer policy in playground) | Excalidraw-style; mirrors the existing dbl-click-on-node beginEdit behavior | yes |
+| 2026-05-19 | Phase 8: undo stack capped at 50 (not unlimited, not 200, not 20) | Photoshop default; balances "user can reach back through an experiment" with bounded memory | yes |
+| 2026-05-19 | Phase 8: ship `@canvas-harness/sync-broadcast` alongside the interface | Interface alone is hard to evaluate without a working consumer; two-tab demo makes collab feel real | yes |
+| 2026-05-19 | Phase 8: emit `change` for history batches via `emit('change', batch)` bypassing `emitChange` (no undo-stack push) but include history in sync forwarding (`origin !== 'remote'`) | Two distinct concerns: stack bookkeeping vs wire-forwarding. Initially the sync forwarded only `'local'`; that meant undos didn't propagate to peers — bug fixed during testing | yes |
+| 2026-05-19 | Phase 9: `useSyncExternalStore` over `signia-react` | `signia-react`'s `track()` HOC needs exposed signals; our store hides atoms behind methods. React 18 standard API is cleaner | yes |
+| 2026-05-19 | Phase 9: `<Canvas>` uncontrolled only | Store is the controlled source; controlled props would create two sources of truth | yes |
+| 2026-05-19 | Phase 10: drop edges crossing the selection on copy; SVG export ships plain text (no markdown styling) | Matches tldraw/excalidraw cut/paste semantics; SVG `<text>` doesn't support our markdown dialect without tspan positioning math | yes |
+| 2026-05-19 | Phase 11: long-press threshold 500ms; palm rejection grace 300ms post pen-up; pen events don't bypass tool gating | Matches tldraw / Procreate-ish; tool-gating exception is a v2 / extension concern | yes |
+| 2026-05-19 | Phase 11.5: drag-to-create + dbl-click-text fold into Phase 11 polish | Both were small (~200 LOC) and unblock the "feels like excalidraw" tactile flow | yes |
+| 2026-05-19 | Phase 11.5: bump resize handle size 10 → 14px, rotate 7 → 9px | Touch reach (44 / 48px target floor is unreachable without making handles dominate at desktop); 14px is the tldraw value, minor desktop impact | yes |
+| 2026-05-19 | Phase 12: getContext markdown is full-text, not tabular; opSchemas ships both raw JSON schemas + Anthropic tool-def wrapper; snap-to-grid is playground demo not library export | LLMs read prose better than tables (wastes tokens); both formats are useful (validate vs tool-use); extension *mechanism* is library, extension *policy* is consumer | yes |
 
 Append on every reversal or refinement. This is the trail when someone asks "why are we using X."

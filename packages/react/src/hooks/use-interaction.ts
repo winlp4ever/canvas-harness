@@ -9,8 +9,16 @@ import { useSyncExternalStore } from 'react'
 import { useCanvasStore } from '../context'
 
 /**
- * useInteractionState — full local interaction state. Fires on any
- * change (mode, pointer, drag delta, marquee rect, ...).
+ * Full interaction state. Fires on **any** change — mode flips,
+ * pointermoves, drag delta updates, marquee rect updates, ...
+ *
+ * Most consumers want a narrower hook (`useInteractionMode`,
+ * `useCursor`, `useIsMoving`, `useDraggedIds`). Reach for this one only
+ * if you need multiple fields together.
+ *
+ * @example
+ * const state = useInteractionState()
+ * if (state.mode === 'marqueeing') drawMarqueeOverlay(state.marqueeRect)
  */
 export function useInteractionState(): InteractionState {
   const store = useCanvasStore()
@@ -21,8 +29,15 @@ export function useInteractionState(): InteractionState {
 }
 
 /**
- * useInteractionMode — narrows to `mode`. Re-renders only on mode
- * transition, not on every pointermove.
+ * Just the interaction mode. Re-renders only on mode transitions,
+ * never on pointermove.
+ *
+ * Use to gate heavy effects ("only run X when mode === 'idle'") or
+ * disable UI affordances during a drag.
+ *
+ * @example
+ * const mode = useInteractionMode()
+ * <button disabled={mode !== 'idle'}>Run AI suggestion</button>
  */
 export function useInteractionMode(): InteractionMode {
   const store = useCanvasStore()
@@ -40,7 +55,14 @@ export function useInteractionMode(): InteractionMode {
   )
 }
 
-/** useCursor — current pointer info (world + screen coords), or null. */
+/**
+ * Latest pointer info — `worldX/Y`, `screenX/Y`, `pointerType`,
+ * optional `pressure` (for pens). Updated on every pointermove.
+ *
+ * @example
+ * const cursor = useCursor()
+ * <div>x: {cursor?.worldX.toFixed(1)}</div>
+ */
 export function useCursor(): PointerInfo | null {
   const store = useCanvasStore()
   return useSyncExternalStore(
@@ -49,7 +71,18 @@ export function useCursor(): PointerInfo | null {
   )
 }
 
-/** useIsMoving — true while panning/zooming/dragging/resizing/rotating. */
+/**
+ * `true` while the user is panning, zooming, dragging, resizing, or
+ * rotating. Derived from {@link useInteractionMode}.
+ *
+ * Useful for skipping expensive renders during motion (the library
+ * does this internally for the bitmap cache; consumers can do the same
+ * for custom-node React views).
+ *
+ * @example
+ * const isMoving = useIsMoving()
+ * return isMoving ? <Skeleton /> : <ExpensiveChart />
+ */
 export function useIsMoving(): boolean {
   const mode = useInteractionMode()
   return (
@@ -62,19 +95,12 @@ export function useIsMoving(): boolean {
 }
 
 /**
- * useIsPenActive — true when the last reported pointer was a pen.
- * Useful for showing pen-specific UI (e.g. pressure-aware tools). Falls
- * back to false when no pointer info is in the store yet.
- */
-export function useIsPenActive(): boolean {
-  const cursor = useCursor()
-  return cursor?.pointerType === 'pen'
-}
-
-/**
- * useDraggedIds — ids currently being dragged/resized. Stable
- * reference between drag-start and drag-commit; new array on each
- * gesture. Empty array (constant) when idle so renders are bounded.
+ * Ids being dragged or resized right now. Empty array when idle (with
+ * a stable reference, so consumers can use as a dep).
+ *
+ * @example
+ * const ids = useDraggedIds()
+ * useEffect(() => { … }, [ids])  // safe; same array between gestures
  */
 const EMPTY_DRAGGED: NodeId[] = []
 export function useDraggedIds(): readonly (NodeId | EdgeId)[] {
@@ -86,4 +112,19 @@ export function useDraggedIds(): readonly (NodeId | EdgeId)[] {
       return state.draggedIds.length === 0 ? EMPTY_DRAGGED : state.draggedIds
     },
   )
+}
+
+/**
+ * `true` when the most recent pointer was a stylus. Falls back to
+ * `false` before any pointer event has fired.
+ *
+ * Use to surface pen-specific UI (pressure-aware tools, ink hints).
+ *
+ * @example
+ * const isPen = useIsPenActive()
+ * {isPen && <PressureToolbar />}
+ */
+export function useIsPenActive(): boolean {
+  const cursor = useCursor()
+  return cursor?.pointerType === 'pen'
 }

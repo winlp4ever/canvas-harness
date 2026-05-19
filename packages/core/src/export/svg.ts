@@ -22,6 +22,18 @@ export type SvgExportOptions = {
 const DEFAULT_PADDING = 16
 const DEFAULT_BACKGROUND = '#ffffff'
 
+/**
+ * Renders the current selection to an SVG string. Synchronous —
+ * unlike PNG, no canvas roundtrip needed.
+ *
+ * **Caveat:** SVG `<text>` doesn't support our markdown dialect, so
+ * `**bold**` / `==hl==` etc. render as plain text with the syntax
+ * stripped. PNG export preserves all markdown via the bitmap pipeline.
+ *
+ * @example
+ * const svg = exportSelectionSvg(store)
+ * const blob = new Blob([svg], { type: 'image/svg+xml' })
+ */
 export const exportSelectionSvg = (store: CanvasStore, opts: SvgExportOptions = {}): string => {
   const ids = store.getSelection()
   const nodeIds = new Set<NodeId>()

@@ -75,6 +75,17 @@ const GroupBase = {
   },
 } as const
 
+/**
+ * JSON-Schema definitions for every `Op` variant. Use to validate
+ * agent-generated ops before calling `store.applyOp`, or to feed into
+ * an LLM tool-use loop.
+ *
+ * @example
+ * import Ajv from 'ajv'
+ * const ajv = new Ajv()
+ * const validate = ajv.compile(opSchemas.nodeAdd)
+ * if (validate(generatedOp)) store.applyOp(generatedOp)
+ */
 export const opSchemas = {
   nodeAdd: {
     type: 'object',
@@ -129,8 +140,7 @@ export const opSchemas = {
 } as const
 
 /**
- * Tool descriptions in Anthropic SDK shape. Drop into the `tools`
- * field of a Messages API request to let an agent call the canvas.
+ * Tool definition in the Anthropic Messages API shape.
  */
 export type AnthropicToolDef = {
   name: string
@@ -138,6 +148,24 @@ export type AnthropicToolDef = {
   input_schema: object
 }
 
+/**
+ * Returns op schemas wrapped as Anthropic Messages-API tool
+ * definitions. Drop into the `tools` field of a `messages.create`
+ * request to let an agent mutate the canvas directly.
+ *
+ * @example
+ * const response = await anthropic.messages.create({
+ *   model: 'claude-opus-4-7',
+ *   tools: opSchemasAsAnthropicTools(),
+ *   messages: [{ role: 'user', content: 'Add a red sticky note' }],
+ * })
+ * for (const block of response.content) {
+ *   if (block.type === 'tool_use' && block.name.startsWith('canvas_')) {
+ *     const op = toOp(block.name, block.input)
+ *     store.applyOp(op)
+ *   }
+ * }
+ */
 export const opSchemasAsAnthropicTools = (): AnthropicToolDef[] => [
   {
     name: 'canvas_node_add',

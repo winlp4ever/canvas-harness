@@ -18,11 +18,16 @@ const MIME_NATIVE = 'application/x-canvas-harness+json'
 const MIME_TEXT = 'text/plain'
 
 /**
- * Copy the current selection to the system clipboard as both our native
- * JSON format and a `text/plain` fallback (concatenated node contents).
+ * Copies the current selection to the system clipboard. Writes both a
+ * native MIME (`application/x-canvas-harness+json`) and a `text/plain`
+ * fallback (concatenated node contents) so paste works in non-canvas
+ * destinations too.
  *
- * Returns the serialized payload so callers can keep an in-memory
- * clipboard regardless of permission state.
+ * The `<Canvas>` component already wires this to Cmd/Ctrl+C — call
+ * directly only if you're building a custom copy button.
+ *
+ * @example
+ * <button onClick={() => copy(store)}>Copy</button>
  */
 export const copy = async (store: CanvasStore): Promise<SerializedClipboard> => {
   const clip = serializeSelection(store)
@@ -31,8 +36,11 @@ export const copy = async (store: CanvasStore): Promise<SerializedClipboard> => 
 }
 
 /**
- * Copy + remove the selected nodes/edges. Wrapped in a single batch so
- * cut is one undo step.
+ * Copy + remove the selection in one undoable batch. Same as
+ * Cmd/Ctrl+X.
+ *
+ * @example
+ * <button onClick={() => cut(store)}>Cut</button>
  */
 export const cut = async (store: CanvasStore): Promise<SerializedClipboard> => {
   const clip = await copy(store)
@@ -44,12 +52,20 @@ export const cut = async (store: CanvasStore): Promise<SerializedClipboard> => {
 }
 
 /**
- * Paste from the system clipboard. If `payload` is provided, uses it
- * directly (bypassing the clipboard API — useful for tests or
- * custom-source pastes).
+ * Paste from the system clipboard (or a supplied payload). Every node
+ * + edge gets a fresh id; edge endpoints rewire to the new ids; the
+ * paste is offset by `(+20, +20)` world units so it doesn't overlay
+ * the original. Wrapped in one undoable batch.
  *
- * Returns the new node ids on success, or null if the clipboard didn't
- * contain a canvas-harness payload.
+ * Returns the new node ids on success, or `null` if the clipboard
+ * didn't contain a canvas-harness payload.
+ *
+ * @example
+ * <button onClick={() => paste(store)}>Paste</button>
+ *
+ * @example
+ * // Programmatic paste from a saved JSON snippet:
+ * paste(store, savedClip, { offset: { x: 0, y: 0 }, select: false })
  */
 export const paste = async (
   store: CanvasStore,

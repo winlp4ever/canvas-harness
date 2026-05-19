@@ -118,6 +118,41 @@ const DEFAULT_LOD = {
   snapshotMaxAge: Number.POSITIVE_INFINITY,
 } as const
 
+/**
+ * Defines a custom node type. Register the returned def via
+ * `createCanvasStore({ nodeTypes: [myDef, ...] })`; then any `Node`
+ * with `type === opts.type` will be dispatched to your renderers + hit
+ * test + lifecycle hooks.
+ *
+ * A type must supply at least one render path: `renderCanvas` (paints
+ * via the 2D context), `view` (React component reference — used by
+ * `<Canvas renderCustomNodeView>`), or both (`mixed` — canvas at low
+ * zoom, React at high zoom).
+ *
+ * @example
+ * // Canvas-only — fastest path, paints with the 2D context.
+ * export const sparklineDef = defineNode({
+ *   type: 'sparkline',
+ *   renderCanvas(ctx, node, env) {
+ *     ctx.strokeStyle = env.theme('node.stroke') as string ?? '#000'
+ *     // ...draw a sparkline...
+ *   },
+ *   hitTest: (node, p) => p.x >= 0 && p.x <= node.w && p.y >= 0 && p.y <= node.h,
+ * })
+ *
+ * @example
+ * // React view — full UI; library mounts it in the DOM overlay above
+ * // the canvas at high zoom, falls back to drawPlaceholder below.
+ * export const chartCardDef = defineNode({
+ *   type: 'chart-card',
+ *   view: ChartCardComponent,
+ *   drawPlaceholder(ctx, node) {
+ *     ctx.fillStyle = '#e0e7ff'
+ *     ctx.fillRect(0, 0, node.w, node.h)
+ *   },
+ *   lod: { minZoomForReact: 0.7, minZoomForPlaceholder: 0.3 },
+ * })
+ */
 export const defineNode = (opts: NodeTypeDefOptions): NodeTypeDef => {
   const hasCanvas = !!opts.renderCanvas
   const hasView = !!opts.view

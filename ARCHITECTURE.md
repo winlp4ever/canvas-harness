@@ -150,6 +150,9 @@ type Style = {
   textAlign?: "left" | "center" | "right"
   textColor?: string
   textStyle?: "normal" | "bold" | "italic"
+
+  // edit-time geometry (Phase 7)
+  autoFit?: boolean                     // grow-only height-to-content on commit boundaries; default true
 }
 
 type EdgeStyle = Style & {
@@ -1312,7 +1315,7 @@ type Op =
   | { type: "edge.add";    edge: Edge }
   | { type: "edge.update"; id: EdgeId; patch: Partial<Edge>; prev: Partial<Edge> }
   | { type: "edge.remove"; edge: Edge }
-  | { type: "group.upsert"; group: Group }
+  | { type: "group.upsert"; group: Group; prev?: Group }  // prev present iff updating, absent iff inserting
   | { type: "group.remove"; group: Group }
 
 type OpBatch = {
@@ -2282,28 +2285,40 @@ type CanvasApi = {
 
 ### 13.8 React hooks (for components inside `<Canvas>` consumers)
 
+Actual shipped surface (Phase 9). Implemented over `useSyncExternalStore`; the original plan considered `signia-react` but our store hides its atoms behind methods, so the React 18 standard API was cleaner.
+
 ```ts
-useCanvasApi(): CanvasApi
-useCanvasStore<T>(selector: (s: SceneSnapshot) => T): T   // generic, equality-checked
+useCanvasStore(): CanvasStore             // store handle (no selector — compose yourself)
 useCamera(): CameraState                  // subscribed
 useSelection(): (NodeId | EdgeId)[]       // subscribed
-useNode(id): Node | undefined             // subscribed — ONE node
+useNode(id): Node | undefined             // subscribed — ONE node (stable ref via atoms)
 useEdge(id): Edge | undefined             // subscribed — ONE edge
 useNodes(predicate?: (n: Node) => boolean): Node[]   // EXPENSIVE — sidebars/minimaps only
-usePresence(): Map<ClientId, PresenceState>          // all remote clients
-usePresence(clientId): PresenceState | undefined      // one remote client
+useEdges(predicate?: (e: Edge) => boolean): Edge[]   // EXPENSIVE — sidebars only
 
 // Interaction observability (§10.11)
 useInteractionState(): InteractionState              // full — fires on any change
 useInteractionMode(): InteractionMode                // narrowed — fires only on mode change
-useCursor(): InteractionState["pointer"]              // shortcut, frame-coalesced
+useCursor(): InteractionState["pointer"]              // shortcut
 useIsMoving(): boolean                                // shortcut, derived
-useDraggedIds(): (NodeId | EdgeId)[]                  // shortcut
+useDraggedIds(): readonly (NodeId | EdgeId)[]         // shortcut
+useIsPenActive(): boolean                             // Phase 11 — pointerType === 'pen'
+
+// Presence (collab)
+useLocalPresence(): PresenceState
+usePresence(): ReadonlyMap<ClientId, PresenceState>   // all remote clients
+usePresence(clientId): PresenceState | undefined       // one remote client
+
+// History (Phase 8)
+useCanUndo(): boolean
+useCanRedo(): boolean
 ```
 
 `useNode` / `useEdge` are fine inside custom-node React components — they subscribe to one id and only re-render when that node changes. `useNodes` is a perf trap inside per-node components; use it only in panels that legitimately see all nodes.
 
-The interaction hooks are designed to be cheap to call from many places: `useCursor()` in a status bar, `useIsMoving()` to gate a heavy effect, `useInteractionMode()` to disable AI mutations during drag. All are frame-coalesced — at most one re-render per rAF tick regardless of pointer event rate.
+The interaction hooks are designed to be cheap to call from many places: `useCursor()` in a status bar, `useIsMoving()` to gate a heavy effect, `useInteractionMode()` to disable AI mutations during drag.
+
+> Drift from the original plan: `useCanvasApi` / generic `useCanvasStore<T>(selector)` were dropped — `useCanvasStore()` returns the store, consumers compose selectors at call sites. `useLocalPresence`, `useCanUndo`, `useCanRedo`, `useIsPenActive` were added during phases 8, 9, 11.
 
 ### 13.9 Plugin / extension hooks
 
@@ -2395,3 +2410,154 @@ To keep scope honest:
 - No accessibility DOM mirror (planned for v2).
 - No SVG export polish (PNG ships; SVG is opt-in and lossy for custom React nodes).
 - No mobile-specific UI chrome (touch gestures supported, UI is consumer territory).
+
+---
+
+## 16. Implementation Notes (post-Phase-12)
+
+This section captures what the actual implementation does where it diverges from sections 1–15 above. Treat 1–15 as the *design*, this section as the *ground truth*. Sections without a note here ship as documented.
+
+### 16.1 Store internals (§10)
+
+- The store uses [`signia`](https://github.com/tldraw/signia) atoms internally (one per node, one per edge, plus camera / selection / interaction / local-presence atoms) — but the atoms are **not exposed** on the public surface. Subscriptions go through `store.subscribe(event, cb)`. React hooks bridge with `useSyncExternalStore`.
+- `change` emission is centralized through an internal `emitChange(batch)` that handles undo-stack bookkeeping. Local batches push onto `undoStack`; remote/history batches don't. Fresh local ops clear `redoStack` (the "branching" rule).
+- The undo stack is **capped at 50 batches** (Photoshop-default), evicted FIFO. Configurable via the source constant; not yet a public option.
+- `undo()` / `redo()` emit their batch via `emit('change', …)` directly (bypassing `emitChange`) so the inverse doesn't recursively push to the stack. The sync adapter forwards them anyway because it filters by `origin !== 'remote'`, not `origin === 'local'` — undo/redo propagate to peers.
+- Conflict event payload: `{ batch, conflicts: { op, field }[] }` (not the doc's bare `{ batch }`). Per-field records let consumers name the property that was overwritten.
+
+### 16.2 Op log (§10.2)
+
+- `group.upsert` carries an optional `prev?: Group` — present when updating, absent when inserting. The inverse is `group.upsert(prev, group)` (swap) when present; `group.remove` when absent.
+- `store.toJSON` / `store.fromJSON` are not yet on the store — the codec functions (`toSerialized` / `fromSerialized` in `codec/index.ts`) round-trip scenes; gluing them onto the store + clearing history on load is a Phase-13 task.
+
+### 16.3 Presence (§10.5)
+
+Actual shape:
+
+```ts
+store.presence: {
+  setLocal(patch: PresencePatch): void
+  getLocal(): PresenceState
+  get(clientId: ClientId): PresenceState | undefined
+  getAll(): ReadonlyMap<ClientId, PresenceState>
+  applyRemote(clientId: ClientId, state: PresenceState | null): void  // adapter-facing
+}
+```
+
+`'presence'` events on the store carry either `{ state: PresenceState }` (set / update) or `{ clientId, removed: true }` (leave). The sync adapter calls `presence.applyRemote(...)` directly; consumer code uses the public quartet.
+
+### 16.4 Sync adapter (§10.6)
+
+Adapter interface ships verbatim from the doc. Notes:
+
+- `attachSync(store, adapter)` throws if `capabilities.causalOrdering` and `capabilities.crdt` are both absent — forces the choice into the open.
+- Local **and history** batches forward to `adapter.sendBatch`. Initial implementation forwarded only local; fixed when two-tab testing revealed undos didn't propagate.
+- Remote batches enter via `store.applyBatch({ ...batch, origin: 'remote' })`. Conflict detection (`detectConflicts`) walks `update.prev` slices vs current values *before* applying, emits `'conflict'` with the per-field records, then applies (LWW: remote wins).
+
+A first-party adapter ships at `@canvas-harness/sync-broadcast` for single-machine multi-tab demos. It advertises `causalOrdering: true` (BroadcastChannel within one origin delivers in order). Sends a `hello` on attach so existing peers can replay their presence; sends `presence-leave` on `pagehide`.
+
+### 16.5 Interaction state (§10.11)
+
+Modes shipped: `'idle' | 'panning' | 'zooming' | 'dragging' | 'resizing' | 'rotating' | 'marqueeing' | 'creating-shape' | 'creating-edge' | 'reconnecting-edge' | 'editing'`. The doc's plan + two new modes:
+
+- `'rotating'` — pointer over the rotation handle (Phase 4.5).
+- `'creating-shape'` — drag-to-create gesture (Phase 11.5). Carries `createDraftRect: WorldRect` + `createTool: string`. The renderer paints the draft rect on the interactive canvas; `<Canvas onCreateDrag>` consumes the rect on commit.
+
+`interaction.pointer` is updated on every pointermove with `pointerType` + `pressure` (Phase 11) so `useCursor()` returns those fields. Per-frame coalescing is on the camera path (rAF); pointer info isn't coalesced (it's one atom write per move and consumers gate their own rendering).
+
+### 16.6 Rendering pipeline (§4)
+
+Bitmap cache for text (§8 / 4.4) ships as documented but with two additional layers added during the Phase-6 perf pass:
+
+1. **Readability skip**: when `fontSize * zoom < 3px`, the renderer skips the cache lookup + drawImage entirely. No human reads sub-3px text; saves the full path on extreme zoom-out.
+2. **Content hash memoization**: a bounded `Map<text, fnvHash>` so the cache-key build doesn't re-walk the content string for every visible node. Cleared on font-epoch bump alongside the bitmap LRU.
+
+LOD scale ladder (`resolveRenderScale` in `text/render-scale.ts`):
+
+| Zoom range | Idle scale | Moving scale (× 0.72, clamped) |
+|------------|------------|--------------------------------|
+| ≤ 0.4      | 0.45       | ≤ 0.22                          |
+| 0.4 → 0.7  | 0.85       | ≤ 0.40                          |
+| 0.7 → 1.0  | 1.15       | clamped to 0.65                 |
+| 1.0 → 1.8  | 1.35       | clamped to 0.65                 |
+| > 1.8      | 1 + (z-1.8)·0.2 | clamped to 0.65            |
+
+Zoom is bucketed to 0.1 increments + DPR to 0.25 for the cache key, so tiny float drift from wheel events doesn't bust the cache.
+
+`paintInteractive` paints content during drag/resize (not just shape) so text follows a moving sticky. Fix during Phase 7 review — initial impl only painted the shape.
+
+### 16.7 Edit mode (§9)
+
+Autofit (Phase 7) is **grow-only**, not exact-fit:
+
+- A deliberately-tall node doesn't collapse when content is brief.
+- Empty content is a no-op — preserves the user's explicit `h` on add.
+- Triggered on commit boundaries only: `addNode` (with content), `commitEdit`, resize-commit. Never per-keystroke.
+- `style.autoFit: false` opts out.
+
+Edit-mode tab-through (the doc's "tab through shapes" demo bullet) **deferred to v1.x**; required deciding iteration order (z-order vs spatial vs selection) and the call was made to defer rather than pick prematurely.
+
+The textarea is wrapped in a `display: flex; justify-content: center` container so vertical alignment visually matches the canvas paint (which centers content within `node.h` when it fits). Without the wrapper the textarea would top-align mid-edit and visually "jump" relative to the rendered output.
+
+### 16.8 Copy / paste / export (§11.2, §11.4)
+
+Clipboard:
+
+- MIME dual-write: `application/x-canvas-harness+json` + `text/plain` (concatenated content as fallback for non-canvas paste targets).
+- Edges crossing the selection boundary are **dropped on copy** (one endpoint missing from the clipboard would dangle on paste). Edges between two selected nodes are included even if not in the selection itself.
+- Default paste offset: `(+20, +20)` world units, configurable via `deserializeClipboard(..., { offset })`.
+
+Export:
+
+- `exportSelection(store, opts)` → `Promise<Blob>` (PNG) at default scale 2× with 16px padding.
+- `exportSelectionSvg(store, opts)` → `string`. Markdown content is rendered as **plain text** (markdown syntax stripped); PNG preserves all styling via the bitmap pipeline. v2 candidate for tspan-based styling.
+- Both honor `transparentBackground: true` (skip the background `fillRect` / `<rect>`).
+
+### 16.9 Pointer / pen input (§11.3)
+
+Phase 11 ships per the doc plus:
+
+- **Drag-to-create** (a §11-adjacent gesture, not in the original architecture): on a non-select tool, pointerdown on empty surface → drag → release commits a node sized to the dragged rect. Sub-5px drags fall through to `onClick` (preserves tap-to-create with default size). Click suppression via a capture-phase listener so the synthetic click doesn't double-fire.
+- **Dbl-click on empty board spawns a text node** (consumer policy in the playground; mirrors the library's built-in dbl-click-on-node → beginEdit).
+- **Handle sizes** bumped from 10 → 14px (resize) and 7 → 9px (rotate) to improve touch reach. Minor desktop visual change.
+
+Palm rejection state lives in `core/store/palm-rejection.ts` (not actually a store atom — pure state holder) and is composed into both `usePanZoom` and `useInteractionGesture` so each independently filters during palm-active periods. Grace period: 300ms post pen-up.
+
+### 16.10 AI context + extensions (§11.5, §13.9)
+
+`getContext({ format })` ships in two formats:
+
+- `'markdown'` — full-text prose summary (one line per node + edge). Default. Better for LLM token efficiency than tables.
+- `'json'` — structured `SceneContextJson` shape (lighter than `SerializedScene`; omits internal fields).
+
+Options: `selectionOnly?`, `maxNodes?: number` (default 500, sets a `truncated` flag in the JSON shape when hit).
+
+`opSchemas` exports hand-written JSON Schemas keyed by Op variant (`nodeAdd`, `nodeUpdate`, ...). `opSchemasAsAnthropicTools()` returns the same schemas wrapped in the Messages-API `{ name, description, input_schema }` shape — drop into a tool-call request directly. Hand-written (not derived from TS) so the schemas survive runtime evolution without an explicit update step.
+
+Extension surface:
+
+```ts
+defineExtension({ name, onInstall(api): void | (() => void) })
+installExtension(store, ext): Unsubscribe
+installedExtensions(store): string[]   // debug aid
+
+type ExtensionApi = {
+  store: CanvasStore
+  on<E>(event, cb): Unsubscribe   // auto-unsubscribed on uninstall
+}
+```
+
+Bare-bones by design. Authors who need paint hooks / shortcut registration today compose them inside `onInstall` against the store directly. A `snap-to-grid` example lives in the playground; the library doesn't ship it (extension *policy* vs *mechanism*).
+
+### 16.11 Package layout
+
+Three published packages plus the playground:
+
+```
+@canvas-harness/core             ~7.8K LOC src, ~2.5K LOC tests
+@canvas-harness/react            ~2K LOC src, ~270 LOC tests
+@canvas-harness/sync-broadcast   ~130 LOC src
+examples/playground              ~1.4K LOC consumer demo
+```
+
+Total ~10K LOC of library + ~1.4K LOC of consumer demo + ~2.8K LOC of tests = ~14K shipped. The original 10K estimate excluded tests + playground; actuals track within ~15% on the library alone.

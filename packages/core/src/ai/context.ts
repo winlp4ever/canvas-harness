@@ -23,6 +23,27 @@ export type GetContextOptions = {
 
 const DEFAULT_MAX_NODES = 500
 
+/**
+ * Returns a snapshot of the scene suitable for an LLM system prompt or
+ * a tool-call argument.
+ *
+ * - `format: 'markdown'` (default) — full-text prose summary. Better
+ *   for LLM token economy.
+ * - `format: 'json'` — structured `SceneContextJson` shape; lighter
+ *   than `SerializedScene` (no internal fields).
+ *
+ * @example
+ * // System prompt
+ * const ctx = getContext(store) as string
+ * await anthropic.messages.create({
+ *   system: `Current scene:\n${ctx}`,
+ *   ...
+ * })
+ *
+ * @example
+ * // JSON for downstream automation
+ * const ctx = getContext(store, { format: 'json', selectionOnly: true })
+ */
 export const getContext = (
   store: CanvasStore,
   opts: GetContextOptions = {},

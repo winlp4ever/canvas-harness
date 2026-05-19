@@ -32,36 +32,73 @@ export type SyncAdapterCapabilities = {
   crdt?: boolean
 }
 
+/**
+ * Pluggable collab transport. Implementations forward op batches +
+ * presence patches between peers. The library is transport-agnostic;
+ * see `@canvas-harness/sync-broadcast` for a reference adapter using
+ * `BroadcastChannel`.
+ *
+ * Authors typically wrap a WebSocket / Yjs / Automerge instance.
+ *
+ * @example
+ * const myAdapter: SyncAdapter = {
+ *   capabilities: { causalOrdering: true },
+ *   sendBatch: b => ws.send(JSON.stringify({ kind: 'op', batch: b })),
+ *   sendPresence: p => ws.send(JSON.stringify({ kind: 'presence', patch: p })),
+ *   onBatch(cb) {
+ *     const h = (e: MessageEvent) => { const m = JSON.parse(e.data); if (m.kind === 'op') cb(m.batch) }
+ *     ws.addEventListener('message', h)
+ *     return () => ws.removeEventListener('message', h)
+ *   },
+ *   onPresence(cb) { … },
+ *   destroy() { ws.close() },
+ * }
+ * const detach = attachSync(store, myAdapter)
+ */
 export type SyncAdapter = {
   capabilities: SyncAdapterCapabilities
 
-  /** Send a locally-committed batch to peers. */
+  /** Send a locally-committed (or history) batch to peers. */
   sendBatch(batch: OpBatch): void
   /** Send a local presence patch to peers. */
   sendPresence(patch: PresencePatch): void
 
-  /** Receive remote batches. Subscriptions are kept until `detach()` runs. */
+  /** Receive remote batches. Subscription persists until `destroy()`. */
   onBatch(cb: (batch: OpBatch) => void): Unsubscribe
   /**
-   * Receive remote presence patches. `state === null` signals the remote
-   * client has left.
+   * Receive remote presence patches. `state === null` means the remote
+   * client has left and should be removed from the presence map.
    */
   onPresence(cb: (clientId: ClientId, state: PresenceState | null) => void): Unsubscribe
 
-  /** Optional adapter-owned teardown — closes sockets, clears buffers, etc. */
+  /** Optional teardown — closes sockets, clears buffers, etc. */
   destroy?(): void
 }
 
 /**
- * Wires `store` ↔ `adapter`:
- *   - local 'change' batches (origin === 'local') → adapter.sendBatch
- *   - local 'presence' events → adapter.sendPresence
- *   - adapter.onBatch → store.applyBatch with `origin: 'remote'`
- *   - adapter.onPresence → store presence map + 'presence' event
+ * Wires a {@link SyncAdapter} to a {@link CanvasStore}. Returns a
+ * `detach()` function that disconnects everything (including the
+ * adapter's own `destroy()`).
  *
- * Returns a `detach` function that disconnects everything. Throws if
- * the adapter's capability advertisement makes the default-LWW path
- * unsafe.
+ * Throws if the adapter advertises neither `causalOrdering` nor
+ * `crdt` — the default LWW path requires causal order.
+ *
+ * After attach:
+ *   - Local + history batches forward to peers via `adapter.sendBatch`.
+ *   - Local presence updates forward via `adapter.sendPresence`.
+ *   - Remote batches apply to the store with `origin: 'remote'`
+ *     (don't enter undo stack; conflict event fires on `prev` mismatch).
+ *   - Remote presence updates merge into `store.presence`.
+ *
+ * @example
+ * import { createBroadcastSyncAdapter } from '@canvas-harness/sync-broadcast'
+ * const adapter = createBroadcastSyncAdapter({
+ *   channelName: 'my-board',
+ *   clientId: store.clientId,
+ * })
+ * const detach = attachSync(store, adapter)
+ * // ...later, on unmount:
+ * detach()
  */
 export const attachSync = (store: CanvasStore, adapter: SyncAdapter): Unsubscribe => {
   if (!adapter.capabilities.causalOrdering && !adapter.capabilities.crdt) {

@@ -37,8 +37,25 @@ const DEFAULT_BACKGROUND = '#ffffff'
 const MIN_READABLE_FONT_PX = 3
 
 /**
- * Renders the current selection to a PNG Blob. Edges between selected
- * nodes are included; edges crossing the selection boundary are dropped.
+ * Renders the current selection to a PNG. Returns a `Blob` you can
+ * download, upload, or paste somewhere.
+ *
+ * Bounding rect is computed from the selected nodes; edges between
+ * selected nodes are included, edges crossing the boundary are
+ * dropped.
+ *
+ * @example
+ * // Download the selection as a PNG file.
+ * const blob = await exportSelection(store, { scale: 2 })
+ * const url = URL.createObjectURL(blob)
+ * Object.assign(document.createElement('a'), {
+ *   href: url, download: 'scene.png',
+ * }).click()
+ * URL.revokeObjectURL(url)
+ *
+ * @example
+ * // Transparent PNG for slide-deck overlays.
+ * const blob = await exportSelection(store, { transparentBackground: true })
  */
 export const exportSelection = async (
   store: CanvasStore,
@@ -53,7 +70,12 @@ export const exportSelection = async (
 }
 
 /**
- * Renders the camera's current viewport to a PNG Blob.
+ * Renders an arbitrary world-space viewport to a PNG. Use to capture
+ * the current screen, a minimap, or a specific region.
+ *
+ * @example
+ * const viewport = worldViewport(staticSurface, store.getCamera())
+ * const blob = await exportViewport(store, viewport)
  */
 export const exportViewport = async (
   store: CanvasStore,

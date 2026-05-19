@@ -3,13 +3,18 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useCanvasStore } from '../context'
 
 /**
- * useNode — subscribes to ONE node. Re-renders only when that node
- * changes. The recommended hook for custom-node React views.
+ * Subscribes to a single node. Re-renders **only** when that node
+ * changes — moves on other nodes are free.
  *
- * The store stores each node in its own signia atom; the atom's `value`
- * is a stable reference until that node mutates. So
- * `useSyncExternalStore` works directly — React compares by reference
- * and we only re-render when the node atom updates.
+ * The recommended hook for custom-node React views, layer panels keyed
+ * by id, and any per-node UI.
+ *
+ * @example
+ * function StickyView({ id }: { id: NodeId }) {
+ *   const node = useNode(id)
+ *   if (!node) return null
+ *   return <div>{node.content ?? 'empty'}</div>
+ * }
  */
 export function useNode(id: NodeId): Node | undefined {
   const store = useCanvasStore()
@@ -34,15 +39,21 @@ export function useNode(id: NodeId): Node | undefined {
 }
 
 /**
- * useNodes — returns nodes matching an optional predicate.
+ * Returns every node (optionally filtered). Re-renders on **every**
+ * committed batch — expensive. Use for sidebars / minimaps / layer
+ * panels that legitimately see all nodes; never inside per-node
+ * components.
  *
- * Re-renders on every committed batch since the visible set can change
- * arbitrarily. **Expensive — sidebars / minimaps / layer panels only.**
- * Inside per-node components prefer `useNode(id)`.
+ * @example
+ * // Layer panel: list every node grouped by type.
+ * function Layers() {
+ *   const nodes = useNodes()
+ *   return <ul>{nodes.map(n => <li key={n.id}>{n.type}</li>)}</ul>
+ * }
  *
- * Implemented with useState + 'change' subscription because the
- * filtered array is a fresh reference every call, which would loop
- * useSyncExternalStore.
+ * @example
+ * // Filtered: only text nodes.
+ * const textNodes = useNodes(n => n.type === 'text')
  */
 export function useNodes(predicate?: (n: Node) => boolean): Node[] {
   const store = useCanvasStore()

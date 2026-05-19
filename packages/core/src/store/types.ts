@@ -104,106 +104,236 @@ export type SpatialResult = {
 }
 
 /**
- * Public store surface — see ARCHITECTURE.md §12.3.
+ * The single source of truth for one canvas. Mutations go through
+ * typed ops (collab-ready + undoable), reads are imperative, and
+ * change events drive React hooks + sync adapters.
  *
- * Phase 1 ships the imperative shape; React hooks come in phase 9.
+ * Created via `createCanvasStore(opts)`. See ARCHITECTURE.md §10.
  */
 export interface CanvasStore {
+  /** Stable id for *this* client. Generated ids embed it. */
   readonly clientId: ClientId
+  /**
+   * Mints a new globally-unique id. Embeds `clientId` so ids generated
+   * concurrently across peers don't collide.
+   *
+   * @example
+   * const id = asNodeId(store.generateId())
+   */
   generateId(): string
 
-  // mutations (each builds an Op internally + calls applyOp)
+  // ----- mutations ------------------------------------------------------
+  // Every mutation builds an `Op`, applies it, and emits a 'change' event.
+  // Wrap multiple calls in `store.batch(...)` to coalesce them into one
+  // undoable batch.
+
+  /**
+   * Adds a node. Returns its id. If `node.style.autoFit !== false` and
+   * `node.content` is set, height is grown to fit.
+   *
+   * @example
+   * const id = store.addNode({
+   *   id: asNodeId(store.generateId()),
+   *   type: 'rect', x: 0, y: 0, w: 200, h: 100,
+   *   angle: 0, z: 0, groups: [],
+   * })
+   */
   addNode(node: Node): NodeId
+
+  /**
+   * Patches fields on an existing node. Captures the previous slice on
+   * the op so undo is free. Autofit re-runs when `content` or font
+   * style fields change.
+   *
+   * @example
+   * store.updateNode(id, { x: 100, style: { backgroundColor: '#fef9c3' } })
+   */
   updateNode(id: NodeId, patch: Partial<Node>): void
+
+  /**
+   * Removes a node and cascade-removes its incident edges in the same
+   * batch (so one undo restores the node + every edge that pointed to it).
+   */
   removeNode(id: NodeId): void
+
+  /** Adds an edge. Returns its id. */
   addEdge(edge: Edge): EdgeId
+  /** Patches fields on an existing edge. */
   updateEdge(id: EdgeId, patch: Partial<Edge>): void
+  /** Removes an edge. */
   removeEdge(id: EdgeId): void
   upsertGroup(group: Group): void
   removeGroup(id: GroupId): void
 
+  /**
+   * Collapses every mutation inside `fn` into a single `OpBatch` — one
+   * undo step, one change event, one sync send.
+   *
+   * @example
+   * store.batch(() => {
+   *   for (const id of selection) store.removeNode(id as NodeId)
+   * })
+   */
   batch(fn: () => void): void
+
+  /**
+   * Low-level op application — usually called by sync adapters or
+   * tool-use AI agents that generate ops directly.
+   * `opts.origin` defaults to `'local'`. Remote/history origins skip
+   * the undo stack.
+   *
+   * @example
+   * // Apply an AI-generated op:
+   * store.applyOp({ type: 'node.add', node: aiNode })
+   */
   applyOp(op: Op, opts?: { origin?: OpOrigin }): void
+  /** Apply an entire batch (origin lives on the batch). */
   applyBatch(batch: OpBatch): void
 
-  // undo / redo (phase 8) — local committed batches push onto an undo
-  // stack capped at 50; remote and history batches don't.
+  // ----- undo / redo ----------------------------------------------------
+  // Local committed batches push onto an undo stack capped at 50.
+  // Remote / history batches don't pollute the stack.
+
+  /** True when there's something to undo. */
   canUndo(): boolean
+  /** True when there's something to redo. */
   canRedo(): boolean
-  /** Pops the most recent local batch and applies its inverse. Returns true if anything was undone. */
+  /**
+   * Pops the most recent local batch and applies its inverse. Returns
+   * true if anything was undone.
+   *
+   * @example
+   * if (e.metaKey && e.key === 'z') store.undo()
+   */
   undo(): boolean
-  /** Re-applies a previously-undone batch. Returns true if anything was redone. */
+  /** Re-applies a previously-undone batch. */
   redo(): boolean
-  /** Drops both undo and redo stacks. Used by `fromJSON` and any reset path. */
+  /** Drops both undo and redo stacks. Call after `fromJSON` / scene reset. */
   clearHistory(): void
 
-  /** Per-client ephemeral *synced* state — cursor / selection / editing / color / name. */
+  /**
+   * Per-client *synced* state — cursor / selection / editing / color /
+   * name. Distinct from `getInteractionState()` (which is local-only).
+   *
+   * @example
+   * store.presence.setLocal({ name: 'Alice', color: '#ef4444' })
+   */
   presence: PresenceSlice
 
-  // reads (imperative, no subscription)
+  // ----- reads ----------------------------------------------------------
+  // Imperative (no subscription). For reactive reads in React, use the
+  // hooks in @canvas-harness/react.
+
+  /** O(1) lookup; undefined if not found or removed. */
   getNode(id: NodeId): Node | undefined
+  /** O(1) lookup. */
   getEdge(id: EdgeId): Edge | undefined
+  /** O(1) lookup. */
   getGroup(id: GroupId): Group | undefined
+  /** O(n) — materializes the full list. Use sparingly. */
   getAllNodes(): Node[]
+  /** O(n) — materializes the full list. */
   getAllEdges(): Edge[]
+  /** O(n) — materializes the full list. */
   getAllGroups(): Group[]
-  /** O(1) count without materializing the full list. */
+  /** O(1) count without materializing the list. */
   getNodeCount(): number
-  /** O(1) count without materializing the full list. */
+  /** O(1) count. */
   getEdgeCount(): number
-  /** O(1) count without materializing the full list. */
+  /** O(1) count. */
   getGroupCount(): number
+
+  /**
+   * Spatial query — ids of nodes + edges that intersect a rect or
+   * contain a point. Backed by a uniform grid for sub-millisecond
+   * queries at 10k+ entities.
+   *
+   * @example
+   * const visible = store.querySpatial({ rect: viewport })
+   */
   querySpatial(q: SpatialQuery): SpatialResult
 
   /**
-   * Returns the (cached) world-space geometry for an edge — sample
-   * polyline, AABB, attached-node ids, self-loop flag. Re-computes if
-   * any input has changed since the last read. Used by the renderer
-   * and edge hit-test. See ARCHITECTURE.md §6.12.
+   * Cached edge geometry — sample polyline, AABB, attached-node ids,
+   * self-loop flag. Lazily recomputed when any input changes.
    */
   getEdgeGeometry(id: EdgeId): EdgeGeometry | undefined
 
   /**
-   * Returns the edge ids incident to a given node (either endpoint
-   * attaches to it). Maintained internally so it's O(1) to query when
-   * a node moves and we need to refresh its edges.
+   * Ids of every edge attached to this node (either endpoint). O(1) —
+   * maintained as an inverted index internally.
    */
   getIncidentEdges(id: NodeId): EdgeId[]
 
   /**
-   * Returns the registered NodeTypeDef for a type id, or undefined if the
-   * type isn't a custom registered type (built-in shapes return undefined).
-   * Used by the renderer for custom-node dispatch.
+   * The registered `NodeTypeDef` for a type id, or `undefined` for
+   * built-in shapes. See `defineNode`.
    */
   getNodeTypeDef(type: string): NodeTypeDef | undefined
 
-  // camera + selection
+  // ----- camera + selection --------------------------------------------
+
   getCamera(): CameraState
+  /**
+   * Set camera fields (partial patch). Clamped to legal zoom range.
+   *
+   * @example
+   * store.setCamera({ z: 1.5 })
+   */
   setCamera(patch: Partial<CameraState>): void
   getSelection(): (NodeId | EdgeId)[]
+  /** Replace the selection. Pass `[]` to deselect everything. */
   setSelection(ids: (NodeId | EdgeId)[]): void
 
-  // interaction state (§10.11)
+  // ----- interaction state (local-only, ephemeral) ----------------------
+
+  /** Current interaction state — mode, drag delta, marquee rect, etc. */
   getInteractionState(): InteractionState
+  /** Patch fields on interaction state. Emits a 'interaction' event. */
   setInteractionState(patch: Partial<InteractionState>): void
+  /** Reset to idle (clears drag / marquee / draft edge / edit mode). */
   resetInteractionState(): void
 
-  // edit mode (phase 7) — content-bearing text edit lifecycle.
+  // ----- edit mode (text + markdown content) ----------------------------
+
   /**
-   * Enter edit mode for `id`. Selects the node and flips interaction.mode
-   * to 'editing'. The renderer skips painting this node's content bitmap
-   * (the editor overlay occludes it).
+   * Enter edit mode for `id`. Flips interaction mode to `'editing'`
+   * and selects the node. The library's `EditorMount` picks up the
+   * change and mounts the configured editor adapter.
+   *
+   * @example
+   * // Double-click a node to edit:
+   * onDoubleClick={e => {
+   *   const hit = hitTestAny(store, e.world, camera.z)
+   *   if (hit?.kind === 'body') store.beginEdit(hit.nodeId)
+   * }}
    */
   beginEdit(id: NodeId): void
   /**
-   * Write the new content for the editing node, apply autofit (if the
-   * node opts in), and exit edit mode. No-op if not editing.
+   * Write the new content + apply autofit (if opted in) + exit edit
+   * mode. No-op when not editing.
    */
   commitEdit(content: string): void
-  /** Exit edit mode without writing content. No-op if not editing. */
+  /** Exit edit mode without writing content. */
   cancelEdit(): void
 
-  // events
+  // ----- events --------------------------------------------------------
+
+  /**
+   * Subscribe to a store event. Returns an unsubscribe function.
+   * Events fire synchronously; subscribers must not throw.
+   *
+   * Events:
+   *   - `'change'` — any committed batch (local / remote / history)
+   *   - `'camera'` — pan or zoom
+   *   - `'selection'` — selection change
+   *   - `'interaction'` — interaction state change (frequent during drag)
+   *   - `'presence'` — local or remote presence update
+   *   - `'conflict'` — LWW conflict detected when applying a remote batch
+   *
+   * @example
+   * const unsub = store.subscribe('change', batch => save(batch))
+   */
   subscribe<E extends StoreEventName>(event: E, cb: StoreEventHandler<E>): Unsubscribe
 }
 

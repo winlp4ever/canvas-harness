@@ -2,6 +2,17 @@ import type { Edge, EdgeId } from '@canvas-harness/core'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useCanvasStore } from '../context'
 
+/**
+ * Subscribes to a single edge. Re-renders only when that edge mutates
+ * (style change, endpoint reconnect, etc.). Use inside per-edge UI
+ * like a label component or an inspector panel.
+ *
+ * @example
+ * function EdgeLabel({ id }: { id: EdgeId }) {
+ *   const edge = useEdge(id)
+ *   return <span>{edge?.style?.strokeColor ?? 'default'}</span>
+ * }
+ */
 export function useEdge(id: EdgeId): Edge | undefined {
   const store = useCanvasStore()
   return useSyncExternalStore(
@@ -23,7 +34,12 @@ export function useEdge(id: EdgeId): Edge | undefined {
 }
 
 /**
- * useEdges — all edges (optionally filtered). Expensive; sidebars only.
+ * Returns every edge (optionally filtered). Re-renders on every
+ * committed batch — expensive. Use for inspector panels or minimaps;
+ * never inside per-edge components.
+ *
+ * @example
+ * const dashed = useEdges(e => e.style?.strokeStyle === 'dashed')
  */
 export function useEdges(predicate?: (e: Edge) => boolean): Edge[] {
   const store = useCanvasStore()

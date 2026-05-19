@@ -3,8 +3,15 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useCanvasStore } from '../context'
 
 /**
- * useLocalPresence — this client's presence (cursor / selection /
- * editing / color / name). Re-renders on any local presence change.
+ * This client's own presence — cursor / selection / editing / color /
+ * name. Re-renders when local presence updates.
+ *
+ * Set local presence via `store.presence.setLocal({...})`. The library
+ * forwards it through the attached `SyncAdapter` automatically.
+ *
+ * @example
+ * const me = useLocalPresence()
+ * <div>signed in as {me.name}</div>
  */
 export function useLocalPresence(): PresenceState {
   const store = useCanvasStore()
@@ -19,14 +26,23 @@ export function useLocalPresence(): PresenceState {
 }
 
 /**
- * usePresence(clientId) — one remote client's presence, or undefined
- * if they've left.
+ * Reads remote presence.
+ *
+ * - `usePresence(clientId)` — one remote client's state, or
+ *   `undefined` if they've left.
+ * - `usePresence()` — map of every remote client. Re-renders on every
+ *   remote update (join / leave / cursor move). Use sparingly.
+ *
+ * @example
+ * // Paint every remote cursor.
+ * const remotes = usePresence()
+ * for (const p of remotes.values()) drawCursor(p)
+ *
+ * @example
+ * // Just one peer.
+ * const peer = usePresence(asClientId('alice'))
  */
 export function usePresence(clientId: ClientId): PresenceState | undefined
-/**
- * usePresence() — map of all remote clients' presence. Re-renders on
- * any remote presence change (join / leave / update).
- */
 export function usePresence(): ReadonlyMap<ClientId, PresenceState>
 export function usePresence(clientId?: ClientId): unknown {
   const store = useCanvasStore()

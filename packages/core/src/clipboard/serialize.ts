@@ -23,10 +23,16 @@ export type SerializedClipboard = {
 }
 
 /**
- * Build a clipboard payload from the store's current selection.
+ * Builds a clipboard payload from the store's current selection. Pure
+ * — no I/O, no clipboard API. Useful for programmatic copy-paste
+ * (snapshots, AI-driven duplication, drag-from-sidebar, ...).
  *
- * Edges with one endpoint outside the selected node set are dropped.
- * Edges with free-floating endpoints (`worldPoint`) are kept as-is.
+ * Edges crossing the selection boundary (only one endpoint in the
+ * selection) are dropped. Edges with `worldPoint` endpoints are kept.
+ *
+ * @example
+ * const clip = serializeSelection(store)
+ * localStorage.setItem('clipboard', JSON.stringify(clip))
  */
 export const serializeSelection = (store: CanvasStore): SerializedClipboard => {
   const selectedIds = store.getSelection()
@@ -77,12 +83,16 @@ export type DeserializeOptions = {
 }
 
 /**
- * Applies a serialized clipboard to the store. Every node + edge gets a
- * fresh id; edge endpoints are rewired to the new node ids. Returns the
- * list of new node ids in insertion order so the caller can highlight
- * them (we already select them when `select: true`).
+ * Applies a clipboard payload to the store. New ids are minted; edge
+ * endpoints are rewired; offset defaults to `(20, 20)` world units;
+ * the resulting nodes + edges become the new selection by default.
  *
- * Wrapped in a single store.batch so paste is one undo step.
+ * One `store.batch` — one undo step.
+ *
+ * @example
+ * // Restore from localStorage:
+ * const clip = JSON.parse(localStorage.getItem('clipboard')!)
+ * if (isCanvasHarnessClipboard(clip)) deserializeClipboard(store, clip)
  */
 export const deserializeClipboard = (
   store: CanvasStore,

@@ -34,21 +34,37 @@ export type Extension = {
 }
 
 /**
- * Convenience factory — identity over the input + a TS-level brand for
- * readability at call sites.
+ * Defines an extension. Pure identity — exists for symmetry with
+ * `defineNode` and to make call sites read nicely.
+ *
+ * @example
+ * export const snapToGrid = defineExtension({
+ *   name: 'snap-to-grid',
+ *   onInstall: api => {
+ *     api.on('interaction', state => {
+ *       if (state.mode !== 'dragging') return
+ *       const snapped = {
+ *         x: Math.round(state.dragDelta.x / 20) * 20,
+ *         y: Math.round(state.dragDelta.y / 20) * 20,
+ *       }
+ *       api.store.setInteractionState({ dragDelta: snapped })
+ *     })
+ *   },
+ * })
  */
 export const defineExtension = (ext: Extension): Extension => ext
 
 const installed = new WeakMap<CanvasStore, Map<string, () => void>>()
 
 /**
- * Installs an extension against the store. Returns an `uninstall()`
- * function that:
- *   1. Unsubscribes every listener registered via `api.on`.
- *   2. Calls the extension's optional teardown function.
+ * Installs an extension against a store. Returns an `uninstall()`
+ * function. Re-installing the same name replaces the previous
+ * instance.
  *
- * Re-installing the same name replaces the previous instance (the old
- * one is torn down first).
+ * @example
+ * useEffect(() => {
+ *   if (snapEnabled) return installExtension(store, snapToGrid)
+ * }, [store, snapEnabled])
  */
 export const installExtension = (store: CanvasStore, ext: Extension): Unsubscribe => {
   let registry = installed.get(store)

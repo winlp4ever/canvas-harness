@@ -56,6 +56,21 @@ const EMPTY_SCENE = (): Scene => ({
   selection: [],
 })
 
+/**
+ * Creates a new canvas store. One per scene / document. Pass into
+ * `<CanvasProvider>` (React) or use the imperative API directly.
+ *
+ * @example
+ * // Minimal
+ * const store = createCanvasStore()
+ *
+ * @example
+ * // With custom node types + a hydrated scene from JSON
+ * const store = createCanvasStore({
+ *   nodeTypes: [chartCardDef, todoCardDef],
+ *   initial: fromSerialized(savedScene),
+ * })
+ */
 export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
   const clientId: ClientId = opts.clientId ?? randomClientId()
   const idGenerator: IdGenerator = opts.idGenerator ?? makeIdGenerator(clientId)
