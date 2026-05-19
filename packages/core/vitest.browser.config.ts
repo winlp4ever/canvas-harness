@@ -1,6 +1,9 @@
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
+  optimizeDeps: {
+    include: ['signia'],
+  },
   test: {
     include: ['tests/**/*.browser.test.ts'],
     browser: {
