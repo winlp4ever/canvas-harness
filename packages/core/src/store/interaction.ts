@@ -19,6 +19,7 @@ export type InteractionMode =
   | 'resizing'
   | 'rotating'
   | 'marqueeing'
+  | 'creating-shape'
   | 'creating-edge'
   | 'reconnecting-edge'
   | 'editing'
@@ -81,6 +82,13 @@ export type InteractionState = {
 
   // Edit state — populated when mode is 'editing' (phase 7).
   editingNodeId: NodeId | null
+
+  // Drag-create state — populated while mode is 'creating-shape'.
+  // The renderer paints `createDraftRect` as a preview on the
+  // interactive canvas; `<Canvas onCreateDrag>` consumes the rect on
+  // commit.
+  createDraftRect: WorldRect | null
+  createTool: string | null
 }
 
 export const idleInteractionState = (): InteractionState => ({
@@ -96,6 +104,8 @@ export const idleInteractionState = (): InteractionState => ({
   marqueeAdditive: false,
   draftEdge: null,
   editingNodeId: null,
+  createDraftRect: null,
+  createTool: null,
 })
 
 /**

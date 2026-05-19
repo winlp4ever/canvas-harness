@@ -1,6 +1,7 @@
 import { asNodeId } from '@canvas-harness/core'
 import {
   Canvas as LibCanvas,
+  type CanvasCreateDragEvent,
   type CanvasPointerEvent,
   useCanvasStore,
 } from '@canvas-harness/react'
@@ -33,6 +34,10 @@ export function Canvas({
   onRenderer?: Parameters<typeof LibCanvas>[0]['onRenderer']
 }) {
   const store = useCanvasStore()
+
+  // Tap-to-create: places a default-size shape at the click point.
+  // Drag-to-create handles the resize-on-create gesture; sub-threshold
+  // drags fall through to onClick.
   const handleClick = useCallback(
     (e: CanvasPointerEvent) => {
       const t = e.tool as Tool
@@ -71,11 +76,32 @@ export function Canvas({
     [store],
   )
 
+  // Drag-to-create: shape sized to the dragged rect.
+  const handleCreateDrag = useCallback(
+    (e: CanvasCreateDragEvent) => {
+      const t = e.tool as Tool
+      if (!SHAPE_TOOLS.has(t)) return
+      store.addNode({
+        id: asNodeId(store.generateId()),
+        type: TOOL_TO_TYPE[t as keyof typeof TOOL_TO_TYPE],
+        x: e.rect.x,
+        y: e.rect.y,
+        w: Math.max(8, e.rect.w),
+        h: Math.max(8, e.rect.h),
+        angle: 0,
+        z: 0,
+        groups: [],
+      })
+    },
+    [store],
+  )
+
   return (
     <LibCanvas
       tool={tool}
       onRenderer={onRenderer}
       onClick={handleClick}
+      onCreateDrag={handleCreateDrag}
       renderCustomNodeView={id => {
         const node = store.getNode(id)
         if (!node) return null

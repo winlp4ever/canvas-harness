@@ -36,6 +36,17 @@ export type CanvasPointerEvent = {
   native: MouseEvent
 }
 
+/**
+ * Drag-to-create event — fires on pointerup after the user dragged a
+ * region of at least `DRAG_CREATE_MIN_SIZE_PX` on the canvas surface
+ * with a non-select tool. Consumer maps the rect into a new node.
+ */
+export type CanvasCreateDragEvent = {
+  rect: { x: number; y: number; w: number; h: number }
+  tool: string
+  native: PointerEvent
+}
+
 export type CanvasProps = {
   /** Optional — if omitted, must be inside a `<CanvasProvider>`. */
   store?: CanvasStore
@@ -53,6 +64,12 @@ export type CanvasProps = {
   onClick?: (e: CanvasPointerEvent) => void
   /** Double-click anywhere on the surface. */
   onDoubleClick?: (e: CanvasPointerEvent) => void
+  /**
+   * Drag-to-create. Fires on pointerup when the user dragged a region
+   * with a non-select tool. Consumer maps `rect + tool` into a new
+   * node. Sub-threshold drags fall through to `onClick`.
+   */
+  onCreateDrag?: (e: CanvasCreateDragEvent) => void
   /**
    * Render a custom node's React view. Returning `null` falls back to
    * the canvas paint path. Receives the node + its mount slot's screen
@@ -85,6 +102,10 @@ export function Canvas(props: CanvasProps) {
   return <CanvasSurface {...props} />
 }
 
+/** Minimum pointer-drag (screen px) below which a drag-create falls
+ *  through to `onClick`. Same heuristic tldraw uses. */
+const DRAG_CREATE_MIN_SIZE_PX = 5
+
 function CanvasSurface({
   tool,
   theme,
@@ -92,6 +113,7 @@ function CanvasSurface({
   onRenderer,
   onClick,
   onDoubleClick,
+  onCreateDrag,
   renderCustomNodeView,
   children,
 }: CanvasProps) {
@@ -178,6 +200,126 @@ function CanvasSurface({
       el.removeEventListener('dblclick', onDoubleClickHandler)
     }
   }, [store, onClick, onDoubleClick])
+
+  // Drag-to-create for non-select tools. tldraw/excalidraw style:
+  // press at corner-A, drag to corner-B, release → shape sized to the
+  // dragged rect. Sub-threshold drags fall through to onClick so a
+  // tap still creates a default-size shape.
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el || !onCreateDrag) return
+    let startWorld: { x: number; y: number } | null = null
+    let startScreen: { x: number; y: number } | null = null
+    let activePointerId: number | null = null
+    let committed = false
+    const justCommittedRef = { current: false }
+
+    const screenFromEvent = (e: PointerEvent): { x: number; y: number } => {
+      const rect = el.getBoundingClientRect()
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    }
+    const worldFromEvent = (e: PointerEvent): { x: number; y: number } =>
+      screenToWorld(screenFromEvent(e), store.getCamera())
+
+    const isShapeTool = (t: string): boolean => t !== 'select' && t !== 'arrow' && t !== 'text'
+
+    const onPointerDown = (e: PointerEvent): void => {
+      if (e.button !== 0) return
+      if (!isShapeTool(toolRef.current)) return
+      if (store.getInteractionState().mode === 'editing') return
+      // Only engage on empty surface — clicks on existing nodes should
+      // not initiate a create. Cheap broad-phase: hit-test the world point.
+      const camera = store.getCamera()
+      const world = screenToWorld(screenFromEvent(e), camera)
+      if (hitTestAny(store, world, camera.z)) return
+
+      startWorld = world
+      startScreen = screenFromEvent(e)
+      activePointerId = e.pointerId
+      committed = false
+      el.setPointerCapture(e.pointerId)
+    }
+
+    const onPointerMove = (e: PointerEvent): void => {
+      if (startWorld === null || startScreen === null) return
+      if (e.pointerId !== activePointerId) return
+      const screen = screenFromEvent(e)
+      const dx = screen.x - startScreen.x
+      const dy = screen.y - startScreen.y
+      if (
+        !committed &&
+        Math.abs(dx) < DRAG_CREATE_MIN_SIZE_PX &&
+        Math.abs(dy) < DRAG_CREATE_MIN_SIZE_PX
+      ) {
+        return
+      }
+      // Cross the threshold → enter creating-shape mode + paint preview.
+      if (!committed) committed = true
+      const world = worldFromEvent(e)
+      const rect = {
+        x: Math.min(startWorld.x, world.x),
+        y: Math.min(startWorld.y, world.y),
+        w: Math.abs(world.x - startWorld.x),
+        h: Math.abs(world.y - startWorld.y),
+      }
+      store.setInteractionState({
+        mode: 'creating-shape',
+        createDraftRect: rect,
+        createTool: toolRef.current,
+      })
+    }
+
+    const onPointerUp = (e: PointerEvent): void => {
+      if (activePointerId !== e.pointerId) return
+      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
+      const wasCommitted = committed
+      activePointerId = null
+      if (!wasCommitted || !startWorld) {
+        startWorld = null
+        startScreen = null
+        return
+      }
+      const world = worldFromEvent(e)
+      const rect = {
+        x: Math.min(startWorld.x, world.x),
+        y: Math.min(startWorld.y, world.y),
+        w: Math.abs(world.x - startWorld.x),
+        h: Math.abs(world.y - startWorld.y),
+      }
+      startWorld = null
+      startScreen = null
+      // Reset interaction state before firing the callback so consumer
+      // sees an idle store.
+      store.resetInteractionState()
+      // Suppress the synthetic click that browsers fire after a successful drag.
+      justCommittedRef.current = true
+      setTimeout(() => {
+        justCommittedRef.current = false
+      }, 0)
+      onCreateDrag({ rect, tool: toolRef.current, native: e })
+    }
+
+    const onClickCapture = (e: MouseEvent): void => {
+      if (justCommittedRef.current) {
+        e.stopPropagation()
+        e.preventDefault()
+      }
+    }
+
+    el.addEventListener('pointerdown', onPointerDown)
+    el.addEventListener('pointermove', onPointerMove)
+    el.addEventListener('pointerup', onPointerUp)
+    el.addEventListener('pointercancel', onPointerUp)
+    // Capture phase so we run BEFORE the click dispatcher.
+    el.addEventListener('click', onClickCapture, true)
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown)
+      el.removeEventListener('pointermove', onPointerMove)
+      el.removeEventListener('pointerup', onPointerUp)
+      el.removeEventListener('pointercancel', onPointerUp)
+      el.removeEventListener('click', onClickCapture, true)
+    }
+  }, [store, onCreateDrag])
 
   // Cmd/Ctrl+C/X/V — copy/cut/paste. Skip when an input is focused so
   // the editor's native text-clipboard isn't hijacked.

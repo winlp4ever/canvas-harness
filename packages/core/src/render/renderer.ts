@@ -455,6 +455,12 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       drawMarquee(ctx, interaction.marqueeRect, scale)
     }
 
+    // 3.5 Drag-create preview — dashed outline matching the active
+    // shape tool's intended footprint.
+    if (interaction.mode === 'creating-shape' && interaction.createDraftRect) {
+      drawMarquee(ctx, interaction.createDraftRect, scale)
+    }
+
     // 4. Draft edge during creation / reconnection.
     if (
       (interaction.mode === 'creating-edge' || interaction.mode === 'reconnecting-edge') &&
