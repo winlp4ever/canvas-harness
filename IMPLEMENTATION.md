@@ -120,7 +120,29 @@ Each phase ends with a **demo** — a concrete thing you can run that proves the
 | 13 | **Perf pass + integration bugs + polish**                          | **2** | —     | All perf budget assertions green in CI. 10k-node demo scene feels smooth.            |
 |   | **Total**                                                          | **~14 weeks** | **~10K LOC** |                                                                          |
 
-### 3.1 Per-phase exit criteria (the "definition of done")
+### 3.1 Playground UI deliverables per phase
+
+The playground app at `examples/playground/` is the manual test surface and stress-test harness. It grows alongside the library — each library phase adds the corresponding tray button, style-panel field, or stress fixture. Full architecture in §10; per-phase deliverables:
+
+| Library phase | Playground UI deliverable |
+|---------------|---------------------------|
+| 1 | (no UI) — `pnpm dev` shows scaffold placeholder; verify store CRUD from JS console |
+| 2 | **Build the shell**: top tray with `Rect` tool active + disabled placeholders for other tools, perf overlay (FPS + frame time + node count), stress-test menu (`Create 100 / 1k / 10k rects`, `Clear scene`). Wires up: rect creation, pan, zoom. |
+| 3 | Enable `Select` tool. Add marquee. Add style panel (right-bottom), starting with stroke color + background color + stroke width + opacity. Apply to selection. Wire up resize handles + drag. |
+| 4 | Enable `Arrow` tool for edge creation. Add edge-specific style fields to the panel: arrowheads (source/target), path style (straight/bezier/polyline). Add `5k-edge` stress fixture. |
+| 5 | (no UI change for custom nodes — they're consumer territory) — but add `200 chart-card` stress fixture that registers a synthetic custom node type and loads it |
+| 6 | (no tray change) Add font controls to style panel: font family, font size, text align, text color, text style. Add `markdown-heavy` stress fixture (1k notes with multi-line markdown). |
+| 7 | Enable `Text` tool (creates an empty text shape that auto-focuses for edit). No new style controls — they already exist from phase 6. |
+| 8 | Wire `[Undo]` / `[Redo]` buttons in tray to `store.undo()` / `store.redo()`. Add presence demo: open two tabs, see each other's selections. |
+| 9 | No new UI; rewrite playground to consume `<Canvas>` + hooks instead of manual store wiring. Same demo, idiomatic React. |
+| 10 | Wire keyboard Cmd+C / Cmd+V / Cmd+X. Add `[Export PNG]` button to tray (exports current viewport). |
+| 11 | (no UI) — pointer/pen input is transparent to the playground |
+| 12 | Add `[Show context]` debug button that opens a panel showing `getContext({ format: "markdown" })` output for current scene. Add status bar at bottom reading `useInteractionState()` (current mode + cursor world position). |
+| 13 | Upgrade perf overlay from minimal to detailed: per-phase frame breakdown, cache hit rates, memory snapshot. Used for profile-driven optimization. |
+
+The playground UI follows the **same exit criteria as library phases** (§3.2): demo runs, no perf regressions. Style controls follow the **progressive principle** — only ship the fields that the library currently supports; expand as features land.
+
+### 3.2 Per-phase exit criteria (the "definition of done")
 
 For each phase, the following must be true before moving on:
 
@@ -251,7 +273,102 @@ When CI passes on that PR, phase 0 is done and phase 1 starts.
 
 ---
 
-## 10. Decision log (append-only)
+## 10. Playground architecture
+
+The playground at `examples/playground/` is **not** part of the library — it's the consumer that exercises every API. Its job is:
+
+1. **Manual testing** during development (a real UI to click around in).
+2. **Stress testing** at scale (1k / 5k / 10k node fixtures to validate the perf budget).
+3. **Demos** at the end of each phase (every phase's deliverable visible in one place).
+
+It's deliberately Excalidraw-shaped because that UX is what users expect from a graph/canvas editor, and seeing it work proves the library can power that kind of product. Text labels (no icons) to keep scope honest — we're testing the library, not designing icons.
+
+### 10.1 Layout
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  ┌──────────────────────────────────────────────────┐                │
+│  │ [Select] [Rect] [Ellipse] [Diamond] [Text]       │   ← top tray  │
+│  │ [Arrow] [Eraser] · [Undo] [Redo] · [Export PNG]  │                │
+│  └──────────────────────────────────────────────────┘                │
+│                                                                      │
+│                                                                      │
+│                    [canvas area]                                     │
+│                                                                      │
+│                                                                      │
+│  ┌───────────────┐                            ┌────────────────────┐ │
+│  │ Stress test ▾ │                            │ Selection: 3 nodes │ │
+│  │  100 rects    │                            │ Stroke color  ▢ ▢ ▢│ │
+│  │  1k rects     │                            │ Fill          ▢ ▢ ▢│ │
+│  │  10k rects    │                            │ Stroke width  S M L│ │
+│  │  5k edges     │                            │ Opacity      [───]│ │
+│  │  200 cards    │                            │ Font size     S M L│ │
+│  │  Clear        │                            │ Arrow heads   ...  │ │
+│  └───────────────┘                            └────────────────────┘ │
+│  FPS: 60 · 8.2ms · 1247n · 312e                                      │
+│  ↑ perf overlay (always on)                                          │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### 10.2 Components
+
+| Component         | Purpose                                                          | When it ships |
+|-------------------|------------------------------------------------------------------|----------------|
+| Top tray          | Active-tool selector. Pill-shaped text buttons. Active tool highlighted. | Phase 2 (shell) |
+| Stress menu       | Fixture loaders that mass-create nodes/edges via `store.batch`. Synchronous; measures load time. | Phase 2 |
+| Perf overlay      | Always-on FPS + frame time + node/edge count. Minimal in early phases, detailed in phase 13. | Phase 2 (minimal) |
+| Style panel       | Per-selection style editor. Renders only when selection is non-empty. Shows only fields applicable to the selected types. | Phase 3 (partial), grows per phase |
+| Status bar        | `useInteractionState()` driven: current mode + cursor world position + zoom level. | Phase 12 |
+| Context debug pane | `getContext({ format: "markdown" })` output for the current scene. Live updates. Useful for verifying AI-context API. | Phase 12 |
+
+### 10.3 State ownership
+
+The playground holds its own UI state in React (`useState` / `useReducer`):
+
+- **Active tool**: `useState<Tool>("select")` — what the user clicked in the top tray.
+- **Brush style**: `useState<Partial<Style>>({})` — style defaults applied to newly-created shapes.
+- **Style panel visibility**: derived from `useSelection()`.
+
+The **library store** holds only scene state (nodes / edges / camera / selection / presence). Tool state is app concern, NOT scene concern. Keeps the boundary clean — future consumers building their own UI follow the same pattern.
+
+### 10.4 Stress fixtures
+
+Each fixture is a function `(store: CanvasStore) => void` that calls `store.batch(() => { ... addNode ... })`. Fixtures live in `examples/playground/src/fixtures/` and are imported by the stress menu:
+
+| Fixture          | Contents                                              | Stresses                       |
+|------------------|-------------------------------------------------------|--------------------------------|
+| `100-rects`      | 100 randomly-positioned rects in a 2k × 2k area       | Baseline interactive perf       |
+| `1k-rects`       | 1k rects, grid layout                                  | Viewport culling, basic perf    |
+| `10k-rects`      | 10k rects, grid layout                                 | Full-perf-budget validation     |
+| `5k-edges`       | 1k nodes + 5k random bezier edges                      | Edge hit testing, auto-clip     |
+| `200-cards`      | 200 chart-card synthetic custom-node React subtrees    | DOM overlay viewport culling    |
+| `markdown-heavy` | 1k notes each with 200 chars of mixed-style markdown   | Text cache, font epoch          |
+
+The stress menu shows generation time after each load (`store.batch` start-to-end) so we can spot regressions visually without consulting CI.
+
+### 10.5 Visual style
+
+Minimal. System fonts. Default browser button styles or a thin custom shell — no design system, no Tailwind, no theming. We are building a graph editor, not its UI library. The playground proves the canvas-harness library works; the canvas-harness library deliberately does NOT ship UI chrome.
+
+If a consumer wants a polished Excalidraw-clone built on canvas-harness, that's a separate package outside this repo.
+
+### 10.6 Cost
+
+| Phase       | Playground LOC added | Cumulative |
+|-------------|---------------------|------------|
+| Phase 2     | ~250 (shell + perf overlay + first fixture) | 250 |
+| Phase 3     | ~200 (style panel skeleton + select tool + marquee) | 450 |
+| Phase 4     | ~100 (arrow tool + edge style fields) | 550 |
+| Phase 6-8   | ~150 (font controls + text tool + undo/redo wiring) | 700 |
+| Phase 10-12 | ~100 (export button + status bar + context pane) | 800 |
+| Phase 13    | ~200 (detailed perf overlay) | ~1000 |
+| **Total**   | | **~1000 LOC** |
+
+Adds roughly **+0.5 weeks** total to the project, distributed. No separate phase needed.
+
+---
+
+## 11. Decision log (append-only)
 
 Track choices made AFTER this plan is committed, so future devs can read the reasoning:
 
@@ -259,5 +376,6 @@ Track choices made AFTER this plan is committed, so future devs can read the rea
 |------|----------|-----------|--------------|
 | 2026-05-18 | All pre-flight decisions in §1 | See `ARCHITECTURE.md` discussion thread | yes |
 | 2026-05-19 | Vitest browser mode replaces standalone Playwright | One tool covers unit + perf; Playwright was over-engineering | yes |
+| 2026-05-19 | Playground UI built incrementally per phase (option A); progressive style controls; minimal perf overlay (upgrade in phase 13); React state for tool/brush state, library store for scene state | Excalidraw-shaped UI needed for manual + stress testing; distributing keeps each phase's demo coherent and avoids dead time | yes |
 
 Append on every reversal or refinement. This is the trail when someone asks "why are we using X."
