@@ -240,6 +240,10 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
           } else {
             // Plain fill + stroke at native origin — also the fallback
             // for the one frame before rough.js finishes loading.
+            // Rough auto-disable during pan/zoom (via the interaction
+            // mode propagation set up in `use-pan-zoom`) is what keeps
+            // layered shapes smooth here; no special LOD fast-path
+            // needed for composites at the count cap.
             drawShape(staticSurface.ctx, node, scale, theme)
             if (useRough && !roughReady) {
               onRoughReady(() => {
@@ -685,9 +689,21 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   }
   const onInteractionChange = (state: InteractionState): void => {
     interactiveDirty = true
-    // Drag-start / drag-end transitions toggle the excluded set, which
-    // means static needs a repaint to add/remove the dragged shapes.
-    if (state.mode === 'dragging' || state.mode === 'resizing' || state.mode === 'idle') {
+    // Mode transitions that affect what the static surface paints:
+    //   - dragging/resizing toggle the excluded set
+    //   - rotating/panning/zooming flip motion-LOD on for layered
+    //   - idle restores full-quality after any of the above
+    // Any of these need a static repaint at the transition boundary
+    // so the LOD changes (motion fast-path, rough auto-disable, text
+    // bitmap downscale) take effect on the very next frame.
+    if (
+      state.mode === 'dragging' ||
+      state.mode === 'resizing' ||
+      state.mode === 'rotating' ||
+      state.mode === 'panning' ||
+      state.mode === 'zooming' ||
+      state.mode === 'idle'
+    ) {
       staticDirty = true
     }
     loop.requestFrame()

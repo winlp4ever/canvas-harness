@@ -3,9 +3,11 @@ import { useState } from 'react'
 import {
   type Fixture,
   clearScene,
+  fixture1kAtomic,
   fixture1kLabeledEdges,
-  fixture1kMixed,
+  fixture1kLayered,
   fixture1kRects,
+  fixture1kSvg,
   fixture5kEdges,
   fixture10kRects,
   fixture100Rects,
@@ -17,7 +19,14 @@ type Entry = { label: string; fn: Fixture }
 const ENTRIES: Entry[] = [
   { label: '+ 100 rects', fn: fixture100Rects },
   { label: '+ 1k rects', fn: fixture1kRects },
-  { label: '+ 1k mixed', fn: fixture1kMixed },
+  // "Atomic" = rect/ellipse/diamond/capsule. Cheap to paint.
+  { label: '+ 1k atomic', fn: fixture1kAtomic },
+  // "Layered" = layered-rect/-ellipse/-diamond. 2 sub-drawables per
+  // node + per-frame `darkenedStyle` object allocation; the suspect
+  // for the pan lag at 1k.
+  { label: '+ 1k layered', fn: fixture1kLayered },
+  // "SVG" = tag + thought-cloud. Custom union paths with curves.
+  { label: '+ 1k svg', fn: fixture1kSvg },
   { label: '+ 10k rects', fn: fixture10kRects },
   { label: '+ 5k edges', fn: fixture5kEdges },
   { label: '+ 1k labeled edges', fn: fixture1kLabeledEdges },

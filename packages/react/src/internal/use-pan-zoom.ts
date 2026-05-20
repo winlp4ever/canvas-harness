@@ -46,6 +46,44 @@ export const usePanZoom = (ref: React.RefObject<HTMLElement | null>, store: Canv
     let scheduled = false
     let rafId = 0
 
+    // Mode-propagation: the canvas wraps every gesture in a `panning`
+    // closure flag but never reflected it into the store's interaction
+    // mode — which meant `isMoving` stayed false during pan/zoom and
+    // none of the motion-LOD optimisations (rough auto-disable, text
+    // bitmap downscale, layered fast-path) ever fired.
+    //
+    // Pointer-driven gestures have explicit start/end events. Wheel
+    // events don't — so we keep a debounce timer that flips back to
+    // 'idle' once the user stops scrolling.
+    let motionResetTimer: ReturnType<typeof setTimeout> | null = null
+    const MOTION_RESET_MS = 150
+    const clearMotionTimer = (): void => {
+      if (motionResetTimer !== null) {
+        clearTimeout(motionResetTimer)
+        motionResetTimer = null
+      }
+    }
+    const setMotion = (mode: 'panning' | 'zooming' | null): void => {
+      clearMotionTimer()
+      const current = store.getInteractionState().mode
+      if (mode === null) {
+        if (current === 'panning' || current === 'zooming') {
+          store.setInteractionState({ mode: 'idle' })
+        }
+        return
+      }
+      // Don't overwrite editing or any other deliberate mode.
+      if (current !== 'idle' && current !== 'panning' && current !== 'zooming') return
+      if (current !== mode) store.setInteractionState({ mode })
+    }
+    const pulseMotion = (mode: 'panning' | 'zooming'): void => {
+      setMotion(mode)
+      motionResetTimer = setTimeout(() => {
+        setMotion(null)
+        motionResetTimer = null
+      }, MOTION_RESET_MS)
+    }
+
     // Active touch pointers for pinch + two-finger pan. Keyed by
     // pointerId. Only `pointerType: 'touch'` participates here.
     type ActiveTouch = { id: number; x: number; y: number }
@@ -115,9 +153,11 @@ export const usePanZoom = (ref: React.RefObject<HTMLElement | null>, store: Canv
         const factor = Math.exp(-e.deltaY * 0.01)
         pendingZoomFactor *= factor
         pendingZoomAnchor = screenFromClient(e.clientX, e.clientY)
+        pulseMotion('zooming')
       } else {
         pendingDx += -e.deltaX
         pendingDy += -e.deltaY
+        pulseMotion('panning')
       }
       schedule()
     }
@@ -157,6 +197,7 @@ export const usePanZoom = (ref: React.RefObject<HTMLElement | null>, store: Canv
         if (activeTouches.size === 2) {
           recomputePinchSeed()
           el.setPointerCapture(e.pointerId)
+          setMotion('zooming')
           e.preventDefault()
         }
         return
@@ -168,6 +209,7 @@ export const usePanZoom = (ref: React.RefObject<HTMLElement | null>, store: Canv
         lastX = e.clientX
         lastY = e.clientY
         el.setPointerCapture(e.pointerId)
+        setMotion('panning')
         e.preventDefault()
       }
     }
@@ -218,22 +260,32 @@ export const usePanZoom = (ref: React.RefObject<HTMLElement | null>, store: Canv
         // touch as a no-op (the gesture hook handles single-touch).
         // Reseed in case three touches collapsed to two.
         if (activeTouches.size === 2) recomputePinchSeed()
-        else resetPinchTracking()
+        else {
+          resetPinchTracking()
+          setMotion(null)
+        }
         return
       }
 
       if (!panning) return
       panning = false
       if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
+      setMotion(null)
     }
 
     const onPointerCancel = (e: PointerEvent) => {
       // Browser canceled the gesture (e.g. user pulled-to-refresh). Clean up.
       if (e.pointerType === 'touch') {
         activeTouches.delete(e.pointerId)
-        if (activeTouches.size < 2) resetPinchTracking()
+        if (activeTouches.size < 2) {
+          resetPinchTracking()
+          setMotion(null)
+        }
       }
-      if (panning) panning = false
+      if (panning) {
+        panning = false
+        setMotion(null)
+      }
       if (e.pointerType === 'pen') notePenInactive(palm, Date.now())
     }
 
@@ -259,6 +311,7 @@ export const usePanZoom = (ref: React.RefObject<HTMLElement | null>, store: Canv
       el.removeEventListener('pointercancel', onPointerCancel)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
+      clearMotionTimer()
       if (rafId !== 0) cancelAnimationFrame(rafId)
     }
   }, [ref, store])

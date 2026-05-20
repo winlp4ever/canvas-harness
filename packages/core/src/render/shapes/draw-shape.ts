@@ -204,7 +204,7 @@ type SubShape = {
 
 /** Builds the back-to-front sub-shape list for a composite node. Exported for rough. */
 export const compositeLayout = (node: Node): SubShape[] => {
-  const { w, h, style } = node
+  const { w, h } = node
   switch (node.type) {
     case 'capsule': {
       // Medicine-pill: small accent circle on the left + rect body.
@@ -241,7 +241,7 @@ export const compositeLayout = (node: Node): SubShape[] => {
         y: off,
         w,
         h,
-        style: darkenedStyle(style),
+        style: darkenedStyle(node.style),
       }
       const front: SubShape = { atomic, x: 0, y: 0, w, h }
       return [back, front]
@@ -251,15 +251,29 @@ export const compositeLayout = (node: Node): SubShape[] => {
 }
 
 /**
- * Returns a clone of `style` with both fill and stroke shifted 20% toward
- * black — the "back layer" tone used by layered composites.
+ * Returns a clone of `style` with both fill and stroke shifted 20%
+ * toward black — the "back layer" tone used by layered composites.
+ *
+ * Memoized via WeakMap on the parent style reference. The store
+ * replaces (not mutates) `node.style` on updates, so refs are stable
+ * across paints for nodes whose style hasn't changed — meaning a 1k
+ * layered scene that's idle hits the cache 100% of the time instead
+ * of allocating a fresh Style object per node per frame.
  */
+const DARKENED_NO_STYLE: Style = {}
+const darkenedStyleCache = new WeakMap<Style, Style>()
 const darkenedStyle = (style: Style | undefined): Style => {
-  const fill = style?.backgroundColor
-  const stroke = style?.strokeColor
-  return {
+  if (!style) return DARKENED_NO_STYLE
+  const hit = darkenedStyleCache.get(style)
+  if (hit) return hit
+  const fill = style.backgroundColor
+  const stroke = style.strokeColor
+  const next: Style = {
     ...style,
     ...(fill ? { backgroundColor: darkenHex(fill) } : {}),
     ...(stroke ? { strokeColor: darkenHex(stroke) } : {}),
   }
+  darkenedStyleCache.set(style, next)
+  return next
 }
+

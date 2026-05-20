@@ -21,17 +21,28 @@ type Primitive =
   | 'layered-diamond'
 
 const palette = ['#dbeafe', '#fef08a', '#fde68a', '#fecaca', '#bbf7d0', '#e9d5ff', '#fed7aa']
-const types: Primitive[] = [
-  'rect',
-  'ellipse',
-  'diamond',
-  'tag',
-  'capsule',
-  'thought-cloud',
-  'layered-rect',
-  'layered-ellipse',
-  'layered-diamond',
-]
+
+// "Atomic" pool: shapes that paint as a single drawable per node.
+// Includes capsule because, while it's a composite, both sub-shapes
+// are simple primitives.
+const ATOMIC_TYPES: Primitive[] = ['rect', 'ellipse', 'diamond', 'capsule']
+
+// "Layered" pool: shapes that paint two sub-drawables per node
+// (darker back + front, offset). Composite-paint heavy.
+const LAYERED_TYPES: Primitive[] = ['layered-rect', 'layered-ellipse', 'layered-diamond']
+
+// "SVG-path" pool: shapes whose silhouette is a custom union path
+// with curves and arcs. Their rough drawables are slower to build
+// because rough.js has to subdivide and apply bowing to curves.
+const SVG_TYPES: Primitive[] = ['tag', 'thought-cloud']
+
+const SeedKind = {
+  Mono: 'mono',
+  Atomic: 'atomic',
+  Layered: 'layered',
+  Svg: 'svg',
+} as const
+type SeedKindValue = (typeof SeedKind)[keyof typeof SeedKind]
 
 export type FixtureResult = {
   added: number
@@ -40,13 +51,20 @@ export type FixtureResult = {
 
 export type Fixture = (store: CanvasStore) => FixtureResult
 
-const seededRect = (store: CanvasStore, i: number, kind: 'mono' | 'mixed'): Node => {
+const pickType = (i: number, kind: SeedKindValue): Primitive => {
+  if (kind === SeedKind.Mono) return 'rect'
+  if (kind === SeedKind.Atomic) return ATOMIC_TYPES[i % ATOMIC_TYPES.length]!
+  if (kind === SeedKind.Layered) return LAYERED_TYPES[i % LAYERED_TYPES.length]!
+  return SVG_TYPES[i % SVG_TYPES.length]!
+}
+
+const seededRect = (store: CanvasStore, i: number, kind: SeedKindValue): Node => {
   const cols = 50
   const x = (i % cols) * 50
   const y = Math.floor(i / cols) * 50
   return {
     id: asNodeId(store.generateId()),
-    type: kind === 'mono' ? 'rect' : types[i % types.length]!,
+    type: pickType(i, kind),
     x,
     y,
     w: 40,
@@ -58,7 +76,7 @@ const seededRect = (store: CanvasStore, i: number, kind: 'mono' | 'mixed'): Node
   }
 }
 
-const seedN = (store: CanvasStore, n: number, kind: 'mono' | 'mixed'): FixtureResult => {
+const seedN = (store: CanvasStore, n: number, kind: SeedKindValue): FixtureResult => {
   const t0 = performance.now()
   store.batch(() => {
     for (let i = 0; i < n; i++) store.addNode(seededRect(store, i, kind))
@@ -66,10 +84,12 @@ const seedN = (store: CanvasStore, n: number, kind: 'mono' | 'mixed'): FixtureRe
   return { added: n, ms: performance.now() - t0 }
 }
 
-export const fixture100Rects: Fixture = store => seedN(store, 100, 'mono')
-export const fixture1kRects: Fixture = store => seedN(store, 1000, 'mono')
-export const fixture10kRects: Fixture = store => seedN(store, 10000, 'mono')
-export const fixture1kMixed: Fixture = store => seedN(store, 1000, 'mixed')
+export const fixture100Rects: Fixture = store => seedN(store, 100, SeedKind.Mono)
+export const fixture1kRects: Fixture = store => seedN(store, 1000, SeedKind.Mono)
+export const fixture10kRects: Fixture = store => seedN(store, 10000, SeedKind.Mono)
+export const fixture1kAtomic: Fixture = store => seedN(store, 1000, SeedKind.Atomic)
+export const fixture1kLayered: Fixture = store => seedN(store, 1000, SeedKind.Layered)
+export const fixture1kSvg: Fixture = store => seedN(store, 1000, SeedKind.Svg)
 
 const MARKDOWN_CONTENTS = [
   '**Hire** Lara before _Q3_\n- write JD\n- schedule loop\n- get budget',
