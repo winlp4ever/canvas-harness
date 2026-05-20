@@ -7,10 +7,10 @@ export {
   resolveStrokeWidth,
 } from './defaults'
 export {
-  buildCapsulePath,
   buildDiamondPath,
   buildEllipsePath,
   buildRectPath,
+  buildTagPath,
 } from './path-helpers'
 export type { PrimitiveType } from './draw-shape'
-export { drawShape, isDrawablePrimitive } from './draw-shape'
+export { drawShape, isCompositePrimitive, isDrawablePrimitive } from './draw-shape'

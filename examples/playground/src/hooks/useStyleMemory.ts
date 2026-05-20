@@ -11,21 +11,27 @@ import { useEffect, useRef, useState } from 'react'
 /**
  * Sticky style memory — see IMPROVEMENTS.md.
  *
- * Captures the last-used style per node type + edge, so the next
- * thing the user creates inherits their last choice. Excalidraw-style.
+ * Captures the last-used style across all shape creations so the next
+ * thing the user makes inherits their last choice. Single shared
+ * bucket for nodes (matches excalidraw / tldraw / figma — set a color
+ * on a rect, switch to ellipse, ellipse is also that color). Edges
+ * have their own shared bucket since their style fields diverge
+ * (arrowheads, pathStyle).
+ *
  * Persisted to `localStorage` so the preference survives reloads.
+ * Storage key is versioned — `v2` switched to the shared model and
+ * deliberately ignores `v1` per-type entries.
  *
  * Watches the store's `change` event:
- *   - `node.update` with a `style` patch → remember the resolved style
- *     for that node's type.
- *   - `edge.update` with a `style` / `pathStyle` patch → remember the
- *     resolved edge style.
+ *   - `node.update` with a `style` patch → fold the resolved style
+ *     into the shared node bucket.
+ *   - `edge.update` with a `style` / `pathStyle` patch → fold into
+ *     the edge bucket.
  *
- * Returns a `getStyle(typeOrEdge)` accessor consumers call when
- * creating new nodes / edges.
+ * Returns accessors callers use when creating new nodes / edges.
  */
 
-const STORAGE_KEY = 'canvas-harness-playground:style-memory:v1'
+const STORAGE_KEY = 'canvas-harness-playground:style-memory:v2'
 
 export type EdgeMemory = {
   style?: EdgeStyle
@@ -33,8 +39,8 @@ export type EdgeMemory = {
 }
 
 export type StyleMemory = {
-  /** Per node type (`rect`, `ellipse`, `text`, ...). */
-  nodes: Record<string, Style>
+  /** Shared across all node types. */
+  nodes: Style
   /** Shared across all edges. */
   edge: EdgeMemory
 }
@@ -71,7 +77,7 @@ const saveToStorage = (mem: StyleMemory): void => {
 }
 
 export function useStyleMemory(store: CanvasStore): {
-  getNodeStyle: (type: string) => Style | undefined
+  getNodeStyle: () => Style | undefined
   getEdgeStyle: () => EdgeStyle | undefined
   getEdgePathStyle: () => PathStyle | undefined
 } {
@@ -83,18 +89,21 @@ export function useStyleMemory(store: CanvasStore): {
       let dirty = false
       for (const op of batch.ops) {
         if (op.type === 'node.update') {
-          // Only react to style changes — content / position updates
-          // shouldn't move the style memory.
           if (op.patch.style === undefined) continue
           const node = store.getNode(op.id)
           if (!node) continue
-          memoryRef.current.nodes[node.type] = node.style ?? {}
+          // Merge so unset fields on the latest edit don't wipe earlier
+          // preferences (e.g. user nudges roughness but didn't touch
+          // backgroundColor → keep the prior backgroundColor).
+          memoryRef.current.nodes = { ...memoryRef.current.nodes, ...(node.style ?? {}) }
           dirty = true
         } else if (op.type === 'edge.update') {
           if (op.patch.style === undefined && op.patch.pathStyle === undefined) continue
           const edge = store.getEdge(op.id)
           if (!edge) continue
-          if (op.patch.style !== undefined) memoryRef.current.edge.style = edge.style
+          if (op.patch.style !== undefined) {
+            memoryRef.current.edge.style = { ...memoryRef.current.edge.style, ...(edge.style ?? {}) }
+          }
           if (op.patch.pathStyle !== undefined) memoryRef.current.edge.pathStyle = edge.pathStyle
           dirty = true
         }
@@ -108,7 +117,10 @@ export function useStyleMemory(store: CanvasStore): {
   }, [store])
 
   return {
-    getNodeStyle: (type: string) => memoryRef.current.nodes[type],
+    getNodeStyle: () => {
+      const s = memoryRef.current.nodes
+      return Object.keys(s).length === 0 ? undefined : s
+    },
     getEdgeStyle: () => memoryRef.current.edge.style,
     getEdgePathStyle: () => memoryRef.current.edge.pathStyle,
   }

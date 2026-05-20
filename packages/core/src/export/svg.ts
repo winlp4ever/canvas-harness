@@ -95,29 +95,53 @@ const renderNodeSvg = (node: Node): string => {
       ? ` transform="rotate(${(node.angle * 180) / Math.PI} ${node.x + node.w / 2} ${node.y + node.h / 2})"`
       : ''
 
-  let shape = ''
-  if (node.type === 'rect') {
-    const r = node.style?.roundness ?? 0
-    shape = `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="${r}" ry="${r}" fill="${escapeAttr(fill)}" stroke="${escapeAttr(stroke)}" stroke-width="${strokeWidth}" opacity="${opacity}" />`
-  } else if (node.type === 'ellipse') {
-    shape = `<ellipse cx="${node.x + node.w / 2}" cy="${node.y + node.h / 2}" rx="${node.w / 2}" ry="${node.h / 2}" fill="${escapeAttr(fill)}" stroke="${escapeAttr(stroke)}" stroke-width="${strokeWidth}" opacity="${opacity}" />`
-  } else if (node.type === 'diamond') {
-    const cx = node.x + node.w / 2
-    const cy = node.y + node.h / 2
-    const pts = `${cx},${node.y} ${node.x + node.w},${cy} ${cx},${node.y + node.h} ${node.x},${cy}`
-    shape = `<polygon points="${pts}" fill="${escapeAttr(fill)}" stroke="${escapeAttr(stroke)}" stroke-width="${strokeWidth}" opacity="${opacity}" />`
-  } else if (node.type === 'capsule') {
-    const r = Math.min(node.w, node.h) / 2
-    shape = `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="${r}" ry="${r}" fill="${escapeAttr(fill)}" stroke="${escapeAttr(stroke)}" stroke-width="${strokeWidth}" opacity="${opacity}" />`
-  } else if (node.type === 'text') {
-    shape = ''
-  } else {
-    // Unknown custom type — emit a rectangle placeholder.
-    shape = `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" fill="none" stroke="${escapeAttr(stroke)}" stroke-dasharray="4 4" stroke-width="1" opacity="0.5" />`
-  }
+  const shape = renderShapeSvg(node, fill, stroke, strokeWidth, opacity)
 
   const text = renderTextSvg(node)
   return `<g${rotate}>${shape}${text}</g>`
+}
+
+const renderShapeSvg = (
+  node: Node,
+  fill: string,
+  stroke: string,
+  strokeWidth: number,
+  opacity: number,
+): string => {
+  const attrs = (extra: string): string =>
+    `fill="${escapeAttr(fill)}" stroke="${escapeAttr(stroke)}" stroke-width="${strokeWidth}" opacity="${opacity}"${extra}`
+  switch (node.type) {
+    case 'rect': {
+      const r = (node.style?.roundness ?? 0) * 4
+      return `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="${r}" ry="${r}" ${attrs('')} />`
+    }
+    case 'ellipse':
+      return `<ellipse cx="${node.x + node.w / 2}" cy="${node.y + node.h / 2}" rx="${node.w / 2}" ry="${node.h / 2}" ${attrs('')} />`
+    case 'diamond': {
+      const cx = node.x + node.w / 2
+      const cy = node.y + node.h / 2
+      const pts = `${cx},${node.y} ${node.x + node.w},${cy} ${cx},${node.y + node.h} ${node.x},${cy}`
+      return `<polygon points="${pts}" ${attrs('')} />`
+    }
+    case 'tag': {
+      // Approximate — emit the bounding rect. Full tag geometry is not
+      // worth porting to the SVG export path.
+      return `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="6" ry="6" ${attrs('')} />`
+    }
+    case 'capsule':
+    case 'thought-cloud':
+    case 'layered-rect':
+    case 'layered-ellipse':
+    case 'layered-diamond': {
+      // Composites: emit a bounding rect placeholder. PNG export uses
+      // the canvas renderer directly and renders these correctly.
+      return `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="4" ry="4" ${attrs('')} />`
+    }
+    case 'text':
+      return ''
+    default:
+      return `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" fill="none" stroke="${escapeAttr(stroke)}" stroke-dasharray="4 4" stroke-width="1" opacity="0.5" />`
+  }
 }
 
 const renderTextSvg = (node: Node): string => {

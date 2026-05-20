@@ -10,39 +10,11 @@
  * Result is memoized per `(fill, isDark)` pair so the rough drawable
  * cache key stays stable across renders.
  */
+import { mixHex } from '../color'
 import { isFullyTransparent } from '../shapes/defaults'
 
 const TONE_BLEND = 0.2
 const cache = new Map<string, string>()
-
-const parseHex = (hex: string): [number, number, number] | null => {
-  if (!hex.startsWith('#')) return null
-  const h = hex.slice(1)
-  if (h.length === 3) {
-    return [
-      parseInt(h[0]! + h[0]!, 16),
-      parseInt(h[1]! + h[1]!, 16),
-      parseInt(h[2]! + h[2]!, 16),
-    ]
-  }
-  if (h.length === 6 || h.length === 8) {
-    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
-  }
-  return null
-}
-
-const toHexPair = (n: number): string =>
-  Math.max(0, Math.min(255, Math.round(n)))
-    .toString(16)
-    .padStart(2, '0')
-
-const mixHex = (a: string, b: string, t: number): string => {
-  const A = parseHex(a)
-  const B = parseHex(b)
-  if (!A || !B) return a
-  const p = Math.max(0, Math.min(1, t))
-  return `#${toHexPair(A[0] * (1 - p) + B[0] * p)}${toHexPair(A[1] * (1 - p) + B[1] * p)}${toHexPair(A[2] * (1 - p) + B[2] * p)}`
-}
 
 /**
  * If `stroke` is transparent and `fill` is a visible color, returns a

@@ -35,14 +35,19 @@ import {
   drawRotateHandle,
   drawSelectionOutline,
 } from './overlay'
-import { ROUGH_MAX_NODES, ROUGH_MIN_ZOOM, drawRoughShape } from './rough'
+import { ROUGH_MAX_NODES, ROUGH_MIN_ZOOM, drawCompositeRough, drawRoughShape } from './rough'
 import {
   ROUGH_FILL_MISREGISTER_X,
   ROUGH_FILL_MISREGISTER_Y,
   ROUGH_MAX_MOVING_NODES,
 } from './rough/constants'
 import { getRoughCanvasCtor, onRoughReady } from './rough/loader'
-import { type ThemeResolver, drawShape, isDrawablePrimitive } from './shapes'
+import {
+  type ThemeResolver,
+  drawShape,
+  isCompositePrimitive,
+  isDrawablePrimitive,
+} from './shapes'
 import { applyCameraTransform, drawWithNodeTransform, worldViewport } from './transform'
 
 /** A small overscan keeps shapes near the viewport edge from popping. */
@@ -212,16 +217,25 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         // Peek (and trigger lazy import) — null means rough.js hasn't
         // resolved yet this session.
         const roughReady = useRough ? getRoughCanvasCtor() !== null : false
+        const composite = isCompositePrimitive(node.type)
         drawWithNodeTransform(staticSurface.ctx, node, () => {
           if (useRough && roughReady) {
-            // Print-misregistration: shift fill up-and-left a few pixels
-            // so it sits offset from the rough stroke (which paints at
-            // native origin). Mimics an old CMYK plate that didn't quite
-            // line up. See ROUGH_FILL_MISREGISTER_X/Y in rough/constants.
-            staticSurface.ctx.translate(ROUGH_FILL_MISREGISTER_X, ROUGH_FILL_MISREGISTER_Y)
-            drawShape(staticSurface.ctx, node, scale, theme, { skipStroke: true })
-            staticSurface.ctx.translate(-ROUGH_FILL_MISREGISTER_X, -ROUGH_FILL_MISREGISTER_Y)
-            drawRoughShape(staticSurface.ctx, node, camera.z, theme)
+            if (composite) {
+              // Composites paint each sub fully (misregistered fill +
+              // rough stroke) before moving to the next sub. Crucial
+              // so the back layer's stroke is covered by the front
+              // layer's fill in the overlap region.
+              drawCompositeRough(staticSurface.ctx, node, camera.z, theme)
+            } else {
+              // Atomic: misregistered fill in one pass, rough stroke
+              // in a second pass. Print-misregistration shifts fill
+              // up-and-left a few pixels from the rough stroke. See
+              // ROUGH_FILL_MISREGISTER_X/Y in rough/constants.
+              staticSurface.ctx.translate(ROUGH_FILL_MISREGISTER_X, ROUGH_FILL_MISREGISTER_Y)
+              drawShape(staticSurface.ctx, node, scale, theme, { skipStroke: true })
+              staticSurface.ctx.translate(-ROUGH_FILL_MISREGISTER_X, -ROUGH_FILL_MISREGISTER_Y)
+              drawRoughShape(staticSurface.ctx, node, camera.z, theme)
+            }
           } else {
             // Plain fill + stroke at native origin — also the fallback
             // for the one frame before rough.js finishes loading.
@@ -477,10 +491,14 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
             const useRough = dragRoughEnabled && (node.style?.roughness ?? 0) > 0
             const roughReady = useRough ? getRoughCanvasCtor() !== null : false
             if (useRough && roughReady) {
-              ctx.translate(ROUGH_FILL_MISREGISTER_X, ROUGH_FILL_MISREGISTER_Y)
-              drawShape(ctx, node, scale, theme, { skipStroke: true })
-              ctx.translate(-ROUGH_FILL_MISREGISTER_X, -ROUGH_FILL_MISREGISTER_Y)
-              drawRoughShape(ctx, node, camera.z, theme)
+              if (isCompositePrimitive(node.type)) {
+                drawCompositeRough(ctx, node, camera.z, theme)
+              } else {
+                ctx.translate(ROUGH_FILL_MISREGISTER_X, ROUGH_FILL_MISREGISTER_Y)
+                drawShape(ctx, node, scale, theme, { skipStroke: true })
+                ctx.translate(-ROUGH_FILL_MISREGISTER_X, -ROUGH_FILL_MISREGISTER_Y)
+                drawRoughShape(ctx, node, camera.z, theme)
+              }
             } else {
               drawShape(ctx, node, scale, theme)
             }

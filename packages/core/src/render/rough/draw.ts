@@ -1,23 +1,3 @@
-import type { Edge, Node, Style, Vec2 } from '../../types'
-import {
-  DEFAULT_STYLE,
-  type ThemeResolver,
-  dashPatternFor,
-  resolveColor,
-  resolveStrokeWidth,
-} from '../shapes/defaults'
-import { ROUGH_DEFAULTS } from './constants'
-import { type RoughCanvasLike, getRoughCanvasCtor } from './loader'
-import {
-  capsulePath,
-  diamondPath,
-  ellipsePath,
-  excalidrawRoundedRectPath,
-  rectPath,
-} from './paths'
-import { getOrBuildDrawable, seedFromId } from './cache'
-import { deriveRoughStrokeColor } from './tone-down'
-
 /**
  * Per-shape rough stroke pass.
  *
@@ -27,9 +7,38 @@ import { deriveRoughStrokeColor } from './tone-down'
  *
  * Returns false when the rough.js module hasn't loaded yet; caller
  * should fall back to plain stroke.
+ *
+ * For composite nodes (capsule, thought-cloud, layered-*), the rough
+ * pass walks `compositeLayout` and paints each sub-shape's outline as
+ * its own rough drawable. Each sub-shape gets its own cache entry so
+ * scrubbing one node attribute only invalidates the affected subset.
  */
+import type { Edge, Node, Style, Vec2 } from '../../types'
+import { compositeLayout, drawAtomic } from '../shapes/draw-shape'
+import {
+  DEFAULT_STYLE,
+  type ThemeResolver,
+  dashPatternFor,
+  resolveColor,
+  resolveStrokeWidth,
+} from '../shapes/defaults'
+import {
+  ROUGH_DEFAULTS,
+  ROUGH_FILL_MISREGISTER_X,
+  ROUGH_FILL_MISREGISTER_Y,
+} from './constants'
+import { type RoughCanvasLike, getRoughCanvasCtor } from './loader'
+import {
+  diamondPath,
+  ellipsePath,
+  excalidrawRoundedRectPath,
+  rectPath,
+  tagPath,
+} from './paths'
+import { getOrBuildDrawable, seedFromId } from './cache'
+import { deriveRoughStrokeColor } from './tone-down'
 
-type RoughPrimitive = 'rect' | 'ellipse' | 'diamond' | 'capsule'
+type AtomicRoughPrimitive = 'rect' | 'ellipse' | 'diamond' | 'tag'
 
 const apparentDetail = (
   maxSide: number,
@@ -42,9 +51,11 @@ const apparentDetail = (
 }
 
 /**
- * Paints the rough stroke into `ctx` at the node's local origin
- * (caller has already applied the node transform). Returns true on
- * success, false if rough.js isn't loaded yet.
+ * Paints the rough stroke for an ATOMIC primitive at the node's local
+ * origin. Caller (renderer) decides whether to call this. Returns
+ * false if rough.js isn't loaded yet. Composites use
+ * `drawCompositeRough` instead — they need interleaved fill+stroke
+ * painting per sub-shape, not the two-pass model used for atomics.
  */
 export const drawRoughShape = (
   ctx: CanvasRenderingContext2D,
@@ -54,37 +65,104 @@ export const drawRoughShape = (
 ): boolean => {
   const Ctor = getRoughCanvasCtor()
   if (!Ctor) return false
+  const rc = ensureRoughCanvas(ctx, Ctor)
+  if (!rc) return false
 
-  const type = node.type as RoughPrimitive
-  const style: Style | undefined = node.style
+  const seed = node.id ? (seedFromId(node.id) % 2147483646) + 1 : 1337
+  paintAtomicRough(
+    rc,
+    ctx,
+    node.type as AtomicRoughPrimitive,
+    node.w,
+    node.h,
+    node.style,
+    scale,
+    theme,
+    seed,
+  )
+  return true
+}
+
+/**
+ * Composite-aware rough paint. Walks the composite layout and for
+ * each sub-shape paints fill (misregistered) + rough stroke before
+ * moving to the next sub. This interleaving is critical: if all fills
+ * paint first and all strokes after, the back layer's stroke ends up
+ * sitting on top of the front layer's fill in the overlap region.
+ *
+ * Returns false if rough.js isn't loaded yet (caller should fall back
+ * to the plain `drawShape` path).
+ */
+export const drawCompositeRough = (
+  ctx: CanvasRenderingContext2D,
+  node: Node,
+  scale: number,
+  theme?: ThemeResolver,
+): boolean => {
+  const Ctor = getRoughCanvasCtor()
+  if (!Ctor) return false
+  const rc = ensureRoughCanvas(ctx, Ctor)
+  if (!rc) return false
+
+  const subs = compositeLayout(node)
+  const baseSeed = node.id ? (seedFromId(node.id) % 2147483646) + 1 : 1337
+  for (let i = 0; i < subs.length; i++) {
+    const s = subs[i]!
+    const subStyle = s.style ?? node.style
+    ctx.save()
+    ctx.translate(s.x, s.y)
+    // Misregister this sub's fill — same printing-press offset effect
+    // as atomic shapes, applied per sub so the back's fill and stroke
+    // misalign just like the front's do.
+    ctx.translate(ROUGH_FILL_MISREGISTER_X, ROUGH_FILL_MISREGISTER_Y)
+    drawAtomic(ctx, s.atomic, s.w, s.h, subStyle, scale, theme, { skipStroke: true })
+    ctx.translate(-ROUGH_FILL_MISREGISTER_X, -ROUGH_FILL_MISREGISTER_Y)
+    // Rough stroke for this sub. Painted before the next sub's fill so
+    // the front layer's fill correctly covers the back's stroke in
+    // the overlap region.
+    paintAtomicRough(
+      rc,
+      ctx,
+      s.atomic as AtomicRoughPrimitive,
+      s.w,
+      s.h,
+      subStyle,
+      scale,
+      theme,
+      ((baseSeed + i * 7919) % 2147483646) + 1,
+    )
+    ctx.restore()
+  }
+  return true
+}
+
+/** Paints a single atomic primitive at (0, 0, w, h) using the given style. */
+const paintAtomicRough = (
+  rc: RoughCanvasLike,
+  ctx: CanvasRenderingContext2D,
+  type: AtomicRoughPrimitive,
+  w: number,
+  h: number,
+  style: Style | undefined,
+  scale: number,
+  theme: ThemeResolver | undefined,
+  seed: number,
+): void => {
+  if (w <= 0 || h <= 0) return
   const rawStroke = resolveColor(style, 'strokeColor', '#1f2937', theme)
-  // When the user picks a transparent border but kept a fill, derive a
-  // tone-shifted edge so the misregistration effect stays visible.
-  // `theme('mode')` is the convention: returns 'dark' in dark mode,
-  // anything else (or undefined) → light.
   const isDark = theme?.('mode') === 'dark'
   const fill = resolveColor(style, 'backgroundColor', DEFAULT_STYLE.backgroundColor, theme)
   const strokeColor = deriveRoughStrokeColor(rawStroke, fill, isDark)
   const strokeWidth = resolveStrokeWidth(style, theme)
-  if (strokeWidth <= 0) return true // nothing to draw, but "handled"
+  if (strokeWidth <= 0) return
 
   const roughness = style?.roughness ?? 0
-  if (roughness <= 0) return true
+  if (roughness <= 0) return
 
-  const seed = node.id ? (seedFromId(node.id) % 2147483646) + 1 : 1337
-  const w = node.w
-  const h = node.h
-  // Match drawShape's resolution exactly so the rough outline picks
-  // the same corner radius as the solid fill behind it.
   const cornerRadius = (style?.roundness ?? DEFAULT_STYLE.roundness) * 4
   const radius = Math.max(0, Math.min(cornerRadius, w / 2, h / 2))
   const dash = dashPatternFor(style?.strokeStyle, strokeWidth)
   const detail = apparentDetail(Math.max(w, h), scale)
-
-  // Note: rough stroke draws at native (0, 0, w, h). The misregistration
-  // effect (fill shifted up-and-left while stroke stays put) is applied
-  // by the renderer translating the ctx before calling drawShape for the
-  // fill — see ROUGH_FILL_MISREGISTER_X/Y in constants.ts.
 
   const cacheKey = [
     type,
@@ -99,9 +177,6 @@ export const drawRoughShape = (
     detail.curveStepCount,
     detail.maxRandomnessOffset.toFixed(2),
   ].join('|')
-
-  const rc = ensureRoughCanvas(ctx, Ctor)
-  if (!rc) return false
 
   const drawable = getOrBuildDrawable(cacheKey, () => {
     const pathData = buildPath(type, 0, 0, w, h, radius)
@@ -121,7 +196,6 @@ export const drawRoughShape = (
   ctx.lineJoin = 'round'
   rc.draw(drawable)
   ctx.restore()
-  return true
 }
 
 /**
@@ -151,7 +225,6 @@ export const drawRoughEdge = (
 
   const seed = edge.id ? (seedFromId(edge.id) % 2147483646) + 1 : 1337
   const dash = dashPatternFor(style?.strokeStyle, strokeWidth)
-  // Detail off the bbox span of the samples; cheap proxy.
   let minX = samples[0]!.x
   let maxX = samples[0]!.x
   let minY = samples[0]!.y
@@ -225,7 +298,7 @@ const ensureRoughCanvas = (
 }
 
 const buildPath = (
-  type: RoughPrimitive,
+  type: AtomicRoughPrimitive,
   x: number,
   y: number,
   w: number,
@@ -238,8 +311,8 @@ const buildPath = (
     case 'ellipse':
       return ellipsePath(x, y, w, h)
     case 'diamond':
-      return diamondPath(x, y, w, h)
-    case 'capsule':
-      return capsulePath(x, y, w, h)
+      return diamondPath(x, y, w, h, radius)
+    case 'tag':
+      return tagPath(x, y, w, h, radius)
   }
 }

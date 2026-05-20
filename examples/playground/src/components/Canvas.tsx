@@ -11,13 +11,42 @@ import { useCallback, useMemo } from 'react'
 import { ChartCardView } from '../custom-nodes/chart-card'
 import { useStyleMemory } from '../hooks/useStyleMemory'
 
-export type Tool = 'select' | 'rect' | 'ellipse' | 'diamond' | 'capsule' | 'arrow' | 'text'
+type ShapeTool =
+  | 'rect'
+  | 'ellipse'
+  | 'diamond'
+  | 'tag'
+  | 'capsule'
+  | 'thought-cloud'
+  | 'layered-rect'
+  | 'layered-ellipse'
+  | 'layered-diamond'
 
-const SHAPE_TOOLS = new Set<Tool>(['rect', 'ellipse', 'diamond', 'capsule'])
-const TOOL_TO_TYPE: Record<
-  'rect' | 'ellipse' | 'diamond' | 'capsule',
-  'rect' | 'ellipse' | 'diamond' | 'capsule'
-> = { rect: 'rect', ellipse: 'ellipse', diamond: 'diamond', capsule: 'capsule' }
+export type Tool = 'select' | ShapeTool | 'arrow' | 'text'
+
+const SHAPE_TOOLS = new Set<Tool>([
+  'rect',
+  'ellipse',
+  'diamond',
+  'tag',
+  'capsule',
+  'thought-cloud',
+  'layered-rect',
+  'layered-ellipse',
+  'layered-diamond',
+])
+// Tool name === node type for all shape tools today.
+const TOOL_TO_TYPE: Record<ShapeTool, ShapeTool> = {
+  rect: 'rect',
+  ellipse: 'ellipse',
+  diamond: 'diamond',
+  tag: 'tag',
+  capsule: 'capsule',
+  'thought-cloud': 'thought-cloud',
+  'layered-rect': 'layered-rect',
+  'layered-ellipse': 'layered-ellipse',
+  'layered-diamond': 'layered-diamond',
+}
 
 /**
  * Phase 9: the playground's Canvas is now a thin shell over the
@@ -50,7 +79,10 @@ export function Canvas({
     (e: CanvasPointerEvent) => {
       const t = e.tool as Tool
       if (SHAPE_TOOLS.has(t)) {
-        const remembered = styleMemory.getNodeStyle(t)
+        const remembered = styleMemory.getNodeStyle()
+        // Default to roughness:1 so first-time creation has the
+        // hand-drawn look; user-remembered style wins if present.
+        const style = { roughness: 1, ...remembered }
         store.addNode({
           id: asNodeId(store.generateId()),
           type: TOOL_TO_TYPE[t as keyof typeof TOOL_TO_TYPE],
@@ -61,13 +93,13 @@ export function Canvas({
           angle: 0,
           z: 0,
           groups: [],
-          ...(remembered ? { style: remembered } : {}),
+          style,
         })
         return
       }
       if (t === 'text') {
         const id = asNodeId(store.generateId())
-        const remembered = styleMemory.getNodeStyle('text')
+        const remembered = styleMemory.getNodeStyle()
         store.addNode({
           id,
           type: 'text',
@@ -96,7 +128,7 @@ export function Canvas({
       const camera = store.getCamera()
       if (hitTestAny(store, e.world, camera.z)) return
       const id = asNodeId(store.generateId())
-      const remembered = styleMemory.getNodeStyle('text')
+      const remembered = styleMemory.getNodeStyle()
       store.addNode({
         id,
         type: 'text',
@@ -120,7 +152,8 @@ export function Canvas({
     (e: CanvasCreateDragEvent) => {
       const t = e.tool as Tool
       if (!SHAPE_TOOLS.has(t)) return
-      const remembered = styleMemory.getNodeStyle(t)
+      const remembered = styleMemory.getNodeStyle()
+      const style = { roughness: 1, ...remembered }
       store.addNode({
         id: asNodeId(store.generateId()),
         type: TOOL_TO_TYPE[t as keyof typeof TOOL_TO_TYPE],
@@ -131,7 +164,7 @@ export function Canvas({
         angle: 0,
         z: 0,
         groups: [],
-        ...(remembered ? { style: remembered } : {}),
+        style,
       })
     },
     [store, styleMemory],

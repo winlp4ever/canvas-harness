@@ -30,8 +30,8 @@ const pickName = () => `user-${Math.floor(Math.random() * 1000)}`
 
 /**
  * Phase 2 playground:
- *  - top tray for active-tool selection (rect/ellipse/diamond/capsule;
- *    select disabled until phase 3)
+ *  - top tray for active-tool selection (rect/ellipse/diamond/tag/capsule/
+ *    thought-cloud/layered-*; select disabled until phase 3)
  *  - perf overlay (FPS, frame time, drawn count, camera state)
  *  - stress menu (100 / 1k / 10k rect fixtures + clear)
  *  - pan (middle button or space+drag) + zoom (cmd/ctrl+scroll, pinch)

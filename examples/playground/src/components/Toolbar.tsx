@@ -7,7 +7,12 @@ const TOOLS: ToolDef[] = [
   { id: 'rect', label: 'Rect', enabled: true },
   { id: 'ellipse', label: 'Ellipse', enabled: true },
   { id: 'diamond', label: 'Diamond', enabled: true },
+  { id: 'tag', label: 'Tag', enabled: true },
   { id: 'capsule', label: 'Capsule', enabled: true },
+  { id: 'thought-cloud', label: 'Cloud', enabled: true },
+  { id: 'layered-rect', label: 'Lyr Rect', enabled: true },
+  { id: 'layered-ellipse', label: 'Lyr Ell', enabled: true },
+  { id: 'layered-diamond', label: 'Lyr Dmnd', enabled: true },
   { id: 'arrow', label: 'Arrow', enabled: true },
   { id: 'text', label: 'Text', enabled: true },
 ]

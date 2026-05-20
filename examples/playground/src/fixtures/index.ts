@@ -9,10 +9,29 @@ import { type CanvasStore, type Node, asEdgeId, asNodeId } from '@canvas-harness
 const CARD_PALETTE = ['#fef3c7', '#fce7f3', '#dbeafe', '#dcfce7', '#ede9fe', '#fee2e2']
 const CARD_TITLES = ['Q3 Revenue', 'Active Users', 'Errors', 'Latency', 'Churn', 'Conversion']
 
-type Primitive = 'rect' | 'ellipse' | 'diamond' | 'capsule'
+type Primitive =
+  | 'rect'
+  | 'ellipse'
+  | 'diamond'
+  | 'tag'
+  | 'capsule'
+  | 'thought-cloud'
+  | 'layered-rect'
+  | 'layered-ellipse'
+  | 'layered-diamond'
 
 const palette = ['#dbeafe', '#fef08a', '#fde68a', '#fecaca', '#bbf7d0', '#e9d5ff', '#fed7aa']
-const types: Primitive[] = ['rect', 'ellipse', 'diamond', 'capsule']
+const types: Primitive[] = [
+  'rect',
+  'ellipse',
+  'diamond',
+  'tag',
+  'capsule',
+  'thought-cloud',
+  'layered-rect',
+  'layered-ellipse',
+  'layered-diamond',
+]
 
 export type FixtureResult = {
   added: number
