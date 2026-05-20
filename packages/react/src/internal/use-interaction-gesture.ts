@@ -524,6 +524,19 @@ export const useInteractionGesture = (
     }
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // Skip when focus is in an editor (built-in textarea, consumer's
+      // <input>, or any contenteditable surface). Otherwise Backspace
+      // typed inside the edit overlay bubbles to window and triggers
+      // `removeNode` on the selected node — the user types a typo,
+      // hits Backspace, and the node they're editing vanishes behind
+      // the still-open textarea. Bug surfaces on Escape because that's
+      // when the overlay closes and the user sees the empty canvas.
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable)
+      )
+        return
       if (e.key === 'Escape') {
         store.setSelection([])
         store.resetInteractionState()
