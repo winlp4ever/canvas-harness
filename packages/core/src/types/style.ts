@@ -3,7 +3,6 @@
  * missing values fall back to theme resolver, then built-in defaults.
  */
 export type StrokeStyle = 'solid' | 'dashed' | 'dotted'
-export type FillStyle = 'solid' | 'hachure' | 'cross-hatch' | 'zigzag' | 'dots'
 export type FontFamily = 'handwriting' | 'sans-serif' | 'serif' | 'monospace' | 'informal'
 export type FontSize = 'S' | 'M' | 'L' | 'XL'
 export type TextAlign = 'left' | 'center' | 'right'
@@ -16,7 +15,6 @@ export type Style = {
   strokeStyle?: StrokeStyle
 
   backgroundColor?: string
-  fillStyle?: FillStyle
 
   roughness?: number
   roundness?: number

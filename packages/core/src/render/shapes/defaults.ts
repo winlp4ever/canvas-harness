@@ -11,20 +11,13 @@ import type { Style } from '../../types'
 export const DEFAULT_STYLE: Required<
   Pick<
     Style,
-    | 'strokeColor'
-    | 'strokeWidth'
-    | 'strokeStyle'
-    | 'backgroundColor'
-    | 'fillStyle'
-    | 'opacity'
-    | 'roundness'
+    'strokeColor' | 'strokeWidth' | 'strokeStyle' | 'backgroundColor' | 'opacity' | 'roundness'
   >
 > = {
   strokeColor: '#1f2937',
   strokeWidth: 2,
   strokeStyle: 'solid',
   backgroundColor: '#dbeafe',
-  fillStyle: 'solid',
   opacity: 100,
   roundness: 2,
 }
@@ -100,9 +93,14 @@ export const dashPatternFor = (
 ): number[] => {
   switch (strokeStyle) {
     case 'dashed':
-      return [width * 4, width * 2]
+      // Roughly dim0's 5.5:4 ratio — gap close to dash so the line
+      // doesn't read as nearly-solid on long edges.
+      return [width * 5, width * 4]
     case 'dotted':
-      return [width, width * 2]
+      // Small visible dot + generous gap. Non-zero dash so the pattern
+      // also renders under default `butt` linecap (node strokes don't
+      // override lineCap; the edge path sets `round` already).
+      return [width * 1.5, width * 3]
     default:
       return []
   }

@@ -13,7 +13,6 @@ export { asBatchId, asClientId, asEdgeId, asGroupId, asNodeId, SCHEMA_VERSION } 
 export type {
   Arrowhead,
   EdgeStyle,
-  FillStyle,
   FontFamily,
   FontSize,
   Style,

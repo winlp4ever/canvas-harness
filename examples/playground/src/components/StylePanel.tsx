@@ -7,6 +7,7 @@ import type {
   FontSize,
   NodeId,
   PathStyle,
+  StrokeStyle,
   Style,
   TextAlign,
   TextStyle,
@@ -41,6 +42,11 @@ const STROKE_WIDTH_PRESETS: Array<{ label: string; width: number }> = [
   { label: 'S', width: 1 },
   { label: 'M', width: 2 },
   { label: 'L', width: 4 },
+]
+const STROKE_STYLE_OPTIONS: Array<{ label: string; value: StrokeStyle }> = [
+  { label: '━━', value: 'solid' },
+  { label: '╌╌', value: 'dashed' },
+  { label: '••', value: 'dotted' },
 ]
 const ARROWHEAD_OPTIONS: Array<{ label: string; value: Arrowhead }> = [
   { label: 'none', value: 'none' },
@@ -239,6 +245,14 @@ export function StylePanel({ store }: { store: CanvasStore }) {
           options={STROKE_WIDTH_PRESETS.map(p => ({ label: p.label, value: p.width }))}
           value={sampleStyle.strokeWidth ?? 2}
           onChange={w => applyAny({ strokeWidth: w })}
+        />
+      </Field>
+
+      <Field label="Border">
+        <SegmentedControl
+          options={STROKE_STYLE_OPTIONS}
+          value={sampleStyle.strokeStyle ?? 'solid'}
+          onChange={ss => applyAny({ strokeStyle: ss })}
         />
       </Field>
 

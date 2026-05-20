@@ -33,8 +33,8 @@ describe('shape style resolution', () => {
   test('dashPatternFor scales with stroke width', () => {
     expect(dashPatternFor('solid', 2)).toEqual([])
     expect(dashPatternFor(undefined, 2)).toEqual([])
-    expect(dashPatternFor('dashed', 2)).toEqual([8, 4])
-    expect(dashPatternFor('dotted', 3)).toEqual([3, 6])
+    expect(dashPatternFor('dashed', 2)).toEqual([10, 8])
+    expect(dashPatternFor('dotted', 2)).toEqual([3, 6])
   })
 
   test('isDrawablePrimitive accepts the 4 built-in primitive types', () => {
