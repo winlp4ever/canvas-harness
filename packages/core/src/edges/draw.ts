@@ -60,6 +60,12 @@ const samplePaintStride = (scale: number): number => {
   return 1
 }
 
+/**
+ * Edge paint entry. `scale` is the world → device factor (camera.z ×
+ * dpr) — kept for back-compat with PNG export and tests. `opts.zoom`,
+ * `opts.dpr`, `opts.isMoving` control the label bitmap-cache LOD; if
+ * omitted, derived from `scale` (zoom = scale, dpr = 1, idle).
+ */
 export const drawEdge = (
   ctx: CanvasRenderingContext2D,
   edge: Edge,
@@ -68,7 +74,7 @@ export const drawEdge = (
   targetNode: Node | null,
   scale: number,
   theme?: ThemeResolver,
-  opts?: { roughEnabled?: boolean },
+  opts?: { roughEnabled?: boolean; zoom?: number; dpr?: number; isMoving?: boolean },
 ): void => {
   if (edge.hidden) return
   const samples = geom.samples
@@ -146,7 +152,7 @@ export const drawEdge = (
           const tipDir = directionTowardTip(samples, clip.endIndex, clip.endPoint, -1)
           drawArrowhead(ctx, targetArrowhead, clip.endPoint, tipDir, strokeColor, strokeWidth)
         }
-        if (edge.content && edge.content.trim()) drawEdgeLabel(ctx, edge, geom, scale, theme)
+        if (edge.content && edge.content.trim()) drawEdgeLabel(ctx, edge, geom, scale, theme, opts)
         return
       }
       // freehand returned null (degenerate samples) — fall through.
@@ -166,7 +172,7 @@ export const drawEdge = (
           const tipDir = directionTowardTip(samples, clip.endIndex, clip.endPoint, -1)
           drawArrowhead(ctx, targetArrowhead, clip.endPoint, tipDir, strokeColor, strokeWidth)
         }
-        if (edge.content && edge.content.trim()) drawEdgeLabel(ctx, edge, geom, scale, theme)
+        if (edge.content && edge.content.trim()) drawEdgeLabel(ctx, edge, geom, scale, theme, opts)
         return
       }
     }
@@ -212,7 +218,7 @@ export const drawEdge = (
   // ---- label (§6.11) ----
   // Painted last so it sits on top of the body + arrowheads.
   if (edge.content && edge.content.trim()) {
-    drawEdgeLabel(ctx, edge, geom, scale, theme)
+    drawEdgeLabel(ctx, edge, geom, scale, theme, opts)
   }
 }
 
@@ -310,6 +316,7 @@ const drawEdgeLabel = (
   geom: EdgeGeometry,
   scale: number,
   theme?: ThemeResolver,
+  opts?: { zoom?: number; dpr?: number; isMoving?: boolean },
 ): void => {
   const style = edge.style
   const fontSize = style?.fontSize ?? 'M'
@@ -322,7 +329,12 @@ const drawEdgeLabel = (
   const { point, tangent } = getCachedLabelAnchor(geom, t)
   const followTangent = style?.labelFollowsTangent === true
 
-  const bg = (theme?.('edge.label.background') as string | undefined) ?? DEFAULT_LABEL_BACKGROUND
+  // Per-edge override wins; falls through to theme, then to the
+  // built-in white default.
+  const bg =
+    style?.labelBackground ??
+    (theme?.('edge.label.background') as string | undefined) ??
+    DEFAULT_LABEL_BACKGROUND
 
   ctx.save()
   ctx.translate(point.x, point.y)
@@ -340,22 +352,26 @@ const drawEdgeLabel = (
   const x = -w / 2
   const y = -h / 2
 
-  // Chip background (rounded rect).
+  // Chip background (rounded rect). Skipped when transparent so the
+  // text renders directly over the edge line.
   if (bg !== 'none' && bg !== 'transparent') {
     ctx.fillStyle = bg
     drawRoundRect(ctx, x, y, w, h, LABEL_BORDER_RADIUS)
     ctx.fill()
   }
 
-  // Text bitmap (reuses the Phase-6 cache).
+  // Text bitmap (reuses the Phase-6 cache). Matches the LOD args used
+  // by node content paint — zoom = camera.z (not camera.z × dpr); dpr
+  // = staticSurface.dpr (sharp on retina); isMoving threads through
+  // from the renderer for the motion-LOD drop.
   const bitmap = getOrRenderTextBitmap({
     id: edge.id,
     text: edge.content ?? '',
     width: w,
     height: h,
-    zoom: scale,
-    dpr: 1,
-    isMoving: false,
+    zoom: opts?.zoom ?? scale,
+    dpr: opts?.dpr ?? 1,
+    isMoving: opts?.isMoving ?? false,
     align: 'center',
     fontFamily: style?.fontFamily ?? 'handwriting',
     fontSize,

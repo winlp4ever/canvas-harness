@@ -54,6 +54,10 @@ const ARROWHEAD_OPTIONS: Array<{ label: string; value: Arrowhead }> = [
   { label: 'barb', value: 'barb' },
   { label: 'filled', value: 'arrow-filled' },
 ]
+const LABEL_BG_OPTIONS: Array<{ label: string; value: 'chip' | 'transparent' }> = [
+  { label: 'Chip', value: 'chip' },
+  { label: 'None', value: 'transparent' },
+]
 const PATH_STYLE_OPTIONS: Array<{ label: string; value: PathStyle }> = [
   { label: 'straight', value: 'straight' },
   { label: 'bezier', value: 'bezier' },
@@ -338,6 +342,19 @@ export function StylePanel({ store }: { store: CanvasStore }) {
                 border: '1px solid #cbd5e1',
                 borderRadius: 4,
               }}
+            />
+          </Field>
+          <Field label="Label bg">
+            <SegmentedControl
+              options={LABEL_BG_OPTIONS}
+              value={
+                (sampleStyle as EdgeStyle).labelBackground === 'transparent'
+                  ? 'transparent'
+                  : 'chip'
+              }
+              onChange={v =>
+                applyEdgeStyle({ labelBackground: v === 'transparent' ? 'transparent' : undefined })
+              }
             />
           </Field>
         </>

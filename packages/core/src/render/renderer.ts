@@ -309,7 +309,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       visEdges.length <= ROUGH_MAX_NODES
     for (const edge of visEdges) {
       if (excludedEdges?.has(edge.id)) continue
-      paintOneEdge(staticSurface.ctx, edge, scale, edgeRoughEnabled)
+      paintOneEdge(staticSurface.ctx, edge, scale, edgeRoughEnabled, camera.z, isMoving)
       drawn++
     }
     lastDrawn = drawn
@@ -448,12 +448,19 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     edge: Edge,
     scale: number,
     roughEnabled: boolean,
+    zoom: number,
+    isMoving: boolean,
   ): void => {
     const geom = store.getEdgeGeometry(edge.id)
     if (!geom) return
     const sourceNode = geom.sourceNodeId ? (store.getNode(geom.sourceNodeId) ?? null) : null
     const targetNode = geom.targetNodeId ? (store.getNode(geom.targetNodeId) ?? null) : null
-    drawEdge(ctx, edge, geom, sourceNode, targetNode, scale, theme, { roughEnabled })
+    drawEdge(ctx, edge, geom, sourceNode, targetNode, scale, theme, {
+      roughEnabled,
+      zoom,
+      dpr: staticSurface.dpr,
+      isMoving,
+    })
   }
 
   const visibleEdges = (viewport: WorldRect): Edge[] => {
@@ -531,7 +538,11 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
           if (!geom) continue
           const sourceNode = geom.sourceNodeId ? (wrapGetNode(geom.sourceNodeId) ?? null) : null
           const targetNode = geom.targetNodeId ? (wrapGetNode(geom.targetNodeId) ?? null) : null
-          drawEdge(ctx, edge, geom, sourceNode, targetNode, scale, theme)
+          drawEdge(ctx, edge, geom, sourceNode, targetNode, scale, theme, {
+            zoom: camera.z,
+            dpr: interactiveSurface.dpr,
+            isMoving: true,
+          })
         }
       }
     }
@@ -608,7 +619,11 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       if (geom) {
         const sNode = geom.sourceNodeId ? (store.getNode(geom.sourceNodeId) ?? null) : null
         const tNode = geom.targetNodeId ? (store.getNode(geom.targetNodeId) ?? null) : null
-        drawEdge(ctx, draft, geom, sNode, tNode, scale, theme)
+        drawEdge(ctx, draft, geom, sNode, tNode, scale, theme, {
+          zoom: camera.z,
+          dpr: interactiveSurface.dpr,
+          isMoving: true,
+        })
       }
     }
   }

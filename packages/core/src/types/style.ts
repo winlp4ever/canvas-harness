@@ -49,4 +49,11 @@ export type EdgeStyle = Style & {
    * ARCHITECTURE.md §6.11.
    */
   labelFollowsTangent?: boolean
+  /**
+   * Background color of the edge-label chip. `'transparent'` or
+   * `'none'` skips the chip entirely (text renders directly on the
+   * edge). Falls through to `theme('edge.label.background')` if unset,
+   * then to white. Per-edge override of the theme default.
+   */
+  labelBackground?: string
 }
