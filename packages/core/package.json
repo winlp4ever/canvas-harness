@@ -22,6 +22,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "perfect-freehand": "^1.2.3",
     "roughjs": "^4.6.6",
     "signia": "^0.1.5"
   },

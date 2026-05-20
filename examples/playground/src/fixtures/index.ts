@@ -182,6 +182,7 @@ export const fixture5kEdges: Fixture = store => {
         pathStyle: 'bezier',
         z: 0,
         groups: [],
+        style: { roughness: 1 },
       })
       added++
     }
@@ -258,6 +259,7 @@ export const fixture1kLabeledEdges: Fixture = store => {
         z: 0,
         groups: [],
         content: LABEL_POOL[i % LABEL_POOL.length],
+        style: { roughness: 1 },
       })
       added++
     }

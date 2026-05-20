@@ -18,10 +18,12 @@ import type { Edge, EdgeStyle, Node, Vec2 } from '../types'
  */
 import { getPointAndTangentAtArcLength } from './arc-length'
 import { drawRoughEdge } from '../render/rough'
+import { seedFromId } from '../render/rough/cache'
 import { onRoughReady } from '../render/rough/loader'
 import { arrowheadLength, drawArrowhead } from './arrowhead'
 import type { EdgeGeometry } from './cache'
 import { clipSamples, fullVisibleClipResult } from './clip'
+import { getOrBuildFreehandPath } from './freehand'
 
 /** Defaults for edge style — see ARCHITECTURE.md §3.4. */
 const DEFAULT_EDGE_STYLE: Required<
@@ -113,35 +115,60 @@ export const drawEdge = (
 
   // ---- body ----
   // Rough body when (a) gate from caller is on, (b) style.roughness > 0.
+  // Two technique dispatch:
+  //   solid stroke    → perfect-freehand brushy polygon (filled, tapered).
+  //   dashed/dotted   → rough.js linearPath (wobbly stroked line; needed
+  //                      because a filled polygon can't dash naturally).
   // Falls back to plain stroke when rough.js hasn't loaded yet.
   const useRough = (opts?.roughEnabled ?? false) && (style?.roughness ?? 0) > 0
   if (useRough) {
-    // Build a clipped sub-sample sequence so rough doesn't draw outside
-    // the visible portion (otherwise the wobbly body pokes into the
-    // node bodies). Re-uses the existing clip indices.
+    // Build a clipped sub-sample sequence so the rough body doesn't
+    // extend past the visible portion (otherwise the wobble/brush pokes
+    // into the node bodies). Re-uses the existing clip indices.
     const clipped: Vec2[] = [lineStart]
     for (let i = clip.startIndex + 1; i < clip.endIndex; i++) clipped.push(samples[i]!)
     clipped.push(lineEnd)
-    const ok = drawRoughEdge(ctx, edge, clipped, scale, theme)
-    if (!ok) {
-      // Module not ready — plain fallback below.
-      onRoughReady(() => {
-        /* repaint is scheduled by the renderer's onRoughReady too;
-           this handler is here for symmetry. */
-      })
+
+    const isSolid = (style?.strokeStyle ?? 'solid') === 'solid'
+    if (isSolid) {
+      const seed = edge.id ? (seedFromId(edge.id) % 2147483646) + 1 : 1337
+      const path = getOrBuildFreehandPath(clipped, strokeWidth, seed)
+      if (path) {
+        ctx.save()
+        ctx.fillStyle = strokeColor
+        ctx.fill(path)
+        ctx.restore()
+        if (drawSourceArrow) {
+          const tipDir = directionTowardTip(samples, clip.startIndex, clip.startPoint, +1)
+          drawArrowhead(ctx, sourceArrowhead, clip.startPoint, negateVec(tipDir), strokeColor, strokeWidth)
+        }
+        if (drawTargetArrow) {
+          const tipDir = directionTowardTip(samples, clip.endIndex, clip.endPoint, -1)
+          drawArrowhead(ctx, targetArrowhead, clip.endPoint, tipDir, strokeColor, strokeWidth)
+        }
+        if (edge.content && edge.content.trim()) drawEdgeLabel(ctx, edge, geom, scale, theme)
+        return
+      }
+      // freehand returned null (degenerate samples) — fall through.
     } else {
-      // Arrowheads always plain (wobble there doesn't add value).
-      if (drawSourceArrow) {
-        const tipDir = directionTowardTip(samples, clip.startIndex, clip.startPoint, +1)
-        drawArrowhead(ctx, sourceArrowhead, clip.startPoint, negateVec(tipDir), strokeColor, strokeWidth)
+      const ok = drawRoughEdge(ctx, edge, clipped, scale, theme)
+      if (!ok) {
+        onRoughReady(() => {
+          /* repaint is scheduled by the renderer's onRoughReady too;
+             this handler is here for symmetry. */
+        })
+      } else {
+        if (drawSourceArrow) {
+          const tipDir = directionTowardTip(samples, clip.startIndex, clip.startPoint, +1)
+          drawArrowhead(ctx, sourceArrowhead, clip.startPoint, negateVec(tipDir), strokeColor, strokeWidth)
+        }
+        if (drawTargetArrow) {
+          const tipDir = directionTowardTip(samples, clip.endIndex, clip.endPoint, -1)
+          drawArrowhead(ctx, targetArrowhead, clip.endPoint, tipDir, strokeColor, strokeWidth)
+        }
+        if (edge.content && edge.content.trim()) drawEdgeLabel(ctx, edge, geom, scale, theme)
+        return
       }
-      if (drawTargetArrow) {
-        const tipDir = directionTowardTip(samples, clip.endIndex, clip.endPoint, -1)
-        drawArrowhead(ctx, targetArrowhead, clip.endPoint, tipDir, strokeColor, strokeWidth)
-      }
-      // ---- label (§6.11) ----
-      if (edge.content && edge.content.trim()) drawEdgeLabel(ctx, edge, geom, scale, theme)
-      return
     }
   }
 

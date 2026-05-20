@@ -138,11 +138,13 @@ export function Canvas({
   )
 
   // Threaded to the arrow tool so new edges pick up the last-used
-  // path style / arrowheads / stroke etc.
+  // path style / arrowheads / stroke etc. We seed `roughness: 1` so
+  // the very first arrow the user creates already has the hand-drawn
+  // look; once they edit the edge style, sticky memory takes over.
   const arrowDefaults = useMemo<ArrowToolDefaults>(
     () => ({
       pathStyle: styleMemory.getEdgePathStyle(),
-      style: styleMemory.getEdgeStyle(),
+      style: { roughness: 1, ...styleMemory.getEdgeStyle() },
     }),
     [styleMemory],
   )
