@@ -44,6 +44,7 @@ import {
 import { getRoughCanvasCtor, onRoughReady } from './rough/loader'
 import {
   type ThemeResolver,
+  contentBounds,
   drawShape,
   isCompositePrimitive,
   isDrawablePrimitive,
@@ -373,11 +374,17 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // Readability skip — text below ~3px on-screen is unreadable noise.
     // Bypasses cache lookup (FNV walk + concat) and the drawImage blit.
     if (FONT_SIZE_MAP[fontSize] * env.zoom < MIN_READABLE_FONT_PX) return
+    // Layout the text within the shape's visible interior (capsule's
+    // rect body excluding the accent circle, diamond's inscribed rect,
+    // ellipse's inscribed rect, thought-cloud's body below the dome,
+    // tag's body past the notch). Rect/text fall through to full bbox.
+    const bounds = contentBounds(node)
+    if (bounds.w <= 0 || bounds.h <= 0) return
     const bitmap = getOrRenderTextBitmap({
       id: node.id,
       text: content,
-      width: node.w,
-      height: node.h,
+      width: bounds.w,
+      height: bounds.h,
       zoom: env.zoom,
       dpr: staticSurface.dpr,
       isMoving: env.isMoving,
@@ -389,7 +396,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       highlightColor: DEFAULT_HIGHLIGHT_COLOR,
     })
     if (!bitmap) return
-    ctx.drawImage(bitmap.canvas, 0, 0, node.w, node.h)
+    ctx.drawImage(bitmap.canvas, bounds.x, bounds.y, bounds.w, bounds.h)
   }
 
   /**
