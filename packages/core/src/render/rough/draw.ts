@@ -16,6 +16,7 @@ import {
   rectPath,
 } from './paths'
 import { getOrBuildDrawable, seedFromId } from './cache'
+import { deriveRoughStrokeColor } from './tone-down'
 
 /**
  * Per-shape rough stroke pass.
@@ -56,7 +57,14 @@ export const drawRoughShape = (
 
   const type = node.type as RoughPrimitive
   const style: Style | undefined = node.style
-  const strokeColor = resolveColor(style, 'strokeColor', '#1f2937', theme)
+  const rawStroke = resolveColor(style, 'strokeColor', '#1f2937', theme)
+  // When the user picks a transparent border but kept a fill, derive a
+  // tone-shifted edge so the misregistration effect stays visible.
+  // `theme('mode')` is the convention: returns 'dark' in dark mode,
+  // anything else (or undefined) → light.
+  const isDark = theme?.('mode') === 'dark'
+  const fill = resolveColor(style, 'backgroundColor', DEFAULT_STYLE.backgroundColor, theme)
+  const strokeColor = deriveRoughStrokeColor(rawStroke, fill, isDark)
   const strokeWidth = resolveStrokeWidth(style, theme)
   if (strokeWidth <= 0) return true // nothing to draw, but "handled"
 
@@ -69,27 +77,20 @@ export const drawRoughShape = (
   // Match drawShape's resolution exactly so the rough outline picks
   // the same corner radius as the solid fill behind it.
   const cornerRadius = (style?.roundness ?? DEFAULT_STYLE.roundness) * 4
+  const radius = Math.max(0, Math.min(cornerRadius, w / 2, h / 2))
   const dash = dashPatternFor(style?.strokeStyle, strokeWidth)
   const detail = apparentDetail(Math.max(w, h), scale)
 
-  // Spider-verse misalignment: shift the rough path inward by ~half a
-  // stroke + a small clamp. Combined with rough.js jitter the outline
-  // crosses the fill boundary unpredictably, producing the hand-drawn
-  // "border doesn't quite match the shape" look from dim0/rect.tsx.
-  const insetBase = Math.min(0.5, w / 4, h / 4)
-  const inset = Math.max(0, insetBase + strokeWidth / 2)
-  const innerW = Math.max(0, w - inset * 2)
-  const innerH = Math.max(0, h - inset * 2)
-  // Corner radius scales with the inner box so the rounded rect still
-  // looks proportional after insetting.
-  const radius = innerW > 0 && innerH > 0 ? Math.min(cornerRadius, innerW / 2, innerH / 2) : 0
+  // Note: rough stroke draws at native (0, 0, w, h). The misregistration
+  // effect (fill shifted up-and-left while stroke stays put) is applied
+  // by the renderer translating the ctx before calling drawShape for the
+  // fill — see ROUGH_FILL_MISREGISTER_X/Y in constants.ts.
 
   const cacheKey = [
     type,
-    innerW.toFixed(1),
-    innerH.toFixed(1),
+    w.toFixed(1),
+    h.toFixed(1),
     radius.toFixed(1),
-    inset.toFixed(2),
     strokeColor,
     strokeWidth.toFixed(2),
     style?.strokeStyle ?? 'solid',
@@ -103,7 +104,7 @@ export const drawRoughShape = (
   if (!rc) return false
 
   const drawable = getOrBuildDrawable(cacheKey, () => {
-    const pathData = buildPath(type, inset, inset, innerW, innerH, radius)
+    const pathData = buildPath(type, 0, 0, w, h, radius)
     return rc.generator.path(pathData, {
       ...ROUGH_DEFAULTS,
       stroke: strokeColor,

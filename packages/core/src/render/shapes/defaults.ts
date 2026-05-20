@@ -78,6 +78,19 @@ export const resolveOpacity = (style: Style | undefined, theme?: ThemeResolver):
 }
 
 /**
+ * Returns true if a color string represents a fully-transparent paint —
+ * either the literal `'transparent'` keyword or a hex with alpha 00.
+ * Used everywhere we early-out on invisible fills/strokes.
+ */
+export const isFullyTransparent = (color: string): boolean => {
+  if (color === 'transparent') return true
+  if (color.length === 9 && color.startsWith('#') && color.slice(7, 9).toLowerCase() === '00')
+    return true
+  if (color.length === 5 && color.startsWith('#') && color[4] === '0') return true
+  return false
+}
+
+/**
  * Maps the `strokeStyle` token to a canvas `setLineDash` argument.
  * Width-aware so dashes look right at different stroke widths.
  */

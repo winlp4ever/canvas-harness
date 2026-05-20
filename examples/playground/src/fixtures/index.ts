@@ -35,7 +35,7 @@ const seededRect = (store: CanvasStore, i: number, kind: 'mono' | 'mixed'): Node
     angle: 0,
     z: 0,
     groups: [],
-    style: { backgroundColor: palette[i % palette.length] },
+    style: { backgroundColor: palette[i % palette.length], roughness: 1 },
   }
 }
 
@@ -97,6 +97,7 @@ export const fixtureMarkdownHeavy: Fixture = store => {
           fontFamily: MARKDOWN_FAMILIES[i % MARKDOWN_FAMILIES.length]!,
           fontSize: MARKDOWN_SIZES[i % MARKDOWN_SIZES.length]!,
           textAlign: 'left',
+          roughness: 1,
         },
       })
     }
@@ -166,6 +167,7 @@ export const fixture5kEdges: Fixture = store => {
         angle: 0,
         z: 0,
         groups: [],
+        style: { roughness: 1 },
       })
       added++
     }
@@ -238,6 +240,7 @@ export const fixture1kLabeledEdges: Fixture = store => {
           angle: 0,
           z: 0,
           groups: [],
+          style: { roughness: 1 },
         })
         added++
       }

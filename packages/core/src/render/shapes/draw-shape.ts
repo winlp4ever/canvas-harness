@@ -14,6 +14,7 @@ import {
   DEFAULT_STYLE,
   type ThemeResolver,
   dashPatternFor,
+  isFullyTransparent,
   resolveColor,
   resolveOpacity,
   resolveStrokeWidth,
@@ -113,13 +114,4 @@ export const drawShape = (
   }
 
   if (needsScope) ctx.restore()
-}
-
-const isFullyTransparent = (color: string): boolean => {
-  if (color === 'transparent') return true
-  // Quick string check for "#RRGGBB00" or "#RGBA" with 0 alpha; skip parsing rgba()
-  if (color.length === 9 && color.startsWith('#') && color.slice(7, 9).toLowerCase() === '00')
-    return true
-  if (color.length === 5 && color.startsWith('#') && color[4] === '0') return true
-  return false
 }

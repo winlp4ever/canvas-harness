@@ -36,7 +36,12 @@ import {
   drawSelectionOutline,
 } from './overlay'
 import { ROUGH_MAX_NODES, ROUGH_MIN_ZOOM, drawRoughShape } from './rough'
-import { onRoughReady } from './rough/loader'
+import {
+  ROUGH_FILL_MISREGISTER_X,
+  ROUGH_FILL_MISREGISTER_Y,
+  ROUGH_MAX_MOVING_NODES,
+} from './rough/constants'
+import { getRoughCanvasCtor, onRoughReady } from './rough/loader'
 import { type ThemeResolver, drawShape, isDrawablePrimitive } from './shapes'
 import { applyCameraTransform, drawWithNodeTransform, worldViewport } from './transform'
 
@@ -174,16 +179,24 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     const editingNodeId =
       interaction.editingTarget?.kind === 'node' ? interaction.editingTarget.id : null
 
-    // Rough-stroke gate — only paint the wobbly outline when ALL hold:
-    //   - scene is idle (no pan/zoom/drag),
+    // Rough-stroke gate — paint the wobbly outline only when ALL hold:
+    //   - pan/zoom is NOT in progress (whole viewport in motion would
+    //     blow the frame budget),
+    //   - any drag/resize/rotate affects <= ROUGH_MAX_MOVING_NODES (so a
+    //     single-node drag keeps the rough look on its neighbours; a
+    //     big marquee move falls back to plain),
     //   - zoom is high enough that the wobble is perceptible,
-    //   - visible node count is below the cap (otherwise per-shape cost
-    //     stacks past the frame budget).
+    //   - visible node count is below the cap.
     // Per-node `style.roughness > 0` is the final per-shape gate inside
-    // `drawRoughShape`. When the gate is false, plain strokes only —
-    // identical to today.
+    // `drawRoughShape`. When the gate is false, plain strokes only.
+    const cameraIsMoving =
+      interaction.mode === 'panning' || interaction.mode === 'zooming'
+    const movingNodeCount = excludedNodes?.size ?? 0
     const roughEnabled =
-      !isMoving && camera.z >= ROUGH_MIN_ZOOM && visible.length <= ROUGH_MAX_NODES
+      !cameraIsMoving &&
+      movingNodeCount <= ROUGH_MAX_MOVING_NODES &&
+      camera.z >= ROUGH_MIN_ZOOM &&
+      visible.length <= ROUGH_MAX_NODES
 
     for (const node of visible) {
       if (excludedNodes?.has(node.id)) continue
@@ -196,18 +209,24 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       // Built-in primitive path: shape paint + optional content paint.
       if (isDrawablePrimitive(node.type)) {
         const useRough = roughEnabled && (node.style?.roughness ?? 0) > 0
+        // Peek (and trigger lazy import) — null means rough.js hasn't
+        // resolved yet this session.
+        const roughReady = useRough ? getRoughCanvasCtor() !== null : false
         drawWithNodeTransform(staticSurface.ctx, node, () => {
-          // Fill always plain. Stroke is skipped here when rough takes
-          // over — rough.js paints the wobbly outline on top in its
-          // own pass, intentionally jittered off the fill edge for the
-          // hand-drawn misalignment effect.
-          drawShape(staticSurface.ctx, node, scale, theme, useRough ? { skipStroke: true } : undefined)
-          if (useRough) {
-            const ok = drawRoughShape(staticSurface.ctx, node, camera.z, theme)
-            if (!ok) {
-              // rough.js not loaded yet — fall back to plain stroke
-              // this frame, schedule a repaint once it resolves.
-              drawShape(staticSurface.ctx, node, scale, theme)
+          if (useRough && roughReady) {
+            // Print-misregistration: shift fill up-and-left a few pixels
+            // so it sits offset from the rough stroke (which paints at
+            // native origin). Mimics an old CMYK plate that didn't quite
+            // line up. See ROUGH_FILL_MISREGISTER_X/Y in rough/constants.
+            staticSurface.ctx.translate(ROUGH_FILL_MISREGISTER_X, ROUGH_FILL_MISREGISTER_Y)
+            drawShape(staticSurface.ctx, node, scale, theme, { skipStroke: true })
+            staticSurface.ctx.translate(-ROUGH_FILL_MISREGISTER_X, -ROUGH_FILL_MISREGISTER_Y)
+            drawRoughShape(staticSurface.ctx, node, camera.z, theme)
+          } else {
+            // Plain fill + stroke at native origin — also the fallback
+            // for the one frame before rough.js finishes loading.
+            drawShape(staticSurface.ctx, node, scale, theme)
+            if (useRough && !roughReady) {
               onRoughReady(() => {
                 staticDirty = true
                 loop.requestFrame()
@@ -269,7 +288,10 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // Edges share the same gate as nodes — extra cap protects against
     // mass-labeled scenes where edge counts dominate the budget.
     const edgeRoughEnabled =
-      !isMoving && camera.z >= ROUGH_MIN_ZOOM && visEdges.length <= ROUGH_MAX_NODES
+      !cameraIsMoving &&
+      movingNodeCount <= ROUGH_MAX_MOVING_NODES &&
+      camera.z >= ROUGH_MIN_ZOOM &&
+      visEdges.length <= ROUGH_MAX_NODES
     for (const edge of visEdges) {
       if (excludedEdges?.has(edge.id)) continue
       paintOneEdge(staticSurface.ctx, edge, scale, edgeRoughEnabled)
@@ -442,10 +464,27 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         isEditing: false,
         theme: token => (theme ? theme(token) : undefined),
       }
+      // Mirror the static-surface rough gate so the dragged node keeps
+      // its hand-drawn look on small drags. Pan/zoom can't be active in
+      // this branch (we're inside dragging/resizing), so the only knobs
+      // are the moving-count cap and the zoom floor.
+      const dragRoughEnabled =
+        inDragMap.size <= ROUGH_MAX_MOVING_NODES && camera.z >= ROUGH_MIN_ZOOM
       for (const node of inDragMap.values()) {
         if (!isDrawablePrimitive(node.type) && node.type !== 'text') continue
         drawWithNodeTransform(ctx, node, () => {
-          if (isDrawablePrimitive(node.type)) drawShape(ctx, node, scale, theme)
+          if (isDrawablePrimitive(node.type)) {
+            const useRough = dragRoughEnabled && (node.style?.roughness ?? 0) > 0
+            const roughReady = useRough ? getRoughCanvasCtor() !== null : false
+            if (useRough && roughReady) {
+              ctx.translate(ROUGH_FILL_MISREGISTER_X, ROUGH_FILL_MISREGISTER_Y)
+              drawShape(ctx, node, scale, theme, { skipStroke: true })
+              ctx.translate(-ROUGH_FILL_MISREGISTER_X, -ROUGH_FILL_MISREGISTER_Y)
+              drawRoughShape(ctx, node, camera.z, theme)
+            } else {
+              drawShape(ctx, node, scale, theme)
+            }
+          }
           paintNodeContent(ctx, node, dragEnv)
         })
       }
