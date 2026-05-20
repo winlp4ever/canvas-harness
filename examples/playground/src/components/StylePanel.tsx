@@ -242,6 +242,21 @@ export function StylePanel({ store }: { store: CanvasStore }) {
         />
       </Field>
 
+      {nodesOnly && (
+        <Field label={`Roundness ${(sampleStyle as Style).roundness ?? 2}`}>
+          <input
+            type="range"
+            min={0}
+            max={6}
+            step={1}
+            value={(sampleStyle as Style).roundness ?? 2}
+            onChange={e => applyNodeStyle({ roundness: Number(e.target.value) })}
+            style={{ width: '100%' }}
+            title="Corner radius for rectangle nodes. Affects both the solid fill and the rough outline."
+          />
+        </Field>
+      )}
+
       <Field label={`Opacity ${sampleStyle.opacity ?? 100}`}>
         <input
           type="range"
@@ -251,6 +266,24 @@ export function StylePanel({ store }: { store: CanvasStore }) {
           value={sampleStyle.opacity ?? 100}
           onChange={e => applyAny({ opacity: Number(e.target.value) })}
           style={{ width: '100%' }}
+        />
+      </Field>
+
+      <Field label={`Roughness ${sampleStyle.roughness ?? 0}`}>
+        <input
+          type="range"
+          min={0}
+          max={2}
+          step={0.25}
+          value={sampleStyle.roughness ?? 0}
+          onChange={e => {
+            const v = Number(e.target.value)
+            // First nudge off zero → default to 1 (excalidraw-like wobble).
+            const next = v === 0.25 && (sampleStyle.roughness ?? 0) === 0 ? 1 : v
+            applyAny({ roughness: next })
+          }}
+          style={{ width: '100%' }}
+          title="Hand-drawn outline. Auto-disables at low zoom or above ~800 visible nodes."
         />
       </Field>
 

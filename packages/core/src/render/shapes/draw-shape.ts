@@ -46,6 +46,7 @@ export const drawShape = (
   node: Node,
   scale: number,
   theme?: ThemeResolver,
+  opts?: { skipStroke?: boolean },
 ): void => {
   if (!isDrawablePrimitive(node.type)) return
   if (node.hidden) return
@@ -103,7 +104,7 @@ export const drawShape = (
     ctx.fill()
   }
 
-  if (strokeVisible) {
+  if (strokeVisible && !opts?.skipStroke) {
     ctx.strokeStyle = stroke
     ctx.lineWidth = strokeWidth
     const dash = dashPatternFor(style?.strokeStyle, strokeWidth)

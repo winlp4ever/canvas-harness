@@ -17,6 +17,8 @@ import type { Edge, EdgeStyle, Node, Vec2 } from '../types'
  * camera transform.
  */
 import { getPointAndTangentAtArcLength } from './arc-length'
+import { drawRoughEdge } from '../render/rough'
+import { onRoughReady } from '../render/rough/loader'
 import { arrowheadLength, drawArrowhead } from './arrowhead'
 import type { EdgeGeometry } from './cache'
 import { clipSamples, fullVisibleClipResult } from './clip'
@@ -64,6 +66,7 @@ export const drawEdge = (
   targetNode: Node | null,
   scale: number,
   theme?: ThemeResolver,
+  opts?: { roughEnabled?: boolean },
 ): void => {
   if (edge.hidden) return
   const samples = geom.samples
@@ -109,6 +112,39 @@ export const drawEdge = (
     : clip.endPoint
 
   // ---- body ----
+  // Rough body when (a) gate from caller is on, (b) style.roughness > 0.
+  // Falls back to plain stroke when rough.js hasn't loaded yet.
+  const useRough = (opts?.roughEnabled ?? false) && (style?.roughness ?? 0) > 0
+  if (useRough) {
+    // Build a clipped sub-sample sequence so rough doesn't draw outside
+    // the visible portion (otherwise the wobbly body pokes into the
+    // node bodies). Re-uses the existing clip indices.
+    const clipped: Vec2[] = [lineStart]
+    for (let i = clip.startIndex + 1; i < clip.endIndex; i++) clipped.push(samples[i]!)
+    clipped.push(lineEnd)
+    const ok = drawRoughEdge(ctx, edge, clipped, scale, theme)
+    if (!ok) {
+      // Module not ready — plain fallback below.
+      onRoughReady(() => {
+        /* repaint is scheduled by the renderer's onRoughReady too;
+           this handler is here for symmetry. */
+      })
+    } else {
+      // Arrowheads always plain (wobble there doesn't add value).
+      if (drawSourceArrow) {
+        const tipDir = directionTowardTip(samples, clip.startIndex, clip.startPoint, +1)
+        drawArrowhead(ctx, sourceArrowhead, clip.startPoint, negateVec(tipDir), strokeColor, strokeWidth)
+      }
+      if (drawTargetArrow) {
+        const tipDir = directionTowardTip(samples, clip.endIndex, clip.endPoint, -1)
+        drawArrowhead(ctx, targetArrowhead, clip.endPoint, tipDir, strokeColor, strokeWidth)
+      }
+      // ---- label (§6.11) ----
+      if (edge.content && edge.content.trim()) drawEdgeLabel(ctx, edge, geom, scale, theme)
+      return
+    }
+  }
+
   ctx.save()
   ctx.strokeStyle = strokeColor
   ctx.lineWidth = strokeWidth

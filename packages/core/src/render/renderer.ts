@@ -35,6 +35,8 @@ import {
   drawRotateHandle,
   drawSelectionOutline,
 } from './overlay'
+import { ROUGH_MAX_NODES, ROUGH_MIN_ZOOM, drawRoughShape } from './rough'
+import { onRoughReady } from './rough/loader'
 import { type ThemeResolver, drawShape, isDrawablePrimitive } from './shapes'
 import { applyCameraTransform, drawWithNodeTransform, worldViewport } from './transform'
 
@@ -172,6 +174,17 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     const editingNodeId =
       interaction.editingTarget?.kind === 'node' ? interaction.editingTarget.id : null
 
+    // Rough-stroke gate — only paint the wobbly outline when ALL hold:
+    //   - scene is idle (no pan/zoom/drag),
+    //   - zoom is high enough that the wobble is perceptible,
+    //   - visible node count is below the cap (otherwise per-shape cost
+    //     stacks past the frame budget).
+    // Per-node `style.roughness > 0` is the final per-shape gate inside
+    // `drawRoughShape`. When the gate is false, plain strokes only —
+    // identical to today.
+    const roughEnabled =
+      !isMoving && camera.z >= ROUGH_MIN_ZOOM && visible.length <= ROUGH_MAX_NODES
+
     for (const node of visible) {
       if (excludedNodes?.has(node.id)) continue
 
@@ -182,8 +195,25 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
 
       // Built-in primitive path: shape paint + optional content paint.
       if (isDrawablePrimitive(node.type)) {
+        const useRough = roughEnabled && (node.style?.roughness ?? 0) > 0
         drawWithNodeTransform(staticSurface.ctx, node, () => {
-          drawShape(staticSurface.ctx, node, scale, theme)
+          // Fill always plain. Stroke is skipped here when rough takes
+          // over — rough.js paints the wobbly outline on top in its
+          // own pass, intentionally jittered off the fill edge for the
+          // hand-drawn misalignment effect.
+          drawShape(staticSurface.ctx, node, scale, theme, useRough ? { skipStroke: true } : undefined)
+          if (useRough) {
+            const ok = drawRoughShape(staticSurface.ctx, node, camera.z, theme)
+            if (!ok) {
+              // rough.js not loaded yet — fall back to plain stroke
+              // this frame, schedule a repaint once it resolves.
+              drawShape(staticSurface.ctx, node, scale, theme)
+              onRoughReady(() => {
+                staticDirty = true
+                loop.requestFrame()
+              })
+            }
+          }
           if (!isEditingThis) paintNodeContent(staticSurface.ctx, node, renderEnv)
         })
         drawn++
@@ -236,9 +266,13 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
 
     // ---- edges ----
     const visEdges = visibleEdges(viewport)
+    // Edges share the same gate as nodes — extra cap protects against
+    // mass-labeled scenes where edge counts dominate the budget.
+    const edgeRoughEnabled =
+      !isMoving && camera.z >= ROUGH_MIN_ZOOM && visEdges.length <= ROUGH_MAX_NODES
     for (const edge of visEdges) {
       if (excludedEdges?.has(edge.id)) continue
-      paintOneEdge(staticSurface.ctx, edge, scale)
+      paintOneEdge(staticSurface.ctx, edge, scale, edgeRoughEnabled)
       drawn++
     }
     lastDrawn = drawn
@@ -364,13 +398,19 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
 
   /**
    * Helper: paint a single edge using its cached geometry from the store.
+   * `roughEnabled` mirrors the same gate used for nodes — caller threads it in.
    */
-  const paintOneEdge = (ctx: CanvasRenderingContext2D, edge: Edge, scale: number): void => {
+  const paintOneEdge = (
+    ctx: CanvasRenderingContext2D,
+    edge: Edge,
+    scale: number,
+    roughEnabled: boolean,
+  ): void => {
     const geom = store.getEdgeGeometry(edge.id)
     if (!geom) return
     const sourceNode = geom.sourceNodeId ? (store.getNode(geom.sourceNodeId) ?? null) : null
     const targetNode = geom.targetNodeId ? (store.getNode(geom.targetNodeId) ?? null) : null
-    drawEdge(ctx, edge, geom, sourceNode, targetNode, scale, theme)
+    drawEdge(ctx, edge, geom, sourceNode, targetNode, scale, theme, { roughEnabled })
   }
 
   const visibleEdges = (viewport: WorldRect): Edge[] => {
