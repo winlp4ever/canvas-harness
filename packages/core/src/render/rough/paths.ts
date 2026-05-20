@@ -108,6 +108,59 @@ export const ellipsePath = (x: number, y: number, w: number, h: number): string 
 }
 
 /**
+ * Thought-cloud — rect body with a dome that merges seamlessly into
+ * the top edge. Single continuous outline, no internal seam between
+ * dome and rect.
+ */
+export const thoughtCloudPath = (
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number,
+): string => {
+  const domeW = Math.min(w * 0.4, h * 1.2)
+  const domeH = Math.min(h * 0.45, domeW)
+  const domeAnchorX = w * 0.3
+  const domeX = Math.max(0, Math.min(w - domeW, domeAnchorX - domeW / 2))
+  const cx = x + domeX + domeW / 2
+  const cy = y + domeH / 2
+  const rx = domeW / 2
+  const ry = domeH / 2
+  const bodyY = y + domeH * 0.55
+  const bodyH = y + h - bodyY
+  const r = Math.max(0, Math.min(radius, bodyH / 2, w / 2))
+
+  const t = ry > 0 ? (bodyY - cy) / ry : 0
+  let xL = x + domeX
+  let xR = x + domeX + domeW
+  if (Math.abs(t) < 1) {
+    const xOffset = rx * Math.sqrt(1 - t * t)
+    xL = cx - xOffset
+    xR = cx + xOffset
+  }
+  xL = Math.max(x + r, xL)
+  xR = Math.min(x + w - r, xR)
+
+  // Large-arc=1 (longer arc, through top), sweep=1 (clockwise / positive
+  // angle direction in SVG, i.e. up over the dome).
+  return [
+    `M${x + r} ${bodyY}`,
+    `L${xL} ${bodyY}`,
+    `A${rx} ${ry} 0 1 1 ${xR} ${bodyY}`,
+    `L${x + w - r} ${bodyY}`,
+    `Q${x + w} ${bodyY}, ${x + w} ${bodyY + r}`,
+    `L${x + w} ${y + h - r}`,
+    `Q${x + w} ${y + h}, ${x + w - r} ${y + h}`,
+    `L${x + r} ${y + h}`,
+    `Q${x} ${y + h}, ${x} ${y + h - r}`,
+    `L${x} ${bodyY + r}`,
+    `Q${x} ${bodyY}, ${x + r} ${bodyY}`,
+    'Z',
+  ].join(' ')
+}
+
+/**
  * Tag — pointed notch on the left flowing into a rounded body.
  * Ported from dim0. `radius` controls both the body corner radius and
  * the join smoothness.

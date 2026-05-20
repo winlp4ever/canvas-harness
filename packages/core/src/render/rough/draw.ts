@@ -34,11 +34,12 @@ import {
   excalidrawRoundedRectPath,
   rectPath,
   tagPath,
+  thoughtCloudPath,
 } from './paths'
 import { getOrBuildDrawable, seedFromId } from './cache'
 import { deriveRoughStrokeColor } from './tone-down'
 
-type AtomicRoughPrimitive = 'rect' | 'ellipse' | 'diamond' | 'tag'
+type AtomicRoughPrimitive = 'rect' | 'ellipse' | 'diamond' | 'tag' | 'thought-cloud'
 
 const apparentDetail = (
   maxSide: number,
@@ -314,5 +315,7 @@ const buildPath = (
       return diamondPath(x, y, w, h, radius)
     case 'tag':
       return tagPath(x, y, w, h, radius)
+    case 'thought-cloud':
+      return thoughtCloudPath(x, y, w, h, radius)
   }
 }

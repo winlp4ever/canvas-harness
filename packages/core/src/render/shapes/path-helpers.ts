@@ -103,6 +103,82 @@ export const buildDiamondPath = (
 }
 
 /**
+ * Compute thought-cloud geometry — used by both the canvas builder and
+ * the SVG-path builder so the visible silhouette stays identical
+ * between plain and rough rendering.
+ */
+export const thoughtCloudGeometry = (w: number, h: number) => {
+  const domeW = Math.min(w * 0.4, h * 1.2)
+  const domeH = Math.min(h * 0.45, domeW)
+  const domeAnchorX = w * 0.3
+  const domeX = Math.max(0, Math.min(w - domeW, domeAnchorX - domeW / 2))
+  return {
+    domeX,
+    domeW,
+    domeH,
+    cx: domeX + domeW / 2,
+    cy: domeH / 2,
+    rx: domeW / 2,
+    ry: domeH / 2,
+    bodyY: domeH * 0.55,
+  }
+}
+
+/**
+ * Thought-cloud as a single union path — rect body with a dome that
+ * merges seamlessly into the top edge. No internal border between
+ * dome and rect; the silhouette reads as one continuous outline.
+ */
+export const buildThoughtCloudPath = (
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  radius: number,
+): void => {
+  const g = thoughtCloudGeometry(w, h)
+  const bodyH = h - g.bodyY
+  const r = Math.max(0, Math.min(radius, bodyH / 2, w / 2))
+
+  // Find where the dome's lower arc crosses the rect's top edge.
+  const t = g.ry > 0 ? (g.bodyY - g.cy) / g.ry : 0
+  const inRange = Math.abs(t) < 1
+  let xL = g.domeX
+  let xR = g.domeX + g.domeW
+  if (inRange) {
+    const xOffset = g.rx * Math.sqrt(1 - t * t)
+    xL = g.cx - xOffset
+    xR = g.cx + xOffset
+  }
+  // Clamp so the dome ends don't cross the rect's rounded corners.
+  xL = Math.max(r, xL)
+  xR = Math.min(w - r, xR)
+
+  ctx.beginPath()
+  ctx.moveTo(r, g.bodyY)
+  ctx.lineTo(xL, g.bodyY)
+
+  // Arc OVER the dome. Use ellipse parameter (not raw angle-from-center)
+  // so non-circular domes start/end exactly on the rect top edge.
+  const startAngle = Math.atan2((g.bodyY - g.cy) / g.ry, (xL - g.cx) / g.rx)
+  let endAngle = Math.atan2((g.bodyY - g.cy) / g.ry, (xR - g.cx) / g.rx)
+  // Canvas `anticlockwise=false` traces in the direction of increasing
+  // angle (visually clockwise through the top of the dome). Wrap so the
+  // arc takes the upper route, not the bottom.
+  if (endAngle <= startAngle) endAngle += 2 * Math.PI
+  ctx.ellipse(g.cx, g.cy, g.rx, g.ry, 0, startAngle, endAngle, false)
+
+  ctx.lineTo(w - r, g.bodyY)
+  ctx.quadraticCurveTo(w, g.bodyY, w, g.bodyY + r)
+  ctx.lineTo(w, h - r)
+  ctx.quadraticCurveTo(w, h, w - r, h)
+  ctx.lineTo(r, h)
+  ctx.quadraticCurveTo(0, h, 0, h - r)
+  ctx.lineTo(0, g.bodyY + r)
+  ctx.quadraticCurveTo(0, g.bodyY, r, g.bodyY)
+  ctx.closePath()
+}
+
+/**
  * Tag shape — pointed notch on the left flowing into a rounded body.
  * `notch` is the horizontal distance from the tip to the body edge.
  * Ported from dim0/components/rough/paths.ts.

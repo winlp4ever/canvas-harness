@@ -20,25 +20,40 @@ import {
   resolveOpacity,
   resolveStrokeWidth,
 } from './defaults'
-import { buildDiamondPath, buildEllipsePath, buildRectPath, buildTagPath } from './path-helpers'
+import {
+  buildDiamondPath,
+  buildEllipsePath,
+  buildRectPath,
+  buildTagPath,
+  buildThoughtCloudPath,
+} from './path-helpers'
 
-/** Atomic single-path primitives. Composites paint multiple of these. */
-export type AtomicPrimitive = 'rect' | 'ellipse' | 'diamond' | 'tag'
+/**
+ * Atomic single-path primitives. Composites paint multiple of these.
+ * Thought-cloud is atomic — its union geometry is one continuous path
+ * so the rough wobble unifies the silhouette.
+ */
+export type AtomicPrimitive = 'rect' | 'ellipse' | 'diamond' | 'tag' | 'thought-cloud'
 
-/** Composite primitives built from multiple atomic sub-shapes. */
-type CompositePrimitive =
-  | 'capsule'
-  | 'thought-cloud'
-  | 'layered-rect'
-  | 'layered-ellipse'
-  | 'layered-diamond'
+/**
+ * Composite primitives built from multiple atomic sub-shapes. Capsule
+ * is intentionally composite — the visible seam between the accent
+ * circle and the rect body reads as two stacked hand-drawn shapes
+ * (medicine-pill aesthetic), which we want to keep.
+ */
+type CompositePrimitive = 'capsule' | 'layered-rect' | 'layered-ellipse' | 'layered-diamond'
 
 export type PrimitiveType = AtomicPrimitive | CompositePrimitive
 
-const ATOMIC: ReadonlySet<string> = new Set(['rect', 'ellipse', 'diamond', 'tag'])
+const ATOMIC: ReadonlySet<string> = new Set([
+  'rect',
+  'ellipse',
+  'diamond',
+  'tag',
+  'thought-cloud',
+])
 const COMPOSITE: ReadonlySet<string> = new Set([
   'capsule',
-  'thought-cloud',
   'layered-rect',
   'layered-ellipse',
   'layered-diamond',
@@ -132,6 +147,9 @@ export const drawAtomic = (
     case 'tag':
       buildTagPath(ctx, w, h, cornerRadius)
       break
+    case 'thought-cloud':
+      buildThoughtCloudPath(ctx, w, h, cornerRadius)
+      break
   }
 
   const needsScope = opacity !== 1
@@ -189,32 +207,17 @@ export const compositeLayout = (node: Node): SubShape[] => {
   const { w, h, style } = node
   switch (node.type) {
     case 'capsule': {
-      // Medicine pill: full circle on the left + rect that overlaps slightly
-      // on its right. Circle is sized to the node height, rect fills the
-      // remainder. Matches dim0's capsule.tsx (accent on the left, body
-      // following).
-      const circ = Math.min(h, w * 0.45)
-      const overlap = circ * 0.1
+      // Medicine-pill: small accent circle on the left + rect body.
+      // Kept composite (vs. a single union path) so the visible seam
+      // between circle and rect reads as two stacked hand-drawn shapes.
+      const circ = Math.min(h * 0.55, w * 0.28, 56)
+      const overlap = circ * 0.15
       const rectX = circ - overlap
       const rectW = Math.max(0, w - rectX)
       const circY = (h - circ) / 2
       return [
         { atomic: 'ellipse', x: 0, y: circY, w: circ, h: circ },
         { atomic: 'rect', x: rectX, y: 0, w: rectW, h },
-      ]
-    }
-    case 'thought-cloud': {
-      // Dome ellipse centered on top + rect body underneath. The dome's
-      // bottom half is naturally hidden by the rect's fill — only the top
-      // arc reads as "the dome."
-      const domeW = Math.min(w * 0.4, h * 1.2)
-      const domeH = Math.min(h * 0.45, domeW)
-      const domeX = (w - domeW) / 2
-      const bodyY = domeH * 0.55
-      const bodyH = Math.max(0, h - bodyY)
-      return [
-        { atomic: 'ellipse', x: domeX, y: 0, w: domeW, h: domeH },
-        { atomic: 'rect', x: 0, y: bodyY, w, h: bodyH },
       ]
     }
     case 'layered-rect':
