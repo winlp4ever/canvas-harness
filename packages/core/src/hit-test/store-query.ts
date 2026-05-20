@@ -44,16 +44,17 @@ export const hitTestPoint = (
     if (h) return { kind: 'resize-handle', nodeId: id, handle: h }
   }
 
-  // Then bodies, topmost-z first
+  // Then bodies, topmost-z first. Tiebreak on id (lexically greater id
+  // is painted later → sits on top → wins the hit) so hit-test matches
+  // paint order exactly.
   const candidates = store.querySpatial({ point: worldPoint }).nodes
   let best: Node | null = null
-  let bestZ = Number.NEGATIVE_INFINITY
   for (const id of candidates) {
     const n = store.getNode(id)
     if (!n) continue
-    if (pointInNode(worldPoint, n) && n.z >= bestZ) {
+    if (!pointInNode(worldPoint, n)) continue
+    if (!best || n.z > best.z || (n.z === best.z && n.id > best.id)) {
       best = n
-      bestZ = n.z
     }
   }
   return best ? { kind: 'body', nodeId: best.id } : null

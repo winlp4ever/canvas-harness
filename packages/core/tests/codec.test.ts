@@ -84,7 +84,11 @@ describe('codec', () => {
     const b = createCanvasStore({ initial: restored })
 
     expect(b.getAllNodes()).toHaveLength(2)
-    expect(b.getEdge(asEdgeId('e-1'))).toEqual(edge)
+    // addEdge auto-assigns z (top of stack) when called with z=0; the
+    // restored store hydrates from the post-assignment serialized form.
+    const restoredEdge = b.getEdge(asEdgeId('e-1'))
+    expect(restoredEdge).toEqual({ ...edge, z: restoredEdge!.z })
+    expect(restoredEdge!.z).toBeGreaterThan(0)
   })
 
   test('migrator runs when version is older', () => {

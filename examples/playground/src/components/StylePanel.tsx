@@ -174,6 +174,23 @@ export function StylePanel({ store }: { store: CanvasStore }) {
         Selection: {selectedNodeIds.length}n {selectedEdgeIds.length}e
       </div>
 
+      <Field label="Z order">
+        <div style={{ display: 'flex', gap: 4 }}>
+          <ZBtn title="Send to back (⌘⇧[)" onClick={() => store.sendToBack(selectionIds)}>
+            ⤓
+          </ZBtn>
+          <ZBtn title="Send backward (⌘[)" onClick={() => store.sendBackward(selectionIds)}>
+            ↓
+          </ZBtn>
+          <ZBtn title="Bring forward (⌘])" onClick={() => store.bringForward(selectionIds)}>
+            ↑
+          </ZBtn>
+          <ZBtn title="Bring to front (⌘⇧])" onClick={() => store.bringToFront(selectionIds)}>
+            ⤒
+          </ZBtn>
+        </div>
+      </Field>
+
       {nodesOnly && (
         <>
           <Field label="Fill">
@@ -369,6 +386,35 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div style={{ color: '#64748b', fontSize: 11 }}>{label}</div>
       {children}
     </div>
+  )
+}
+
+function ZBtn({
+  title,
+  onClick,
+  children,
+}: {
+  title: string
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      style={{
+        flex: 1,
+        padding: '4px 0',
+        fontSize: 14,
+        background: '#f1f5f9',
+        border: '1px solid #cbd5e1',
+        borderRadius: 4,
+        cursor: 'pointer',
+      }}
+    >
+      {children}
+    </button>
   )
 }
 

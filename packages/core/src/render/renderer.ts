@@ -470,6 +470,9 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       const e = store.getEdge(id)
       if (e) result.push(e)
     }
+    // Sort by z. Note edges are still painted as a separate pass above
+    // all nodes — interleaving nodes + edges by z is a follow-up.
+    result.sort((a, b) => a.z - b.z || (a.id < b.id ? -1 : 1))
     return result
   }
 
@@ -657,6 +660,10 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       if (n.w < minWorldSize && n.h < minWorldSize) continue
       if (intersectsViewport(n, viewport)) result.push(n)
     }
+    // Sort by z so reorder ops (bringToFront / sendToBack / etc.)
+    // actually affect paint order. Tiebreak on id keeps the order
+    // deterministic across sessions. Sub-1% of frame budget at scale.
+    result.sort((a, b) => a.z - b.z || (a.id < b.id ? -1 : 1))
     return result
   }
 

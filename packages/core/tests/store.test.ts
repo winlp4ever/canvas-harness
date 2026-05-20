@@ -59,11 +59,15 @@ describe('createCanvasStore', () => {
     store.subscribe('change', onChange)
     const n = makeNode()
     store.addNode(n)
-    expect(store.getNode(n.id)).toEqual(n)
+    // addNode auto-assigns z (top of stack) when caller passes z=0,
+    // so the stored copy has z > 0.
+    const stored = store.getNode(n.id)
+    expect(stored).toEqual({ ...n, z: stored!.z })
+    expect(stored!.z).toBeGreaterThan(0)
     expect(onChange).toHaveBeenCalledTimes(1)
     const batch = onChange.mock.calls[0][0]
     expect(batch.ops).toHaveLength(1)
-    expect(batch.ops[0]).toMatchObject({ type: 'node.add', node: n })
+    expect(batch.ops[0]).toMatchObject({ type: 'node.add', node: { ...n, z: stored!.z } })
     expect(batch.origin).toBe('local')
   })
 

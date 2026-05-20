@@ -166,6 +166,23 @@ export interface CanvasStore {
   removeGroup(id: GroupId): void
 
   /**
+   * Z-order: bring the given nodes/edges to the top of the paint
+   * order (and the top of the hit-test priority for overlapping
+   * shapes). Mixed node/edge selections are supported. Each entity
+   * gets a fresh top-of-stack z; relative order among the targets
+   * is preserved (first-passed stays on top).
+   *
+   * Batched as one OpBatch — single undo step.
+   */
+  bringToFront(ids: (NodeId | EdgeId)[]): void
+  /** Symmetric: send to the bottom of the stack. */
+  sendToBack(ids: (NodeId | EdgeId)[]): void
+  /** Step each target above the next-higher non-target sibling. */
+  bringForward(ids: (NodeId | EdgeId)[]): void
+  /** Step each target below the next-lower non-target sibling. */
+  sendBackward(ids: (NodeId | EdgeId)[]): void
+
+  /**
    * Collapses every mutation inside `fn` into a single `OpBatch` — one
    * undo step, one change event, one sync send.
    *

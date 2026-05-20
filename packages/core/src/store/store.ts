@@ -71,6 +71,37 @@ const EMPTY_SCENE = (): Scene => ({
  *   initial: fromSerialized(savedScene),
  * })
  */
+/**
+ * Index of the first entry strictly greater than `target`, or -1 if
+ * none. Assumes `arr` is sorted ascending. Used by bringForward to
+ * find the immediate-above neighbour's z.
+ */
+const binaryFirstGreater = (arr: number[], target: number): number => {
+  let lo = 0
+  let hi = arr.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (arr[mid]! <= target) lo = mid + 1
+    else hi = mid
+  }
+  return lo < arr.length ? lo : -1
+}
+
+/**
+ * Index of the last entry strictly less than `target`, or -1 if none.
+ * Used by sendBackward.
+ */
+const binaryLastLess = (arr: number[], target: number): number => {
+  let lo = 0
+  let hi = arr.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (arr[mid]! < target) lo = mid + 1
+    else hi = mid
+  }
+  return lo > 0 ? lo - 1 : -1
+}
+
 export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
   const clientId: ClientId = opts.clientId ?? randomClientId()
   const idGenerator: IdGenerator = opts.idGenerator ?? makeIdGenerator(clientId)
@@ -116,6 +147,15 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
   // node moves (to refresh all its edges' AABBs in the spatial index) and
   // by removeNode to cascade-delete attached edges.
   const incidentEdges = new Map<NodeId, Set<EdgeId>>()
+
+  // Running ceiling of node + edge z values. New entities created without
+  // an explicit z get `++topZ`, putting them above everything else
+  // (matches Figma / Excalidraw defaults). Monotonic; never decremented
+  // — reordering ops bump it as needed. Initialized from `initial` so
+  // hydration from a saved scene doesn't restart the counter.
+  let topZ = 0
+  for (const n of Object.values(initial.nodes) as Node[]) if (n.z > topZ) topZ = n.z
+  for (const e of Object.values(initial.edges) as Edge[]) if (e.z > topZ) topZ = e.z
 
   const getNodeForGeo = (id: NodeId): Node | undefined => nodeAtoms.get(id)?.value
 
@@ -367,7 +407,15 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     generateId: () => idGenerator(),
 
     addNode(node) {
-      const fitted = withAutoFitHeight(node)
+      // Auto-top z when not explicitly specified — newly created nodes
+      // sit above everything else (Figma / Excalidraw default).
+      // Convention: `z === 0` (the Node type's default) means
+      // "auto-assign." Callers who explicitly want bottom can pass a
+      // negative value; callers who want a specific layer can pass any
+      // positive value.
+      const withZ = node.z === 0 ? { ...node, z: ++topZ } : node
+      if (withZ.z > topZ) topZ = withZ.z
+      const fitted = withAutoFitHeight(withZ)
       enqueueOp({ type: 'node.add', node: fitted })
       return fitted.id
     },
@@ -417,8 +465,10 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     },
 
     addEdge(edge) {
-      enqueueOp({ type: 'edge.add', edge })
-      return edge.id
+      const withZ = edge.z === 0 ? { ...edge, z: ++topZ } : edge
+      if (withZ.z > topZ) topZ = withZ.z
+      enqueueOp({ type: 'edge.add', edge: withZ })
+      return withZ.id
     },
     updateEdge(id, patch) {
       const current = edgeAtoms.get(id)?.value
@@ -429,6 +479,93 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
       const edge = edgeAtoms.get(id)?.value
       if (!edge) return
       enqueueOp({ type: 'edge.remove', edge })
+    },
+
+    bringToFront(ids) {
+      this.batch(() => {
+        for (const id of ids) {
+          if (nodeAtoms.has(id as NodeId)) this.updateNode(id as NodeId, { z: ++topZ })
+          else if (edgeAtoms.has(id as EdgeId)) this.updateEdge(id as EdgeId, { z: ++topZ })
+        }
+      })
+    },
+    sendToBack(ids) {
+      // Find the minimum z across all nodes + edges (excluding the
+      // targets themselves), then place each target below that. We do
+      // a single scan rather than maintain a `bottomZ` counter because
+      // sendToBack is rare; the scan is O(n) per call and dominated by
+      // the user gesture, not the frame budget.
+      const targets = new Set<string>(ids as string[])
+      let minZ = 0
+      let initialized = false
+      for (const a of nodeAtoms.values()) {
+        if (targets.has(a.value.id)) continue
+        if (!initialized || a.value.z < minZ) {
+          minZ = a.value.z
+          initialized = true
+        }
+      }
+      for (const a of edgeAtoms.values()) {
+        if (targets.has(a.value.id)) continue
+        if (!initialized || a.value.z < minZ) {
+          minZ = a.value.z
+          initialized = true
+        }
+      }
+      this.batch(() => {
+        // Step the new z down per item so multi-select preserves
+        // relative order (first selected stays on top of next).
+        let next = (initialized ? minZ : 0) - 1
+        for (const id of ids) {
+          if (nodeAtoms.has(id as NodeId)) this.updateNode(id as NodeId, { z: next })
+          else if (edgeAtoms.has(id as EdgeId)) this.updateEdge(id as EdgeId, { z: next })
+          next -= 1
+        }
+      })
+    },
+    bringForward(ids) {
+      // For each target, find the next-higher z among non-targets and
+      // step the target above it. Self-stable: targets keep their
+      // relative order if they're all moved past the same neighbour.
+      const targets = new Set<string>(ids as string[])
+      const allZ: number[] = []
+      for (const a of nodeAtoms.values()) if (!targets.has(a.value.id)) allZ.push(a.value.z)
+      for (const a of edgeAtoms.values()) if (!targets.has(a.value.id)) allZ.push(a.value.z)
+      allZ.sort((a, b) => a - b)
+      this.batch(() => {
+        for (const id of ids) {
+          const node = nodeAtoms.get(id as NodeId)?.value
+          const edge = node ? null : edgeAtoms.get(id as EdgeId)?.value
+          const currentZ = node?.z ?? edge?.z
+          if (currentZ === undefined) continue
+          // Smallest non-target z strictly greater than currentZ.
+          const idx = binaryFirstGreater(allZ, currentZ)
+          const nextZ = idx >= 0 ? allZ[idx]! + 1 : currentZ + 1
+          if (nextZ > topZ) topZ = nextZ
+          if (node) this.updateNode(id as NodeId, { z: nextZ })
+          else this.updateEdge(id as EdgeId, { z: nextZ })
+        }
+      })
+    },
+    sendBackward(ids) {
+      const targets = new Set<string>(ids as string[])
+      const allZ: number[] = []
+      for (const a of nodeAtoms.values()) if (!targets.has(a.value.id)) allZ.push(a.value.z)
+      for (const a of edgeAtoms.values()) if (!targets.has(a.value.id)) allZ.push(a.value.z)
+      allZ.sort((a, b) => a - b)
+      this.batch(() => {
+        for (const id of ids) {
+          const node = nodeAtoms.get(id as NodeId)?.value
+          const edge = node ? null : edgeAtoms.get(id as EdgeId)?.value
+          const currentZ = node?.z ?? edge?.z
+          if (currentZ === undefined) continue
+          // Largest non-target z strictly less than currentZ.
+          const idx = binaryLastLess(allZ, currentZ)
+          const nextZ = idx >= 0 ? allZ[idx]! - 1 : currentZ - 1
+          if (node) this.updateNode(id as NodeId, { z: nextZ })
+          else this.updateEdge(id as EdgeId, { z: nextZ })
+        }
+      })
     },
 
     upsertGroup(group) {

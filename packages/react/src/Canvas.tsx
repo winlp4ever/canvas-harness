@@ -416,6 +416,20 @@ function CanvasSurface({
       } else if (e.key === 'v' || e.key === 'V') {
         e.preventDefault()
         void paste(store)
+      } else if (e.key === ']') {
+        // Cmd+] = bring forward; Cmd+Shift+] = bring to front.
+        const selection = store.getSelection()
+        if (selection.length === 0) return
+        e.preventDefault()
+        if (e.shiftKey) store.bringToFront(selection)
+        else store.bringForward(selection)
+      } else if (e.key === '[') {
+        // Cmd+[ = send backward; Cmd+Shift+[ = send to back.
+        const selection = store.getSelection()
+        if (selection.length === 0) return
+        e.preventDefault()
+        if (e.shiftKey) store.sendToBack(selection)
+        else store.sendBackward(selection)
       }
     }
     window.addEventListener('keydown', onKey)
