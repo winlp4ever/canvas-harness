@@ -29,8 +29,15 @@ export type Extension = {
    * Called when the extension is installed. May return a cleanup
    * function that runs on uninstall (in addition to auto-unsubscribed
    * listeners registered via `api.on`).
+   *
+   * `void` in the union is deliberate — extensions whose installer
+   * does its work via `api.on` (auto-cleaned-up) don't need to return
+   * anything. `undefined | (() => void)` would require an explicit
+   * `return undefined`, which is noise. Biome's noConfusingVoidType
+   * fires on this pattern; the suppression below is intentional.
    */
-  onInstall(api: ExtensionApi): undefined | (() => void)
+  // biome-ignore lint/suspicious/noConfusingVoidType: see comment above
+  onInstall(api: ExtensionApi): void | (() => void)
 }
 
 /**
