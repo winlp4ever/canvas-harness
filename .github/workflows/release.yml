@@ -1,0 +1,142 @@
+name: release
+
+# Manual trigger only — click "Run workflow" in the Actions tab.
+# Picks a `version-type` (or explicit version), runs the full CI suite,
+# bumps every publishable package to the same version, publishes to
+# npm via trusted publishing (OIDC — no token), commits the bump,
+# tags it, and opens a GitHub release with auto-generated notes.
+on:
+  workflow_dispatch:
+    inputs:
+      version-type:
+        description: "Bump kind (ignored when 'version' is set)."
+        type: choice
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+      version:
+        description: "Explicit version like 1.2.3. Overrides version-type."
+        type: string
+        required: false
+        default: ""
+      dry-run:
+        description: "Run everything except npm publish + git push."
+        type: boolean
+        required: false
+        default: false
+
+# `id-token: write` lets the runner mint an OIDC token. npm's trusted
+# publishing verifies that token against the registered publisher
+# (this repo + workflow filename) — no NPM_TOKEN required.
+# `contents: write` is needed for the version-bump commit + tag.
+permissions:
+  contents: write
+  id-token: write
+
+# Only one release at a time across the whole repo.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so release notes can `git log` since last tag.
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 22 ships a recent enough npm CLI to handle OIDC token
+          # exchange with the registry. (Node 20 ships npm 10.x, which
+          # predates trusted-publishing support.) If we ever drop back
+          # to Node 20 for the release job we'd need to add an explicit
+          # `npm install -g npm@latest` step before publish.
+          node-version: 22
+          cache: pnpm
+
+      # Upgrade to the latest npm so OIDC trusted publishing works
+      # regardless of what Node 22 currently ships. Cheap one-shot.
+      - name: Ensure recent npm CLI (>= 11.5 for trusted publishing)
+        run: npm install -g npm@latest
+
+      - run: pnpm install --frozen-lockfile
+
+      # Safety net: if main is broken, we don't want to ship it.
+      - name: Verify the build is green
+        run: |
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Browser tests
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm test:browser
+
+      - name: Bump versions
+        id: bump
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            NEXT=$(node scripts/bump-version.mjs "${{ inputs.version }}")
+          else
+            NEXT=$(node scripts/bump-version.mjs "${{ inputs.version-type }}")
+          fi
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "Resolved next version: $NEXT"
+
+      # Rebuild AFTER the version bump so each package's dist has the
+      # right version baked into any compile-time constants and so the
+      # cross-package `workspace:*` refs resolve to the new version on
+      # publish.
+      - name: Rebuild with new version
+        run: pnpm build
+
+      - name: Publish to npm (trusted publishing / OIDC)
+        if: ${{ !inputs.dry-run }}
+        run: |
+          # No NODE_AUTH_TOKEN — npm CLI authenticates via the OIDC
+          # token GitHub Actions exposes through ACTIONS_ID_TOKEN_REQUEST_*
+          # env vars (auto-set when id-token: write is granted).
+          # pnpm publish replaces `workspace:*` in the published
+          # package.json with the resolved version automatically.
+          # --no-git-checks: we'll commit the version bump after the
+          # publish step succeeds.
+          pnpm -r --filter "./packages/*" publish --access public --no-git-checks
+
+      - name: Dry-run summary
+        if: ${{ inputs.dry-run }}
+        run: |
+          echo "Dry run — skipping publish, commit, tag, release."
+          echo "Would have published @canvas-harness/{core,react,sync-broadcast}@${{ steps.bump.outputs.version }}"
+
+      - name: Commit + tag
+        if: ${{ !inputs.dry-run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/*/package.json
+          git commit -m "release: v${{ steps.bump.outputs.version }}"
+          git tag "v${{ steps.bump.outputs.version }}"
+          git push origin HEAD:main
+          git push origin "v${{ steps.bump.outputs.version }}"
+
+      - name: GitHub release
+        if: ${{ !inputs.dry-run }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.bump.outputs.version }}"
+          name: "v${{ steps.bump.outputs.version }}"
+          # Auto-generate notes from commits since the previous tag.
+          generate_release_notes: true

@@ -1,9 +1,19 @@
 name: ci
 
 on:
+  # Re-verify after merge — keeps `main` green even if someone bypassed
+  # the PR gate.
   push:
     branches: [main]
+  # PR gate: every PR targeting main runs the full suite before merge.
   pull_request:
+    branches: [main]
+
+# Cancel in-flight runs on the same branch when a new commit arrives.
+# Saves CI minutes on rapid-fire pushes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint-typecheck:
@@ -44,6 +54,8 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Chromium download is ~10-15s on a cold runner; subsequent runs
+      # hit the Playwright apt-cache layer.
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:browser
 
@@ -67,3 +79,6 @@ jobs:
           test -f packages/react/dist/index.js
           test -f packages/react/dist/index.cjs
           test -f packages/react/dist/index.d.ts
+          test -f packages/sync-broadcast/dist/index.js
+          test -f packages/sync-broadcast/dist/index.cjs
+          test -f packages/sync-broadcast/dist/index.d.ts

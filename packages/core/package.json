@@ -1,7 +1,7 @@
 {
   "name": "@canvas-harness/core",
   "version": "0.0.0",
-  "description": "Canvas-rendered node-graph library — framework-agnostic core",
+  "description": "Canvas-rendered node-graph library — framework-agnostic core. Store, renderer, edges, hit-testing, ops, history.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -14,6 +14,30 @@
     }
   },
   "files": ["dist", "README.md"],
+  "keywords": [
+    "canvas",
+    "graph",
+    "node-graph",
+    "diagram",
+    "whiteboard",
+    "flowchart",
+    "mindmap",
+    "react-flow-alternative",
+    "excalidraw-alternative",
+    "rough.js",
+    "perfect-freehand"
+  ],
+  "author": "Le Ha Quang <winlp4ever@gmail.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/winlp4ever/canvas-harness#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/winlp4ever/canvas-harness.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/winlp4ever/canvas-harness/issues"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -34,6 +58,7 @@
     "vitest": "^3.0.0"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   }
 }
