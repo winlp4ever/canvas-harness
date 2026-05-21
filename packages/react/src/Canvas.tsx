@@ -301,6 +301,15 @@ function CanvasSurface({
     }
   }, [store, onClick, onDoubleClick])
 
+  // `justCommittedRef` lives at component scope (not inside the
+  // gesture useEffect) so it survives effect remounts triggered by
+  // any `onCreateDrag` reference change. Otherwise: a setState from
+  // anywhere in the tree between pointerup and the synthetic click
+  // would remount the effect, reset the flag, and let the click
+  // through — producing a phantom tap-to-create node at the drop
+  // point. See README / regression note (May 2026).
+  const justCommittedRef = useRef(false)
+
   // Drag-to-create for non-select tools. tldraw/excalidraw style:
   // press at corner-A, drag to corner-B, release → shape sized to the
   // dragged rect. Sub-threshold drags fall through to onClick so a
@@ -312,7 +321,6 @@ function CanvasSurface({
     let startScreen: { x: number; y: number } | null = null
     let activePointerId: number | null = null
     let committed = false
-    const justCommittedRef = { current: false }
 
     const screenFromEvent = (e: PointerEvent): { x: number; y: number } => {
       const rect = el.getBoundingClientRect()

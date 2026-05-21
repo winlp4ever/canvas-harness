@@ -15,13 +15,16 @@ import { ExtensionsMenu } from './components/ExtensionsMenu'
 import { HistoryControls } from './components/HistoryControls'
 import { PerfOverlay } from './components/PerfOverlay'
 import { PresenceOverlay } from './components/PresenceOverlay'
+import { SaveStatus } from './components/SaveStatus'
 import { StatusBar } from './components/StatusBar'
 import { StressMenu } from './components/StressMenu'
 import { StylePanel } from './components/StylePanel'
 import { ThemeToggle } from './components/ThemeToggle'
 import { Toolbar } from './components/Toolbar'
 import { chartCardDef } from './custom-nodes/chart-card'
+import { fakeSave } from './db/fake-db'
 import { swapSceneColors } from './hooks/swap-theme-colors'
+import { useDebouncedSave } from './hooks/useDebouncedSave'
 import { getThemeBackground, useThemeMode } from './hooks/useThemeMode'
 
 const PRESENCE_COLORS = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#ec4899']
@@ -71,6 +74,11 @@ export function App() {
       ;(window as unknown as { renderer: Renderer }).renderer = r
     }
   }, [])
+
+  // Debounced persistence — reference wiring for consumer apps.
+  // Subscribes to store commits + camera, batches at 500ms idle,
+  // then awaits an async save (a fake DB here; swap for fetch).
+  const saveStatus = useDebouncedSave({ store, save: fakeSave })
 
   // Phase 8: attach the BroadcastChannel adapter so two playground tabs
   // see each other's mutations + cursors + selections in real time.
@@ -131,6 +139,7 @@ export function App() {
         <StylePanel store={store} />
         <PresenceOverlay store={store} />
         <ExtensionsMenu store={store} />
+        <SaveStatus status={saveStatus} />
         <StatusBar />
         <Minimap
           width={200}

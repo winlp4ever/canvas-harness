@@ -1,5 +1,5 @@
 import type { CanvasStore, Edge, EdgeStyle, Node, PathStyle, Style } from '@canvas-harness/core'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 /**
  * Sticky style memory — see IMPROVEMENTS.md.
@@ -112,14 +112,25 @@ export function useStyleMemory(store: CanvasStore): {
     return unsub
   }, [store])
 
-  return {
-    getNodeStyle: () => {
-      const s = memoryRef.current.nodes
-      return Object.keys(s).length === 0 ? undefined : s
-    },
-    getEdgeStyle: () => memoryRef.current.edge.style,
-    getEdgePathStyle: () => memoryRef.current.edge.pathStyle,
-  }
+  // Stable object — accessors close over `memoryRef`, so they always
+  // read fresh data lazily without needing the object identity to
+  // change. Returning a fresh object every render churned all the
+  // `[styleMemory]`-keyed `useCallback`s downstream, which (combined
+  // with debounced-save's setState) caused the drag-create
+  // suppression in the library to remount mid-gesture. See May-2026
+  // regression note.
+  const api = useMemo(
+    () => ({
+      getNodeStyle: () => {
+        const s = memoryRef.current.nodes
+        return Object.keys(s).length === 0 ? undefined : s
+      },
+      getEdgeStyle: () => memoryRef.current.edge.style,
+      getEdgePathStyle: () => memoryRef.current.edge.pathStyle,
+    }),
+    [],
+  )
+  return api
 }
 
 // Re-exports for the playground's create paths (kept as imports to
