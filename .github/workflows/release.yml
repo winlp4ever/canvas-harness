@@ -57,7 +57,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Node 24 ships npm 11.x natively, which has built-in OIDC
+          # trusted-publishing support. pnpm 9.x delegates the actual
+          # publish upload to npm CLI, so npm needs to be the version
+          # that knows about OIDC. Node 22 LTS ships npm 10.x (no OIDC);
+          # Node 24 LTS (active since 2025-10) ships npm 11.x (OIDC).
+          node-version: 24
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
