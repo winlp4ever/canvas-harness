@@ -57,18 +57,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # Node 22 ships a recent enough npm CLI to handle OIDC token
-          # exchange with the registry. (Node 20 ships npm 10.x, which
-          # predates trusted-publishing support.) If we ever drop back
-          # to Node 20 for the release job we'd need to add an explicit
-          # `npm install -g npm@latest` step before publish.
           node-version: 22
           cache: pnpm
-
-      # Upgrade to the latest npm so OIDC trusted publishing works
-      # regardless of what Node 22 currently ships. Cheap one-shot.
-      - name: Ensure recent npm CLI (>= 11.5 for trusted publishing)
-        run: npm install -g npm@latest
 
       - run: pnpm install --frozen-lockfile
 
