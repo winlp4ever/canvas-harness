@@ -1,4 +1,4 @@
-import { type CanvasBackground, asNodeId, hitTestAny } from '@canvas-harness/core'
+import { type CanvasBackground, asNodeId, hitTestAny, screenToWorld } from '@canvas-harness/core'
 import {
   type ArrowToolDefaults,
   type CanvasCreateDragEvent,
@@ -7,7 +7,7 @@ import {
   type ThemeResolver,
   useCanvasStore,
 } from '@canvas-harness/react'
-import { useCallback, useMemo } from 'react'
+import { type DragEvent, useCallback, useMemo, useRef, useState } from 'react'
 import { ChartCardView } from '../custom-nodes/chart-card'
 import { useStyleMemory } from '../hooks/useStyleMemory'
 
@@ -58,6 +58,9 @@ const TOOL_TO_TYPE: Record<ShapeTool, ShapeTool> = {
  *   - tool-aware click → create-shape / create-text node policy
  *   - the registered ChartCard custom-node React view
  */
+const isSvgFile = (file: File): boolean =>
+  file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')
+
 export function Canvas({
   tool,
   onRenderer,
@@ -182,21 +185,142 @@ export function Canvas({
     [styleMemory],
   )
 
+  // ---- drag-and-drop of image / SVG files ---------------------------
+  // PNG/JPEG → store.addImage. SVG (image/svg+xml or .svg) → text → store.addSvg.
+  // Files outside that set are ignored silently. Errors surface via a
+  // short-lived toast so the user sees why a drop was rejected.
+  const dropZoneRef = useRef<HTMLDivElement>(null)
+  const [dropError, setDropError] = useState<string | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
+
+  const handleDropError = useCallback((message: string) => {
+    setDropError(message)
+    // Auto-clear after 4s so the toast doesn't linger.
+    window.setTimeout(() => setDropError(null), 4000)
+  }, [])
+
+  const worldFromDragEvent = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      const el = dropZoneRef.current
+      if (!el) return { x: 0, y: 0 }
+      const rect = el.getBoundingClientRect()
+      return screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top }, store.getCamera())
+    },
+    [store],
+  )
+
+  const handleDrop = useCallback(
+    async (e: DragEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      setIsDragOver(false)
+      const files = Array.from(e.dataTransfer.files ?? [])
+      if (files.length === 0) return
+      const world = worldFromDragEvent(e)
+      // Layout dropped files in a small row offset from the drop point
+      // so multi-file drops don't stack on top of each other.
+      let offsetX = 0
+      const GAP = 20
+      for (const file of files) {
+        try {
+          if (isSvgFile(file)) {
+            const text = await file.text()
+            const id = await store.addSvg({
+              src: text,
+              x: world.x + offsetX,
+              y: world.y,
+              alt: file.name,
+            })
+            const node = store.getNode(id)
+            offsetX += (node?.w ?? 64) + GAP
+          } else if (file.type === 'image/png' || file.type === 'image/jpeg') {
+            const id = await store.addImage({
+              src: file,
+              x: world.x + offsetX,
+              y: world.y,
+              alt: file.name,
+            })
+            const node = store.getNode(id)
+            offsetX += (node?.w ?? 120) + GAP
+          } else {
+            handleDropError(`Skipped "${file.name}": only PNG, JPEG, and SVG are supported.`)
+          }
+        } catch (err) {
+          handleDropError(err instanceof Error ? err.message : String(err))
+        }
+      }
+    },
+    [store, worldFromDragEvent, handleDropError],
+  )
+
+  const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
+    // Only flag as droppable when the drag carries files.
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'copy'
+      setIsDragOver(true)
+    }
+  }, [])
+
+  const handleDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
+    // Only clear when the drag leaves the wrapper entirely. Child-cross
+    // dragleave events fire on every nested element, so we check that
+    // the related target isn't inside our zone.
+    const related = e.relatedTarget as Node | null
+    if (!related || !dropZoneRef.current?.contains(related)) {
+      setIsDragOver(false)
+    }
+  }, [])
+
   return (
-    <LibCanvas
-      tool={tool}
-      onRenderer={onRenderer}
-      onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
-      onCreateDrag={handleCreateDrag}
-      arrowDefaults={arrowDefaults}
-      background={background}
-      theme={theme}
-      renderCustomNodeView={id => {
-        const node = store.getNode(id)
-        if (!node) return null
-        return <ChartCardView node={node} />
+    <div
+      ref={dropZoneRef}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        outline: isDragOver ? '3px dashed #3b82f6' : 'none',
+        outlineOffset: -3,
       }}
-    />
+    >
+      <LibCanvas
+        tool={tool}
+        onRenderer={onRenderer}
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
+        onCreateDrag={handleCreateDrag}
+        arrowDefaults={arrowDefaults}
+        background={background}
+        theme={theme}
+        renderCustomNodeView={id => {
+          const node = store.getNode(id)
+          if (!node) return null
+          return <ChartCardView node={node} />
+        }}
+      />
+      {dropError && (
+        <div
+          role="alert"
+          style={{
+            position: 'absolute',
+            bottom: 12,
+            right: 12,
+            background: '#fee2e2',
+            border: '1px solid #fca5a5',
+            color: '#7f1d1d',
+            borderRadius: 8,
+            padding: '8px 12px',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            fontSize: 12,
+            maxWidth: 360,
+            boxShadow: '0 1px 3px rgba(0,0,0,.08)',
+            zIndex: 100,
+          }}
+        >
+          {dropError}
+        </div>
+      )}
+    </div>
   )
 }

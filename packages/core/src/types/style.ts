@@ -33,6 +33,14 @@ export type Style = {
    * per-keystroke).
    */
   autoFit?: boolean
+
+  /**
+   * Color applied to SVG icons (`node.type === 'icon'`) — substitutes
+   * every `currentColor` occurrence in the SVG markup before
+   * rasterizing. The rasterizer caches by `(markup, iconColor, size)`
+   * so changing this re-keys without invalidating other variants.
+   */
+  iconColor?: string
 }
 
 export type EdgeStyle = Style & {

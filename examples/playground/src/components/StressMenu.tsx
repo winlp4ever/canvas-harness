@@ -12,6 +12,7 @@ import {
   fixture10kRects,
   fixture100Rects,
   fixture200Cards,
+  fixtureImagesAndSvgs,
   fixtureMarkdownHeavy,
 } from '../fixtures'
 
@@ -32,14 +33,16 @@ const ENTRIES: Entry[] = [
   { label: '+ 1k labeled edges', fn: fixture1kLabeledEdges },
   { label: '+ 200 cards', fn: fixture200Cards },
   { label: '+ markdown-heavy', fn: fixtureMarkdownHeavy },
+  { label: '+ 30 images + 30 svgs', fn: fixtureImagesAndSvgs },
   { label: 'Clear scene', fn: clearScene },
 ]
 
 export function StressMenu({ store }: { store: CanvasStore }) {
   const [lastResult, setLastResult] = useState<string>('')
 
-  const handle = (entry: Entry) => {
-    const result = entry.fn(store)
+  const handle = async (entry: Entry) => {
+    setLastResult(`${entry.label}: …`)
+    const result = await entry.fn(store)
     setLastResult(
       `${entry.label}: ${result.added > 0 ? '+' : ''}${result.added} in ${result.ms.toFixed(1)}ms`,
     )

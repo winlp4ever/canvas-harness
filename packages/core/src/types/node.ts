@@ -48,3 +48,27 @@ export type Node = {
   style?: Style
   data?: unknown
 }
+
+/**
+ * `node.data` shape for `node.type === 'image'`. `src` is a self-
+ * contained data URI (we don't accept external URLs to keep scenes
+ * portable + CORS-free). `naturalW` / `naturalH` are the post-downscale
+ * dimensions used for aspect-ratio preservation on resize.
+ */
+export type ImageNodeData = {
+  src: string
+  naturalW: number
+  naturalH: number
+  alt?: string
+}
+
+/**
+ * `node.data` shape for `node.type === 'icon'`. `src` is sanitized
+ * SVG markup (scripts + event handlers stripped at add time). The
+ * recolor knob lives on `style.iconColor`, not here, so theming
+ * flows through the same channel as other style tokens.
+ */
+export type IconNodeData = {
+  src: string
+  alt?: string
+}

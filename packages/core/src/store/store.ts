@@ -12,12 +12,21 @@
  */
 import { type Atom, atom, transact } from 'signia'
 
+import {
+  blobToDataUri,
+  downscaleImageBlob,
+  extractSvgDimensions,
+  sanitizeSvg,
+  toImageBlob,
+  validateImageInput,
+  validateSvgMarkup,
+} from '../assets'
 import { DEFAULT_CAMERA } from '../camera'
 import { type EdgeGeometry, EdgeGeometryCache } from '../edges/cache'
 import { shouldAutoFit, withAutoFitHeight } from '../edit/auto-fit'
 import { type IdGenerator, makeIdGenerator, randomClientId } from '../ids'
 import { UniformGrid, nodeAABB } from '../spatial'
-import { SCHEMA_VERSION, asBatchId, isAttached } from '../types'
+import { SCHEMA_VERSION, asBatchId, asNodeId, isAttached } from '../types'
 import type {
   CameraState,
   ClientId,
@@ -25,11 +34,14 @@ import type {
   EdgeId,
   Group,
   GroupId,
+  IconNodeData,
+  ImageNodeData,
   Node,
   NodeId,
   Op,
   OpBatch,
   Scene,
+  Style,
 } from '../types'
 import { detectConflicts } from './conflict'
 import { type InteractionState, idleInteractionState } from './interaction'
@@ -467,6 +479,62 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         const batch = endBatch()
         if (batch) emitChange(batch)
       })
+    },
+
+    async addImage(opts) {
+      validateImageInput(opts.src)
+      const rawBlob = await toImageBlob(opts.src)
+      const maxDim = opts.maxDimension ?? 2048
+      const { blob, naturalW, naturalH } = await downscaleImageBlob(rawBlob, maxDim)
+      const src = await blobToDataUri(blob)
+      // Default sizing: natural dimensions clamped to 400 px on the
+      // longer side so a screen-filling node isn't created from a big
+      // image. Aspect ratio is preserved.
+      const DEFAULT_MAX_NODE_SIDE = 400
+      const aspectScale = Math.min(1, DEFAULT_MAX_NODE_SIDE / Math.max(naturalW, naturalH))
+      const w = opts.w ?? Math.max(1, Math.round(naturalW * aspectScale))
+      const h = opts.h ?? Math.max(1, Math.round(naturalH * aspectScale))
+      const id = asNodeId(idGenerator())
+      this.addNode({
+        id,
+        type: 'image',
+        x: opts.x,
+        y: opts.y,
+        w,
+        h,
+        angle: 0,
+        z: 0,
+        groups: [],
+        style: opts.style,
+        data: { src, naturalW, naturalH, alt: opts.alt } satisfies ImageNodeData,
+      })
+      return id
+    },
+    async addSvg(opts) {
+      validateSvgMarkup(opts.src)
+      const sanitized = sanitizeSvg(opts.src)
+      const intrinsic = extractSvgDimensions(sanitized)
+      const w = opts.w ?? intrinsic.w
+      const h = opts.h ?? intrinsic.h
+      const mergedStyle: Style | undefined =
+        opts.color || opts.style
+          ? { ...(opts.color ? { iconColor: opts.color } : {}), ...opts.style }
+          : undefined
+      const id = asNodeId(idGenerator())
+      this.addNode({
+        id,
+        type: 'icon',
+        x: opts.x,
+        y: opts.y,
+        w,
+        h,
+        angle: 0,
+        z: 0,
+        groups: [],
+        ...(mergedStyle ? { style: mergedStyle } : {}),
+        data: { src: sanitized, alt: opts.alt } satisfies IconNodeData,
+      })
+      return id
     },
 
     addEdge(edge) {

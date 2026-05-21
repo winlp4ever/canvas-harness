@@ -21,7 +21,7 @@ export type {
   TextStyle,
 } from './style'
 
-export type { BuiltInNodeType, Node, NodeType } from './node'
+export type { BuiltInNodeType, IconNodeData, ImageNodeData, Node, NodeType } from './node'
 
 export type { Edge, EdgeEnd, PathStyle } from './edge'
 export { isAttached } from './edge'

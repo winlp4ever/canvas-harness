@@ -49,7 +49,7 @@ export type FixtureResult = {
   ms: number
 }
 
-export type Fixture = (store: CanvasStore) => FixtureResult
+export type Fixture = (store: CanvasStore) => FixtureResult | Promise<FixtureResult>
 
 const pickType = (i: number, kind: SeedKindValue): Primitive => {
   if (kind === SeedKind.Mono) return 'rect'
@@ -301,6 +301,110 @@ export const fixture1kLabeledEdges: Fixture = store => {
       added++
     }
   })
+  return { added, ms: performance.now() - t0 }
+}
+
+// Five inline SVG icons used by the image-heavy fixture. Each uses
+// `currentColor` so the per-node `style.iconColor` substitution exercises
+// the rasterizer cache key.
+const SVG_ICONS = [
+  // heart
+  `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`,
+  // star
+  `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  // gear
+  `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
+  // check
+  `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+  // x
+  `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="6"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+]
+
+const ICON_TINTS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899']
+
+/**
+ * Generates a small procedural PNG via OffscreenCanvas. Each tile is a
+ * gradient + a contrasting circle so the renderer's downscaler + bitmap
+ * cache have something distinct to chew on per node. Returns a data URI.
+ */
+const makeProceduralPng = async (i: number, size = 256): Promise<string> => {
+  const canvas = new OffscreenCanvas(size, size)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('OffscreenCanvas 2d unavailable')
+  const hue = (i * 47) % 360
+  const grad = ctx.createLinearGradient(0, 0, size, size)
+  grad.addColorStop(0, `hsl(${hue}, 70%, 70%)`)
+  grad.addColorStop(1, `hsl(${(hue + 60) % 360}, 70%, 45%)`)
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, size, size)
+  ctx.fillStyle = `hsl(${(hue + 180) % 360}, 80%, 60%)`
+  ctx.beginPath()
+  ctx.arc(size / 2, size / 2, size / 3, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = '#ffffff'
+  ctx.font = `bold ${size / 5}px system-ui, sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(String(i), size / 2, size / 2)
+  const blob = await canvas.convertToBlob({ type: 'image/png' })
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result)
+      else reject(new Error('FileReader returned non-string result'))
+    }
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+/**
+ * Adds 30 procedural raster images + 30 SVG icons in a tidy grid.
+ * Stresses the asset pipeline end-to-end: validation, downscale,
+ * data-URI round-trip, SVG sanitize + dimension extraction, and the
+ * renderer's image / icon paint paths.
+ */
+export const fixtureImagesAndSvgs: Fixture = async store => {
+  const t0 = performance.now()
+  const imageCount = 30
+  const iconCount = 30
+  const cols = 10
+
+  // Generate procedural PNGs in parallel — addImage itself awaits the
+  // downscale, but PNG generation can pipeline through OffscreenCanvas
+  // without contention.
+  const pngs = await Promise.all(Array.from({ length: imageCount }, (_, i) => makeProceduralPng(i)))
+
+  let added = 0
+  for (let i = 0; i < imageCount; i++) {
+    const x = (i % cols) * 140
+    const y = Math.floor(i / cols) * 140
+    await store.addImage({
+      src: pngs[i]!,
+      x,
+      y,
+      w: 120,
+      h: 120,
+      alt: `procedural ${i}`,
+    })
+    added++
+  }
+
+  for (let i = 0; i < iconCount; i++) {
+    const x = (i % cols) * 140
+    const y = Math.floor((imageCount + i) / cols) * 140 + 40 // shift below images
+    await store.addSvg({
+      src: SVG_ICONS[i % SVG_ICONS.length]!,
+      x,
+      y,
+      w: 64,
+      h: 64,
+      color: ICON_TINTS[i % ICON_TINTS.length]!,
+      alt: `icon ${i}`,
+    })
+    added++
+  }
+
   return { added, ms: performance.now() - t0 }
 }
 

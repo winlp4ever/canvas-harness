@@ -24,6 +24,7 @@ import {
   subscribeFontEpoch,
 } from '../text'
 import type { CameraState, CanvasBackground, Edge, EdgeId, Node, NodeId, WorldRect } from '../types'
+import { createAssetCache, paintIconNode, paintImageNode } from './assets'
 import { paintBackground } from './background'
 import { clearSurface, setupSurface, sizeSurface } from './canvas-setup'
 import { type FrameLoop, type FrameStats, createFrameLoop } from './frame-loop'
@@ -127,6 +128,16 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   /** Custom nodes whose React view is currently mounted in the overlay. */
   let overlaySet: ReadonlySet<NodeId> = new Set()
   let lastDrawn = 0
+
+  // Asset cache for image + icon node types. The `onReady` hook fires
+  // when a pending decode lands so the next frame blits the bitmap.
+  // `loop` is created later in this scope, so we wrap the request in a
+  // closure that resolves it at call time.
+  const requestRepaint = (): void => {
+    staticDirty = true
+    loop.requestFrame()
+  }
+  const assetCache = createAssetCache({ onReady: requestRepaint })
 
   const isInteractive = (state: InteractionState): boolean =>
     state.mode !== 'idle' || store.getSelection().length > 0
@@ -252,6 +263,22 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
             }
           }
           if (!isEditingThis) paintNodeContent(staticSurface.ctx, node, renderEnv)
+        })
+        drawn++
+        continue
+      }
+      // Image node: blit cached bitmap (or placeholder if still loading).
+      if (node.type === 'image') {
+        drawWithNodeTransform(staticSurface.ctx, node, () => {
+          paintImageNode(staticSurface.ctx, node, assetCache, theme)
+        })
+        drawn++
+        continue
+      }
+      // Icon node: rasterized SVG with optional `style.iconColor` tint.
+      if (node.type === 'icon') {
+        drawWithNodeTransform(staticSurface.ctx, node, () => {
+          paintIconNode(staticSurface.ctx, node, assetCache, scale, theme)
         })
         drawn++
         continue
@@ -505,8 +532,22 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       const dragRoughEnabled =
         inDragMap.size <= ROUGH_MAX_MOVING_NODES && camera.z >= ROUGH_MIN_ZOOM
       for (const node of inDragMap.values()) {
-        if (!isDrawablePrimitive(node.type) && node.type !== 'text') continue
+        if (
+          !isDrawablePrimitive(node.type) &&
+          node.type !== 'text' &&
+          node.type !== 'image' &&
+          node.type !== 'icon'
+        )
+          continue
         drawWithNodeTransform(ctx, node, () => {
+          if (node.type === 'image') {
+            paintImageNode(ctx, node, assetCache, theme)
+            return
+          }
+          if (node.type === 'icon') {
+            paintIconNode(ctx, node, assetCache, scale, theme)
+            return
+          }
           if (isDrawablePrimitive(node.type)) {
             const useRough = dragRoughEnabled && (node.style?.roughness ?? 0) > 0
             const roughReady = useRough ? getRoughCanvasCtor() !== null : false
@@ -757,6 +798,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       unsubSelection()
       unsubInteraction()
       unsubFontEpoch()
+      assetCache.dispose()
     },
   }
 }

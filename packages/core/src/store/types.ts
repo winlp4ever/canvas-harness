@@ -13,6 +13,7 @@ import type {
   NodeId,
   Op,
   OpBatch,
+  Style,
   Vec2,
   WorldRect,
 } from '../types'
@@ -155,6 +156,57 @@ export interface CanvasStore {
    * batch (so one undo restores the node + every edge that pointed to it).
    */
   removeNode(id: NodeId): void
+
+  /**
+   * Adds a raster image node. Async because the input may need decoding
+   * + downscaling before storage. Accepts `File` / `Blob` / data URI;
+   * external URLs are rejected to keep scenes self-contained.
+   *
+   * PNG and JPEG only; up to 2 MB. Larger sources throw immediately
+   * (caller should surface the error in UI).
+   *
+   * `w` / `h` default to the natural dimensions clamped to 400 px on
+   * the longer side. Aspect ratio is preserved by default; the resize
+   * gesture locks aspect for image nodes (shift to override).
+   *
+   * @example
+   * const id = await store.addImage({ src: file, x: 100, y: 100 })
+   */
+  addImage(opts: {
+    src: File | Blob | string
+    x: number
+    y: number
+    w?: number
+    h?: number
+    /** Longest-side cap after downscale. Default 2048. 0 disables. */
+    maxDimension?: number
+    alt?: string
+    style?: Style
+  }): Promise<NodeId>
+
+  /**
+   * Adds an SVG icon node. Markup is sanitized at add time (scripts +
+   * event handlers stripped) and stored on `node.data.src`. The
+   * `iconColor` style token substitutes `currentColor` at rasterize
+   * time so the same SVG renders in multiple tints without re-storage.
+   *
+   * `w` / `h` default to the SVG's intrinsic size (width/height attrs
+   * or viewBox); falls back to 24×24 if neither is present. Aspect
+   * ratio is locked on resize by default.
+   *
+   * @example
+   * const id = await store.addSvg({ src: '<svg ...>', x: 0, y: 0, color: '#3b82f6' })
+   */
+  addSvg(opts: {
+    src: string
+    x: number
+    y: number
+    w?: number
+    h?: number
+    color?: string
+    alt?: string
+    style?: Style
+  }): Promise<NodeId>
 
   /** Adds an edge. Returns its id. */
   addEdge(edge: Edge): EdgeId
