@@ -161,6 +161,94 @@ const store = createCanvasStore({ nodeTypes: [chartCard] })
 
 Custom nodes participate in selection, drag/resize/rotate, undo, copy/paste, hit-testing, and the spatial index just like built-ins.
 
+## Images and icons
+
+Raster images (`image` node type) and SVG icons (`icon` node type) are first-class. Both go through async helpers on the store so the inputs can be validated, sanitized, and downscaled before a node is committed.
+
+```tsx
+// PNG / JPEG — File, Blob, or data:image/(png|jpeg) URI. 2 MB hard cap.
+// Anything bigger than `maxDimension` on the longer side is downscaled
+// via OffscreenCanvas before being stored as a data URI.
+const imageId = await store.addImage({
+  src: fileFromDropEvent, // or new Blob([...]) or 'data:image/png;base64,...'
+  x: 100,
+  y: 100,
+  maxDimension: 2048, // default
+})
+
+// SVG markup — sanitized (script / foreignObject / on* / javascript: stripped)
+// and tinted via `style.iconColor` replacing `currentColor` at rasterize time.
+const iconId = await store.addSvg({
+  src: '<svg viewBox="0 0 24 24"><path d="..." stroke="currentColor"/></svg>',
+  x: 200,
+  y: 100,
+  color: '#8b5cf6', // optional — writes to style.iconColor
+})
+```
+
+External URLs are rejected on purpose (scenes stay self-contained, no CORS surprises). The renderer keeps an LRU-bounded bitmap cache so per-frame paint is cheap; SVGs rasterize at power-of-two size buckets keyed by `(markup, color, size)` so resizing an icon doesn't churn the rasterizer.
+
+The standalone helpers are also exported if you want to pre-validate during drag-over, build a preview tile, or sanitize before storing somewhere else:
+
+```ts
+import {
+  validateImageInput, downscaleImageBlob, blobToDataUri,
+  validateSvgMarkup, sanitizeSvg, extractSvgDimensions, applySvgColor,
+  MAX_IMAGE_BYTES, MAX_SVG_BYTES,
+} from '@canvas-harness/core'
+```
+
+## Persistence
+
+The library is sync end-to-end. `store.subscribe('change', cb)` fires once per committed `OpBatch`; the read API is sync and returns object references (no clones). The typical persistence flow is: subscribe, debounce, snapshot, await your async save.
+
+```tsx
+import { useEffect, useState } from 'react'
+import type { CanvasStore, Edge, Group, Node } from '@canvas-harness/core'
+
+type PersistedScene = { nodes: Node[]; edges: Edge[]; groups: Group[] }
+
+export function useDebouncedSave(
+  store: CanvasStore,
+  save: (scene: PersistedScene) => Promise<void>,
+) {
+  const [status, setStatus] = useState<'idle' | 'pending' | 'saving' | 'saved'>('idle')
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const flush = async () => {
+      timer = null
+      setStatus('saving')
+      await save({
+        nodes: store.getAllNodes(),
+        edges: store.getAllEdges(),
+        groups: store.getAllGroups(),
+      })
+      setStatus('saved')
+    }
+
+    return store.subscribe('change', () => {
+      // Only setState on transition — rapid edits / drag streams just
+      // reschedule the timer (microsecond-class).
+      if (timer === null) setStatus('pending')
+      else clearTimeout(timer)
+      timer = setTimeout(flush, 500)
+    })
+  }, [store, save])
+
+  return status
+}
+```
+
+A couple of opinions baked in:
+
+- **Don't put camera (pan/zoom) on the save bus.** It's view state, not document state — saving on camera change makes "unsaved" lie, and the per-frame setState during a pan re-renders your tree at frame rate. If you want to remember the viewport across sessions, save it separately on a less aggressive cadence (e.g. localStorage on `visibilitychange`).
+- **Selection isn't document state either.** Same reasoning.
+- **The OpBatch in the change event carries typed ops with `prev` slices** — if you ever need incremental writes (CRDT-style) instead of full-scene snapshots, the payload is already shaped for it. Most apps never need this.
+
+A working version with a fake async DB + live save-status pill ships in the playground at [`examples/playground/src/hooks/useDebouncedSave.ts`](./examples/playground/src/hooks/useDebouncedSave.ts).
+
 ## API surface
 
 ### `@canvas-harness/core`
@@ -172,6 +260,7 @@ Custom nodes participate in selection, drag/resize/rotate, undo, copy/paste, hit
 - `addNode(node)`, `updateNode(id, patch)`, `removeNode(id)` (cascade-removes incident edges)
 - `addEdge(edge)`, `updateEdge(id, patch)`, `removeEdge(id)`
 - `upsertGroup(group)`, `removeGroup(id)`
+- `addImage(opts)` / `addSvg(opts)` — async; validate, sanitize, downscale, commit
 - `batch(fn)` — coalesce multiple mutations into one undoable batch
 - `bringToFront(ids)`, `sendToBack(ids)`, `bringForward(ids)`, `sendBackward(ids)`
 
@@ -201,8 +290,8 @@ Custom nodes participate in selection, drag/resize/rotate, undo, copy/paste, hit
 
 **Components**
 - `<CanvasProvider store={...}>` — context wrapper
-- `<Canvas tool="..." onClick={...} onCreateDrag={...} arrowDefaults={...} background={...} theme={...} renderCustomNodeView={...} />` — mounts canvas + interactive surface + DOM overlay + editor adapter
-- `<Minimap />` — overview overlay
+- `<Canvas tool="..." onClick={...} onCreateDrag={...} arrowDefaults={...} background={...} theme={...} selectionColor={...} renderCustomNodeView={...} />` — mounts canvas + interactive surface + DOM overlay + editor adapter. `selectionColor` (default `#3b82f6`) drives all selection chrome: outline, resize/rotate handles, edge handles, marquee, drag-create preview.
+- `<Minimap viewportColor={...} backgroundColor={...} borderColor={...} />` — overview overlay. Pass the same color as `<Canvas selectionColor>` for `viewportColor` to keep the two visually paired.
 
 **Data hooks**
 - `useCanvasStore()` — store from context
