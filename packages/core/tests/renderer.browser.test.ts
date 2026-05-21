@@ -88,6 +88,10 @@ describe('Renderer (browser)', () => {
       interactiveCanvas,
       width: 800,
       height: 600,
+      // Transparent background so the pixel count reflects shape paints
+      // only; without this the default `#f8fafc` page color fills every
+      // pixel and `countNonEmptyPixels` would always be 800*600=480000.
+      background: { color: 'transparent' },
     })
     renderer.start()
     await waitFrame()
@@ -108,6 +112,8 @@ describe('Renderer (browser)', () => {
       interactiveCanvas,
       width: 800,
       height: 600,
+      // See comment above — isolate node paints from the page color.
+      background: { color: 'transparent' },
     })
     renderer.start()
     await waitFrame()
