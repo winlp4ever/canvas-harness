@@ -105,6 +105,21 @@ export type CanvasProps = {
    */
   background?: CanvasBackground
   /**
+   * Color for all selection chrome: outline, resize + rotate handles,
+   * edge endpoint + midpoint handles, marquee, drag-create preview,
+   * and the draft edge during creation. Defaults to `#3b82f6`. Update
+   * by changing the prop — `<Canvas>` calls
+   * `renderer.setSelectionColor` without recreating the renderer.
+   *
+   * Accepts any CSS color literal (hex, rgb(), named). Typically you
+   * also want to pass the same value to `<Minimap viewportColor={...} />`
+   * so the two stay visually in sync.
+   *
+   * @example
+   * <Canvas selectionColor="#10b981" />
+   */
+  selectionColor?: string
+  /**
    * Render a custom node's React subtree. Called once per
    * library-mounted custom-node id; positioning is handled by the
    * overlay container (consumer fills the slot).
@@ -171,6 +186,7 @@ function CanvasSurface({
   onCreateDrag,
   arrowDefaults,
   background,
+  selectionColor,
   renderCustomNodeView,
   children,
 }: CanvasProps) {
@@ -194,9 +210,10 @@ function CanvasSurface({
   useEffect(() => store.subscribe('camera', c => setCamera({ ...c })), [store])
 
   // Renderer lifecycle. Creates on first mount + size>0; disposes on
-  // unmount. `background` is intentionally omitted from the dep array
-  // — its updates flow through the separate setBackground effect
-  // below so the renderer isn't torn down on every background change.
+  // unmount. `background` and `selectionColor` are intentionally
+  // omitted from the dep array — their updates flow through the
+  // separate setBackground / setSelectionColor effects below so the
+  // renderer isn't torn down on every prop change.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
   useEffect(() => {
     if (!staticRef.current || !interactiveRef.current || w === 0 || h === 0) return
@@ -212,6 +229,7 @@ function CanvasSurface({
       width: w,
       height: h,
       background,
+      selectionColor,
       onOverlayChange: ids => setMountedIds(ids),
     })
     r.start()
@@ -221,9 +239,10 @@ function CanvasSurface({
       r.dispose()
       rendererRef.current = null
     }
-    // `background` intentionally omitted — we forward updates via the
-    // separate effect below so the renderer isn't torn down on every
-    // background prop change.
+    // `background` + `selectionColor` intentionally omitted — we
+    // forward updates via the separate setBackground /
+    // setSelectionColor effects below so the renderer isn't torn down
+    // on every prop change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store, theme, w, h, onRenderer, setMountedIds])
 
@@ -231,6 +250,11 @@ function CanvasSurface({
   useEffect(() => {
     rendererRef.current?.setBackground(background)
   }, [background])
+
+  // Forward selectionColor updates the same way — runtime swap, no rebuild.
+  useEffect(() => {
+    if (selectionColor !== undefined) rendererRef.current?.setSelectionColor(selectionColor)
+  }, [selectionColor])
 
   // Surface-level click — fires for any unhandled click (gesture hooks
   // consume their own). Consumer uses this to implement shape-tool /

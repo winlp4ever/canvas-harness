@@ -29,6 +29,7 @@ import { paintBackground } from './background'
 import { clearSurface, setupSurface, sizeSurface } from './canvas-setup'
 import { type FrameLoop, type FrameStats, createFrameLoop } from './frame-loop'
 import {
+  DEFAULT_SELECTION_COLOR,
   drawEdgeEndpointHandles,
   drawEdgeMidpointHandle,
   drawMarquee,
@@ -84,6 +85,16 @@ export type RendererOptions = {
    */
   background?: CanvasBackground
   /**
+   * Color for all selection chrome: selection outlines, resize +
+   * rotate handles, edge endpoint + midpoint handles, marquee rect,
+   * and the drag-create preview. Defaults to `#3b82f6` (the standard
+   * canvas-app blue). Update at runtime via `Renderer.setSelectionColor`.
+   *
+   * Accepts any CSS color literal (hex, rgb(), named). The marquee
+   * fill tints via globalAlpha — no parsing needed.
+   */
+  selectionColor?: string
+  /**
    * Fires when the set of custom nodes that should be rendered in the DOM
    * overlay changes. Consumers use this to mount/unmount React subtrees
    * (or whatever framework). See ARCHITECTURE.md §5.2 lifecycle.
@@ -105,6 +116,8 @@ export type Renderer = {
   setSize(cssW: number, cssH: number): void
   /** Update the page background / pattern. Triggers a static repaint. */
   setBackground(bg: CanvasBackground | undefined): void
+  /** Update the selection chrome color. Triggers an interactive repaint. */
+  setSelectionColor(color: string): void
   /** Per-frame timing (FPS, lastMs, avgMs, frames). */
   stats(): FrameStats
   /** Number of items the most recent paint actually drew. */
@@ -120,6 +133,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   const staticSurface = setupSurface(opts.staticCanvas)
   const interactiveSurface = setupSurface(opts.interactiveCanvas)
   let background: CanvasBackground | undefined = opts.background
+  let selectionColor: string = opts.selectionColor ?? DEFAULT_SELECTION_COLOR
   sizeSurface(staticSurface, opts.width, opts.height)
   sizeSurface(interactiveSurface, opts.width, opts.height)
 
@@ -608,7 +622,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       for (const id of selectedNodeIds) {
         const node = inDragMap.get(id) ?? store.getNode(id)
         if (!node) continue
-        drawSelectionOutline(ctx, node, scale)
+        drawSelectionOutline(ctx, node, scale, selectionColor)
       }
       // Resize + rotate handles only for non-dragging selection. (During
       // a drag, the handles would jitter with the dragged geometry —
@@ -616,8 +630,8 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       if (interaction.mode !== 'dragging' && selectedNodeIds.length === 1) {
         const node = inDragMap.get(selectedNodeIds[0]!) ?? store.getNode(selectedNodeIds[0]!)
         if (node) {
-          drawResizeHandles(ctx, node, scale)
-          drawRotateHandle(ctx, node, scale, camera.z)
+          drawResizeHandles(ctx, node, scale, selectionColor)
+          drawRotateHandle(ctx, node, scale, camera.z, selectionColor)
         }
       }
     }
@@ -625,27 +639,27 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     for (const id of selectedEdgeIds) {
       const geom = store.getEdgeGeometry(id)
       if (geom) {
-        drawEdgeEndpointHandles(ctx, geom.source, geom.target, scale)
+        drawEdgeEndpointHandles(ctx, geom.source, geom.target, scale, selectionColor)
         // Midpoint handle — drag to reshape (Phase 12.6). Only on
         // bezier; polyline / straight don't have a meaningful curve to
         // sculpt with one drag point.
         const edge = store.getEdge(id)
         if (edge && edge.pathStyle === 'bezier') {
           const mid = getPointAndTangentAtArcLength(geom.samples, 0.5).point
-          drawEdgeMidpointHandle(ctx, mid, scale)
+          drawEdgeMidpointHandle(ctx, mid, scale, selectionColor)
         }
       }
     }
 
     // 3. Marquee rect.
     if (interaction.mode === 'marqueeing' && interaction.marqueeRect) {
-      drawMarquee(ctx, interaction.marqueeRect, scale)
+      drawMarquee(ctx, interaction.marqueeRect, scale, selectionColor)
     }
 
     // 3.5 Drag-create preview — dashed outline matching the active
     // shape tool's intended footprint.
     if (interaction.mode === 'creating-shape' && interaction.createDraftRect) {
-      drawMarquee(ctx, interaction.createDraftRect, scale)
+      drawMarquee(ctx, interaction.createDraftRect, scale, selectionColor)
     }
 
     // 4. Draft edge during creation / reconnection.
@@ -660,7 +674,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         pathStyle: 'bezier',
         z: 0,
         groups: [],
-        style: { strokeColor: '#3b82f6' },
+        style: { strokeColor: selectionColor },
       }
       const geom = computeEdgeGeometry(draft, id => store.getNode(id))
       if (geom) {
@@ -786,6 +800,13 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     setBackground(bg) {
       background = bg
       staticDirty = true
+      loop.requestFrame()
+    },
+    setSelectionColor(color) {
+      selectionColor = color
+      // Selection chrome lives on the interactive surface; static doesn't
+      // need to repaint. The draft-edge stroke is also interactive-only.
+      interactiveDirty = true
       loop.requestFrame()
     },
     stats: () => loop.stats(),

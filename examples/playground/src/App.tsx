@@ -119,6 +119,7 @@ export function App() {
           onRenderer={onRenderer}
           background={background}
           theme={themeMode.theme}
+          selectionColor="#8b5cf6"
         />
         <Toolbar active={tool} onSelect={setTool} />
         <HistoryControls store={store} />
@@ -134,6 +135,7 @@ export function App() {
         <Minimap
           width={200}
           height={140}
+          viewportColor="#8b5cf6"
           backgroundColor={themeMode.mode === 'dark' ? '#1e293b' : '#ffffff'}
           borderColor={themeMode.mode === 'dark' ? '#334155' : '#cbd5e1'}
           defaultNodeColor={themeMode.mode === 'dark' ? '#475569' : '#94a3b8'}

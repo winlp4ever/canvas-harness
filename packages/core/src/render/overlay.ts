@@ -9,6 +9,11 @@
  *
  * Visual sizes are constant in screen pixels — `scale` (camera.z × DPR)
  * is used to convert px → world for outline strokes and handle sizes.
+ *
+ * Color: every draw takes `color` so the renderer can thread its
+ * `selectionColor` option through to all chrome. Marquee fill tints
+ * via `globalAlpha = MARQUEE_FILL_ALPHA` so any color format works
+ * (hex, rgb(), named) without parsing.
  */
 import {
   RESIZE_HANDLE_SIZE_PX,
@@ -18,10 +23,12 @@ import {
 } from '../hit-test/handle'
 import type { Node, Vec2, WorldRect } from '../types'
 
-export const SELECTION_COLOR = '#3b82f6'
+/** Default selection chrome color when no override is provided. */
+export const DEFAULT_SELECTION_COLOR = '#3b82f6'
 export const SELECTION_OUTLINE_PX = 1.5
-export const MARQUEE_FILL = 'rgba(59, 130, 246, 0.08)'
-export const MARQUEE_STROKE_PX = 1
+/** Marquee fill = selection color at this alpha, applied via globalAlpha. */
+const MARQUEE_FILL_ALPHA = 0.08
+const MARQUEE_STROKE_PX = 1
 
 /**
  * Draws a 1.5px-on-screen outline around the node's (rotated) bounds.
@@ -30,10 +37,11 @@ export const drawSelectionOutline = (
   ctx: CanvasRenderingContext2D,
   node: Node,
   scale: number,
+  color: string,
 ): void => {
   if (node.angle === 0) {
     ctx.save()
-    ctx.strokeStyle = SELECTION_COLOR
+    ctx.strokeStyle = color
     ctx.lineWidth = SELECTION_OUTLINE_PX / scale
     ctx.beginPath()
     ctx.rect(node.x, node.y, node.w, node.h)
@@ -54,7 +62,7 @@ export const drawSelectionOutline = (
   ].map(p => ({ x: cx + p.x * cos - p.y * sin, y: cy + p.x * sin + p.y * cos }))
 
   ctx.save()
-  ctx.strokeStyle = SELECTION_COLOR
+  ctx.strokeStyle = color
   ctx.lineWidth = SELECTION_OUTLINE_PX / scale
   ctx.beginPath()
   const first = corners[0]!
@@ -75,6 +83,7 @@ export const drawResizeHandles = (
   ctx: CanvasRenderingContext2D,
   node: Node,
   scale: number,
+  color: string,
 ): void => {
   const halfPx = RESIZE_HANDLE_SIZE_PX / 2
   const halfWorld = halfPx / scale
@@ -82,7 +91,7 @@ export const drawResizeHandles = (
 
   ctx.save()
   ctx.fillStyle = '#fff'
-  ctx.strokeStyle = SELECTION_COLOR
+  ctx.strokeStyle = color
   ctx.lineWidth = SELECTION_OUTLINE_PX / scale
   for (const key of Object.keys(positions) as (keyof typeof positions)[]) {
     const p = positions[key]
@@ -107,6 +116,7 @@ export const drawRotateHandle = (
   node: Node,
   scale: number,
   cameraZ: number,
+  color: string,
 ): void => {
   const center = rotateHandleWorldPosition(node, cameraZ)
   const radiusWorld = ROTATE_HANDLE_RADIUS_PX / scale
@@ -123,7 +133,7 @@ export const drawRotateHandle = (
   }
 
   ctx.save()
-  ctx.strokeStyle = SELECTION_COLOR
+  ctx.strokeStyle = color
   ctx.lineWidth = SELECTION_OUTLINE_PX / scale
   ctx.beginPath()
   ctx.moveTo(topMidWorld.x, topMidWorld.y)
@@ -148,12 +158,13 @@ export const drawEdgeMidpointHandle = (
   ctx: CanvasRenderingContext2D,
   midpoint: { x: number; y: number },
   scale: number,
+  color: string,
 ): void => {
   const radiusPx = 5
   const radiusWorld = radiusPx / scale
   ctx.save()
   ctx.fillStyle = '#fff'
-  ctx.strokeStyle = SELECTION_COLOR
+  ctx.strokeStyle = color
   ctx.lineWidth = SELECTION_OUTLINE_PX / scale
   ctx.beginPath()
   ctx.arc(midpoint.x, midpoint.y, radiusWorld, 0, Math.PI * 2)
@@ -171,12 +182,13 @@ export const drawEdgeEndpointHandles = (
   source: { x: number; y: number },
   target: { x: number; y: number },
   scale: number,
+  color: string,
 ): void => {
   const radiusPx = 5
   const radiusWorld = radiusPx / scale
   ctx.save()
   ctx.fillStyle = '#fff'
-  ctx.strokeStyle = SELECTION_COLOR
+  ctx.strokeStyle = color
   ctx.lineWidth = SELECTION_OUTLINE_PX / scale
   for (const p of [source, target]) {
     ctx.beginPath()
@@ -194,11 +206,16 @@ export const drawMarquee = (
   ctx: CanvasRenderingContext2D,
   rect: WorldRect,
   scale: number,
+  color: string,
 ): void => {
   ctx.save()
-  ctx.fillStyle = MARQUEE_FILL
+  // Fill via globalAlpha so any color literal (hex, rgb(), named) tints
+  // correctly — no parsing needed.
+  ctx.globalAlpha = MARQUEE_FILL_ALPHA
+  ctx.fillStyle = color
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h)
-  ctx.strokeStyle = SELECTION_COLOR
+  ctx.globalAlpha = 1
+  ctx.strokeStyle = color
   ctx.lineWidth = MARQUEE_STROKE_PX / scale
   ctx.setLineDash([4 / scale, 3 / scale])
   ctx.strokeRect(rect.x, rect.y, rect.w, rect.h)

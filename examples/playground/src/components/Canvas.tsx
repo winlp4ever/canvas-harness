@@ -66,11 +66,13 @@ export function Canvas({
   onRenderer,
   background,
   theme,
+  selectionColor,
 }: {
   tool: Tool
   onRenderer?: Parameters<typeof LibCanvas>[0]['onRenderer']
   background?: CanvasBackground
   theme?: ThemeResolver
+  selectionColor?: string
 }) {
   const store = useCanvasStore()
   const styleMemory = useStyleMemory(store)
@@ -293,6 +295,7 @@ export function Canvas({
         arrowDefaults={arrowDefaults}
         background={background}
         theme={theme}
+        selectionColor={selectionColor}
         renderCustomNodeView={id => {
           const node = store.getNode(id)
           if (!node) return null
