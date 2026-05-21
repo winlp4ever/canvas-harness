@@ -46,6 +46,11 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # React's unit test imports from `@canvas-harness/core` via the
+      # workspace dep; vitest resolves through the `main`/`module`
+      # field which points to `dist/index.js`. Without dist, the
+      # import fails. Build first.
+      - run: pnpm build
       - run: pnpm test
 
   test-browser:
