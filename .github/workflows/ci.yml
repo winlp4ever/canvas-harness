@@ -64,7 +64,9 @@ jobs:
       - run: pnpm build
       # Chromium download is ~10-15s on a cold runner; subsequent runs
       # hit the Playwright apt-cache layer.
-      - run: pnpm exec playwright install --with-deps chromium
+      # `pnpm exec` from root only sees root's .bin — playwright is a
+      # devDependency of `core`/`react`, so scope via filter.
+      - run: pnpm -F @canvas-harness/react exec playwright install --with-deps chromium
       - run: pnpm test:browser
 
   build:

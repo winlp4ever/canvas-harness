@@ -75,7 +75,9 @@ jobs:
 
       - name: Browser tests
         run: |
-          pnpm exec playwright install --with-deps chromium
+          # `pnpm exec` from root only sees root's .bin — playwright is
+          # a devDependency of `core`/`react`, so scope via filter.
+          pnpm -F @canvas-harness/react exec playwright install --with-deps chromium
           pnpm test:browser
 
       - name: Bump versions
