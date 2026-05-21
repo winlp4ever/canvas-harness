@@ -176,8 +176,8 @@ describe('store.interaction', () => {
   })
 })
 
-describe("rotation handle", () => {
-  test("axis-aligned: handle sits above top edge", () => {
+describe('rotation handle', () => {
+  test('axis-aligned: handle sits above top edge', () => {
     const n = makeNode() // 200×100 at (100,100)
     const cameraZ = 1
     const pos = rotateHandleWorldPosition(n, cameraZ)
@@ -186,14 +186,14 @@ describe("rotation handle", () => {
     expect(pos.y).toBeCloseTo(100 - ROTATE_HANDLE_OFFSET_PX, 5)
   })
 
-  test("hit-test fires within the radius", () => {
+  test('hit-test fires within the radius', () => {
     const n = makeNode()
     const center = rotateHandleWorldPosition(n, 1)
     expect(hitTestRotateHandle(n, center, 1)).toBe(true)
     expect(hitTestRotateHandle(n, { x: center.x + 100, y: center.y }, 1)).toBe(false)
   })
 
-  test("90° rotation: handle ends up to the right of node center", () => {
+  test('90° rotation: handle ends up to the right of node center', () => {
     const n = makeNode({ angle: Math.PI / 2 })
     const pos = rotateHandleWorldPosition(n, 1)
     const cx = n.x + n.w / 2
@@ -204,13 +204,13 @@ describe("rotation handle", () => {
     expect(pos.y).toBeCloseTo(cy, 5)
   })
 
-  test("hitTestPoint returns rotate-handle when over the handle", () => {
-    const store = createCanvasStore({ clientId: asClientId("u-r") })
-    const id = asNodeId("n-rot")
+  test('hitTestPoint returns rotate-handle when over the handle', () => {
+    const store = createCanvasStore({ clientId: asClientId('u-r') })
+    const id = asNodeId('n-rot')
     store.addNode(makeNode({ id }))
     const node = store.getNode(id)!
     const handlePos = rotateHandleWorldPosition(node, 1)
     const hit = hitTestPoint(store, handlePos, 1, new Set([id]))
-    expect(hit?.kind).toBe("rotate-handle")
+    expect(hit?.kind).toBe('rotate-handle')
   })
 })

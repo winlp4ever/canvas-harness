@@ -129,11 +129,7 @@ export const rotateHandleWorldPosition = (node: Node, cameraZ: number): Vec2 => 
 /**
  * Returns true if `worldPoint` is over the rotation handle for the node.
  */
-export const hitTestRotateHandle = (
-  node: Node,
-  worldPoint: Vec2,
-  cameraZ: number,
-): boolean => {
+export const hitTestRotateHandle = (node: Node, worldPoint: Vec2, cameraZ: number): boolean => {
   const center = rotateHandleWorldPosition(node, cameraZ)
   const rWorld = ROTATE_HANDLE_RADIUS_PX / cameraZ
   const dx = worldPoint.x - center.x

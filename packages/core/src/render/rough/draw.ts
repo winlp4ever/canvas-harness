@@ -14,7 +14,6 @@
  * scrubbing one node attribute only invalidates the affected subset.
  */
 import type { Edge, Node, Style, Vec2 } from '../../types'
-import { compositeLayout, drawAtomic } from '../shapes/draw-shape'
 import {
   DEFAULT_STYLE,
   type ThemeResolver,
@@ -22,11 +21,9 @@ import {
   resolveColor,
   resolveStrokeWidth,
 } from '../shapes/defaults'
-import {
-  ROUGH_DEFAULTS,
-  ROUGH_FILL_MISREGISTER_X,
-  ROUGH_FILL_MISREGISTER_Y,
-} from './constants'
+import { compositeLayout, drawAtomic } from '../shapes/draw-shape'
+import { getOrBuildDrawable, seedFromId } from './cache'
+import { ROUGH_DEFAULTS, ROUGH_FILL_MISREGISTER_X, ROUGH_FILL_MISREGISTER_Y } from './constants'
 import { type RoughCanvasLike, getRoughCanvasCtor } from './loader'
 import {
   diamondPath,
@@ -36,7 +33,6 @@ import {
   tagPath,
   thoughtCloudPath,
 } from './paths'
-import { getOrBuildDrawable, seedFromId } from './cache'
 import { deriveRoughStrokeColor } from './tone-down'
 
 type AtomicRoughPrimitive = 'rect' | 'ellipse' | 'diamond' | 'tag' | 'thought-cloud'

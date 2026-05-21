@@ -118,8 +118,7 @@ const toJsonContext = (
       const out: ContextNode = { id: n.id, type: n.type, x: n.x, y: n.y, w: n.w, h: n.h }
       if (n.angle !== 0) out.angle = n.angle
       if (n.content) out.content = n.content
-      if (n.style && Object.keys(n.style).length > 0)
-        out.style = n.style as Record<string, unknown>
+      if (n.style && Object.keys(n.style).length > 0) out.style = n.style as Record<string, unknown>
       return out
     }),
     edges: edges.map(e => ({
@@ -148,7 +147,7 @@ const toMarkdownContext = (
   const lines: string[] = []
   const camera = store.getCamera()
 
-  lines.push(`# Canvas scene`)
+  lines.push('# Canvas scene')
   lines.push('')
   lines.push(
     `camera at (${formatNumber(camera.x)}, ${formatNumber(camera.y)}) zoom ${formatNumber(camera.z)}`,
@@ -158,14 +157,14 @@ const toMarkdownContext = (
   lines.push('')
 
   if (nodes.length > 0) {
-    lines.push(`## Nodes`)
+    lines.push('## Nodes')
     lines.push('')
     for (const n of nodes) lines.push(`- ${formatNode(n)}`)
     lines.push('')
   }
 
   if (edges.length > 0) {
-    lines.push(`## Edges`)
+    lines.push('## Edges')
     lines.push('')
     for (const e of edges) lines.push(`- ${formatEdge(e)}`)
   }

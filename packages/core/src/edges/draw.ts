@@ -1,3 +1,6 @@
+import { drawRoughEdge } from '../render/rough'
+import { seedFromId } from '../render/rough/cache'
+import { onRoughReady } from '../render/rough/loader'
 import { type ThemeResolver, dashPatternFor } from '../render/shapes/defaults'
 import {
   DEFAULT_TEXT_COLOR,
@@ -17,9 +20,6 @@ import type { Edge, EdgeStyle, Node, Vec2 } from '../types'
  * camera transform.
  */
 import { getPointAndTangentAtArcLength } from './arc-length'
-import { drawRoughEdge } from '../render/rough'
-import { seedFromId } from '../render/rough/cache'
-import { onRoughReady } from '../render/rough/loader'
 import { arrowheadLength, drawArrowhead } from './arrowhead'
 import type { EdgeGeometry } from './cache'
 import { clipSamples, fullVisibleClipResult } from './clip'
@@ -146,13 +146,20 @@ export const drawEdge = (
         ctx.restore()
         if (drawSourceArrow) {
           const tipDir = directionTowardTip(samples, clip.startIndex, clip.startPoint, +1)
-          drawArrowhead(ctx, sourceArrowhead, clip.startPoint, negateVec(tipDir), strokeColor, strokeWidth)
+          drawArrowhead(
+            ctx,
+            sourceArrowhead,
+            clip.startPoint,
+            negateVec(tipDir),
+            strokeColor,
+            strokeWidth,
+          )
         }
         if (drawTargetArrow) {
           const tipDir = directionTowardTip(samples, clip.endIndex, clip.endPoint, -1)
           drawArrowhead(ctx, targetArrowhead, clip.endPoint, tipDir, strokeColor, strokeWidth)
         }
-        if (edge.content && edge.content.trim()) drawEdgeLabel(ctx, edge, geom, scale, theme, opts)
+        if (edge.content?.trim()) drawEdgeLabel(ctx, edge, geom, scale, theme, opts)
         return
       }
       // freehand returned null (degenerate samples) — fall through.
@@ -166,13 +173,20 @@ export const drawEdge = (
       } else {
         if (drawSourceArrow) {
           const tipDir = directionTowardTip(samples, clip.startIndex, clip.startPoint, +1)
-          drawArrowhead(ctx, sourceArrowhead, clip.startPoint, negateVec(tipDir), strokeColor, strokeWidth)
+          drawArrowhead(
+            ctx,
+            sourceArrowhead,
+            clip.startPoint,
+            negateVec(tipDir),
+            strokeColor,
+            strokeWidth,
+          )
         }
         if (drawTargetArrow) {
           const tipDir = directionTowardTip(samples, clip.endIndex, clip.endPoint, -1)
           drawArrowhead(ctx, targetArrowhead, clip.endPoint, tipDir, strokeColor, strokeWidth)
         }
-        if (edge.content && edge.content.trim()) drawEdgeLabel(ctx, edge, geom, scale, theme, opts)
+        if (edge.content?.trim()) drawEdgeLabel(ctx, edge, geom, scale, theme, opts)
         return
       }
     }
@@ -217,7 +231,7 @@ export const drawEdge = (
 
   // ---- label (§6.11) ----
   // Painted last so it sits on top of the body + arrowheads.
-  if (edge.content && edge.content.trim()) {
+  if (edge.content?.trim()) {
     drawEdgeLabel(ctx, edge, geom, scale, theme, opts)
   }
 }

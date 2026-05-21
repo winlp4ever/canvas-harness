@@ -69,8 +69,10 @@ const DARK_TOKENS: Record<string, string> = {
   'edge.label.background': '#1e293b',
 }
 
-const makeResolver = (tokens: Record<string, string>): ThemeResolver =>
-  (token: string) => tokens[token]
+const makeResolver =
+  (tokens: Record<string, string>): ThemeResolver =>
+  (token: string) =>
+    tokens[token]
 
 /** Background preset for the given mode. Exported so App can replace
  *  the user's panel choice on toggle. */

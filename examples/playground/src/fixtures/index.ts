@@ -258,9 +258,7 @@ export const fixture1kLabeledEdges: Fixture = store => {
   const edgeCount = 1000
   let added = 0
   store.batch(() => {
-    let nodeIds: import('@canvas-harness/core').NodeId[] = store
-      .getAllNodes()
-      .map(n => n.id)
+    let nodeIds: import('@canvas-harness/core').NodeId[] = store.getAllNodes().map(n => n.id)
     // Ensure at least ~500 nodes so we have variety.
     if (nodeIds.length < 500) {
       const cols = 25

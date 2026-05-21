@@ -35,7 +35,7 @@ export const getRoughCanvasCtor = (): RoughCanvasCtor | null => {
   if (!loadPromise) {
     loadPromise = import('roughjs/bin/canvas')
       .then(mod => {
-        cachedCtor = (mod.RoughCanvas as unknown) as RoughCanvasCtor
+        cachedCtor = mod.RoughCanvas as unknown as RoughCanvasCtor
         for (const cb of readyCallbacks) cb()
         readyCallbacks.clear()
         return cachedCtor

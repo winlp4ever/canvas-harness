@@ -93,7 +93,16 @@ describe('getContext', () => {
 describe('op-schemas', () => {
   test('every Op variant has a schema', () => {
     expect(Object.keys(opSchemas).sort()).toEqual(
-      ['nodeAdd', 'nodeUpdate', 'nodeRemove', 'edgeAdd', 'edgeUpdate', 'edgeRemove', 'groupUpsert', 'groupRemove'].sort(),
+      [
+        'nodeAdd',
+        'nodeUpdate',
+        'nodeRemove',
+        'edgeAdd',
+        'edgeUpdate',
+        'edgeRemove',
+        'groupUpsert',
+        'groupRemove',
+      ].sort(),
     )
   })
 
@@ -101,9 +110,9 @@ describe('op-schemas', () => {
     const op = { type: 'node.add', node: makeNode() }
     // Lightweight shape check — full JSON-Schema validation is the
     // consumer's job (they'll bring ajv etc.).
-    expect((opSchemas.nodeAdd as { properties: { type: { const: string } } }).properties.type.const).toBe(
-      'node.add',
-    )
+    expect(
+      (opSchemas.nodeAdd as { properties: { type: { const: string } } }).properties.type.const,
+    ).toBe('node.add')
     expect(op.type).toBe('node.add')
   })
 

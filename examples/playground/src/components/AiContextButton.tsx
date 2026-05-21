@@ -16,7 +16,6 @@ export function AiContextButton({ store }: { store: CanvasStore }) {
       setLabel('Copied!')
     } catch {
       setLabel('Copy failed — see console')
-      console.log(md)
     }
     setTimeout(() => setLabel('Copy AI context'), 1500)
   }

@@ -46,9 +46,7 @@ export const createBroadcastSyncAdapter = ({
   const channel = new BroadcastChannel(channelName)
 
   const batchListeners = new Set<(batch: OpBatch) => void>()
-  const presenceListeners = new Set<
-    (clientId: ClientId, state: PresenceState | null) => void
-  >()
+  const presenceListeners = new Set<(clientId: ClientId, state: PresenceState | null) => void>()
   // Latest presence per remote client. We keep a snapshot so when a new
   // peer announces 'hello' we can replay our own presence to them.
   let lastLocalPresence: PresenceState | undefined = initialPresence
@@ -100,7 +98,11 @@ export const createBroadcastSyncAdapter = ({
     },
 
     sendPresence(patch: PresencePatch) {
-      const state: PresenceState = { ...(lastLocalPresence ?? ({} as PresenceState)), ...patch, clientId }
+      const state: PresenceState = {
+        ...(lastLocalPresence ?? ({} as PresenceState)),
+        ...patch,
+        clientId,
+      }
       lastLocalPresence = state
       post({ kind: 'presence', clientId, state })
     },

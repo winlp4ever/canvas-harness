@@ -30,7 +30,7 @@ export type Extension = {
    * function that runs on uninstall (in addition to auto-unsubscribed
    * listeners registered via `api.on`).
    */
-  onInstall(api: ExtensionApi): void | (() => void)
+  onInstall(api: ExtensionApi): undefined | (() => void)
 }
 
 /**

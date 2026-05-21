@@ -65,11 +65,7 @@ export function BackgroundPanel({
       <div style={{ fontWeight: 600, color: '#475569' }}>Background</div>
 
       <Field label="Page color">
-        <Palette
-          colors={PAGE_COLORS}
-          value={value.color}
-          onChange={c => apply({ color: c })}
-        />
+        <Palette colors={PAGE_COLORS} value={value.color} onChange={c => apply({ color: c })} />
       </Field>
 
       <Field label="Pattern">
@@ -116,9 +112,7 @@ export function BackgroundPanel({
               style={{ width: '100%' }}
             />
           </Field>
-          <Field
-            label={`Hide below zoom ${(value.minZoom ?? 0).toFixed(2)}`}
-          >
+          <Field label={`Hide below zoom ${(value.minZoom ?? 0).toFixed(2)}`}>
             <input
               type="range"
               min={0}

@@ -15,10 +15,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { CanvasProvider, useCanvasStore } from './context'
 import { EditorMount } from './internal/editor-mount'
 import { type ArrowToolDefaults, useArrowTool } from './internal/use-arrow-tool'
-import {
-  type InteractionTool,
-  useInteractionGesture,
-} from './internal/use-interaction-gesture'
+import { type InteractionTool, useInteractionGesture } from './internal/use-interaction-gesture'
 import { useOverlayHost } from './internal/use-overlay-host'
 import { usePanZoom } from './internal/use-pan-zoom'
 import { useResizeObserver } from './internal/use-resize-observer'
@@ -196,7 +193,11 @@ function CanvasSurface({
 
   useEffect(() => store.subscribe('camera', c => setCamera({ ...c })), [store])
 
-  // Renderer lifecycle. Creates on first mount + size>0; disposes on unmount.
+  // Renderer lifecycle. Creates on first mount + size>0; disposes on
+  // unmount. `background` is intentionally omitted from the dep array
+  // — its updates flow through the separate setBackground effect
+  // below so the renderer isn't torn down on every background change.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
   useEffect(() => {
     if (!staticRef.current || !interactiveRef.current || w === 0 || h === 0) return
     if (rendererRef.current) {
@@ -237,10 +238,7 @@ function CanvasSurface({
   useEffect(() => {
     const el = wrapRef.current
     if (!el) return
-    const dispatch = (
-      e: MouseEvent,
-      cb: ((ev: CanvasPointerEvent) => void) | undefined,
-    ): void => {
+    const dispatch = (e: MouseEvent, cb: ((ev: CanvasPointerEvent) => void) | undefined): void => {
       if (!cb) return
       const rect = el.getBoundingClientRect()
       const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top }

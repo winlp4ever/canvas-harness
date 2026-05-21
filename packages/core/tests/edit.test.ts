@@ -109,9 +109,7 @@ describe('store edit lifecycle', () => {
   test('addNode applies autofit on text nodes', () => {
     const store = createCanvasStore()
     const id = asNodeId(store.generateId())
-    store.addNode(
-      makeNode({ id, content: 'line one\nline two\nline three\nline four', h: 30 }),
-    )
+    store.addNode(makeNode({ id, content: 'line one\nline two\nline three\nline four', h: 30 }))
     const node = store.getNode(id)!
     expect(node.h).toBeGreaterThan(30)
   })

@@ -1,11 +1,4 @@
-import {
-  type CanvasStore,
-  type Edge,
-  type EdgeStyle,
-  type Node,
-  type PathStyle,
-  type Style,
-} from '@canvas-harness/core'
+import type { CanvasStore, Edge, EdgeStyle, Node, PathStyle, Style } from '@canvas-harness/core'
 import { useEffect, useRef, useState } from 'react'
 
 /**
@@ -102,7 +95,10 @@ export function useStyleMemory(store: CanvasStore): {
           const edge = store.getEdge(op.id)
           if (!edge) continue
           if (op.patch.style !== undefined) {
-            memoryRef.current.edge.style = { ...memoryRef.current.edge.style, ...(edge.style ?? {}) }
+            memoryRef.current.edge.style = {
+              ...memoryRef.current.edge.style,
+              ...(edge.style ?? {}),
+            }
           }
           if (op.patch.pathStyle !== undefined) memoryRef.current.edge.pathStyle = edge.pathStyle
           dirty = true

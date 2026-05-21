@@ -24,7 +24,20 @@ const mount = (store: CanvasStore, content: React.ReactNode) => {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
-  return { container, root, render: () => root.render(<StrictMode><CanvasProvider store={store}>{content}</CanvasProvider></StrictMode>), cleanup: () => { root.unmount(); container.remove() } }
+  return {
+    container,
+    root,
+    render: () =>
+      root.render(
+        <StrictMode>
+          <CanvasProvider store={store}>{content}</CanvasProvider>
+        </StrictMode>,
+      ),
+    cleanup: () => {
+      root.unmount()
+      container.remove()
+    },
+  }
 }
 
 describe('hooks', () => {

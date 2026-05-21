@@ -20,8 +20,15 @@ const NodeBase = {
   type: 'object',
   required: ['id', 'type', 'x', 'y', 'w', 'h', 'angle', 'z', 'groups'],
   properties: {
-    id: { type: 'string', description: 'Stable id (typically generated via `store.generateId()`).' },
-    type: { type: 'string', description: 'Node type — rect / ellipse / diamond / tag / capsule / thought-cloud / layered-rect / layered-ellipse / layered-diamond / text / a registered custom type.' },
+    id: {
+      type: 'string',
+      description: 'Stable id (typically generated via `store.generateId()`).',
+    },
+    type: {
+      type: 'string',
+      description:
+        'Node type — rect / ellipse / diamond / tag / capsule / thought-cloud / layered-rect / layered-ellipse / layered-diamond / text / a registered custom type.',
+    },
     x: { type: 'number' },
     y: { type: 'number' },
     w: { type: 'number', minimum: 0 },

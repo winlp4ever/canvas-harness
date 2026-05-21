@@ -1,18 +1,4 @@
 import { computeEdgeGeometry, drawEdge } from '../edges'
-import type { NodeTypeDef, RenderEnv } from '../node-types'
-import { inflateRect, nodeAABB } from '../spatial'
-import type { CanvasStore, InteractionState } from '../store'
-import {
-  DEFAULT_HIGHLIGHT_COLOR,
-  DEFAULT_TEXT_COLOR,
-  FONT_SIZE_MAP,
-  getOrRenderTextBitmap,
-  subscribeFontEpoch,
-} from '../text'
-import type { CameraState, CanvasBackground, Edge, EdgeId, Node, NodeId, WorldRect } from '../types'
-import { paintBackground } from './background'
-import { clearSurface, setupSurface, sizeSurface } from './canvas-setup'
-import { type FrameLoop, type FrameStats, createFrameLoop } from './frame-loop'
 /**
  * Renderer — see ARCHITECTURE.md §4.
  *
@@ -27,6 +13,20 @@ import { type FrameLoop, type FrameStats, createFrameLoop } from './frame-loop'
  *               Redrawn every rAF tick while interaction.mode !== 'idle'.
  */
 import { getPointAndTangentAtArcLength } from '../edges/arc-length'
+import type { NodeTypeDef, RenderEnv } from '../node-types'
+import { inflateRect, nodeAABB } from '../spatial'
+import type { CanvasStore, InteractionState } from '../store'
+import {
+  DEFAULT_HIGHLIGHT_COLOR,
+  DEFAULT_TEXT_COLOR,
+  FONT_SIZE_MAP,
+  getOrRenderTextBitmap,
+  subscribeFontEpoch,
+} from '../text'
+import type { CameraState, CanvasBackground, Edge, EdgeId, Node, NodeId, WorldRect } from '../types'
+import { paintBackground } from './background'
+import { clearSurface, setupSurface, sizeSurface } from './canvas-setup'
+import { type FrameLoop, type FrameStats, createFrameLoop } from './frame-loop'
 import {
   drawEdgeEndpointHandles,
   drawEdgeMidpointHandle,
@@ -195,8 +195,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     //   - visible node count is below the cap.
     // Per-node `style.roughness > 0` is the final per-shape gate inside
     // `drawRoughShape`. When the gate is false, plain strokes only.
-    const cameraIsMoving =
-      interaction.mode === 'panning' || interaction.mode === 'zooming'
+    const cameraIsMoving = interaction.mode === 'panning' || interaction.mode === 'zooming'
     const movingNodeCount = excludedNodes?.size ?? 0
     const roughEnabled =
       !cameraIsMoving &&

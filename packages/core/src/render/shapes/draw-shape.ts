@@ -45,13 +45,7 @@ type CompositePrimitive = 'capsule' | 'layered-rect' | 'layered-ellipse' | 'laye
 
 export type PrimitiveType = AtomicPrimitive | CompositePrimitive
 
-const ATOMIC: ReadonlySet<string> = new Set([
-  'rect',
-  'ellipse',
-  'diamond',
-  'tag',
-  'thought-cloud',
-])
+const ATOMIC: ReadonlySet<string> = new Set(['rect', 'ellipse', 'diamond', 'tag', 'thought-cloud'])
 const COMPOSITE: ReadonlySet<string> = new Set([
   'capsule',
   'layered-rect',
@@ -276,4 +270,3 @@ const darkenedStyle = (style: Style | undefined): Style => {
   darkenedStyleCache.set(style, next)
   return next
 }
-

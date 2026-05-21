@@ -30,7 +30,10 @@ const wrapSelection = (
     value.slice(selStart - wrapLen, selStart) === wrapper &&
     value.slice(selEnd, selEnd + wrapLen) === wrapper
   ) {
-    const next = value.slice(0, selStart - wrapLen) + value.slice(selStart, selEnd) + value.slice(selEnd + wrapLen)
+    const next =
+      value.slice(0, selStart - wrapLen) +
+      value.slice(selStart, selEnd) +
+      value.slice(selEnd + wrapLen)
     return {
       value: next,
       selStart: selStart - wrapLen,
@@ -119,9 +122,7 @@ export const handleEnter = (value: string, selStart: number, selEnd: number): Tr
     const next = value.slice(0, lineStart) + value.slice(selStart)
     return { value: next, selStart: lineStart, selEnd: lineStart }
   }
-  const nextBullet = /^\d+\.$/.test(bullet)
-    ? `${Number.parseInt(bullet, 10) + 1}.`
-    : bullet
+  const nextBullet = /^\d+\.$/.test(bullet) ? `${Number.parseInt(bullet, 10) + 1}.` : bullet
   const insertion = `\n${indent}${nextBullet} `
   const next = value.slice(0, selStart) + insertion + value.slice(selStart)
   const newSel = selStart + insertion.length

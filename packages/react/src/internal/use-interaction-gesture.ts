@@ -128,7 +128,10 @@ export const useInteractionGesture = (
       })
     }
 
-    const pointerAngleFromCenter = (node: { x: number; y: number; w: number; h: number }, world: Vec2): number => {
+    const pointerAngleFromCenter = (
+      node: { x: number; y: number; w: number; h: number },
+      world: Vec2,
+    ): number => {
       const cx = node.x + node.w / 2
       const cy = node.y + node.h / 2
       return Math.atan2(world.y - cy, world.x - cx)
@@ -373,7 +376,10 @@ export const useInteractionGesture = (
 
       // Movement past LONG_PRESS_MAX_MOVE_PX cancels the long-press
       // promotion (user is dragging, not holding still).
-      if (longPressTimer !== null && (Math.abs(dx) > LONG_PRESS_MAX_MOVE_PX || Math.abs(dy) > LONG_PRESS_MAX_MOVE_PX)) {
+      if (
+        longPressTimer !== null &&
+        (Math.abs(dx) > LONG_PRESS_MAX_MOVE_PX || Math.abs(dy) > LONG_PRESS_MAX_MOVE_PX)
+      ) {
         clearLongPress()
       }
 

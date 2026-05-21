@@ -55,7 +55,11 @@ const FILL_D2L = invert(FILL_L2D)
 const STROKE_D2L = invert(STROKE_L2D)
 const TEXT_D2L = invert(TEXT_L2D)
 
-export const swapSceneColors = (store: CanvasStore, fromMode: ThemeMode, toMode: ThemeMode): void => {
+export const swapSceneColors = (
+  store: CanvasStore,
+  fromMode: ThemeMode,
+  toMode: ThemeMode,
+): void => {
   if (fromMode === toMode) return
   const fillMap = toMode === 'dark' ? FILL_L2D : FILL_D2L
   const strokeMap = toMode === 'dark' ? STROKE_L2D : STROKE_D2L

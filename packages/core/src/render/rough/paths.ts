@@ -165,13 +165,7 @@ export const thoughtCloudPath = (
  * Ported from dim0. `radius` controls both the body corner radius and
  * the join smoothness.
  */
-export const tagPath = (
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  radius = 8,
-): string => {
+export const tagPath = (x: number, y: number, w: number, h: number, radius = 8): string => {
   const notch = Math.min(h * 0.5, w * 0.3)
   const tipRadius = 6
   const tipX = x

@@ -35,12 +35,7 @@ export function HistoryControls({ store }: { store: CanvasStore }) {
       }}
     >
       <Btn label="Undo" disabled={!canUndo} onClick={() => store.undo()} title="Cmd/Ctrl+Z" />
-      <Btn
-        label="Redo"
-        disabled={!canRedo}
-        onClick={() => store.redo()}
-        title="Cmd/Ctrl+Shift+Z"
-      />
+      <Btn label="Redo" disabled={!canRedo} onClick={() => store.redo()} title="Cmd/Ctrl+Shift+Z" />
     </div>
   )
 }

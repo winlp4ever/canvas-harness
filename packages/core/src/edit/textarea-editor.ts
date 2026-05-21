@@ -1,8 +1,5 @@
-import {
-  FONT_FAMILY_MAP,
-  FONT_SIZE_MAP,
-  LINE_HEIGHT_MAP,
-} from '../text'
+import { FONT_FAMILY_MAP, FONT_SIZE_MAP, LINE_HEIGHT_MAP } from '../text'
+import type { EditorAdapter, EditorAdapterFactory } from './adapter'
 import {
   handleEnter,
   insertLink,
@@ -12,7 +9,6 @@ import {
   toggleStrike,
   toggleUnderline,
 } from './markdown-shortcuts'
-import type { EditorAdapter, EditorAdapterFactory } from './adapter'
 
 /**
  * Default in-place editor — a plain `<textarea>` positioned over the

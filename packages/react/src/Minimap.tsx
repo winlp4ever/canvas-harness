@@ -162,7 +162,10 @@ export function Minimap({
     }
   }
 
-  // Subscribe to relevant store events.
+  // Subscribe to relevant store events. `schedule` is stable for the
+  // lifetime of this component (closure captures a ref) — adding it
+  // would needlessly re-subscribe on every render.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
   useEffect(() => {
     const onChange = (): void => {
       // Committed mutation — cache needs to regen on next tick.
@@ -264,7 +267,9 @@ export function Minimap({
     <div ref={containerRef} style={containerStyle}>
       <canvas
         ref={canvasRef}
-        width={Math.ceil(width * (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1))}
+        width={Math.ceil(
+          width * (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1),
+        )}
         height={Math.ceil(
           height * (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1),
         )}

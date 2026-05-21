@@ -192,15 +192,13 @@ export function StylePanel({ store }: { store: CanvasStore }) {
       </Field>
 
       {nodesOnly && (
-        <>
-          <Field label="Fill">
-            <Palette
-              colors={FILL_PALETTE}
-              value={(sampleStyle as Style).backgroundColor}
-              onChange={color => applyNodeStyle({ backgroundColor: color })}
-            />
-          </Field>
-        </>
+        <Field label="Fill">
+          <Palette
+            colors={FILL_PALETTE}
+            value={(sampleStyle as Style).backgroundColor}
+            onChange={color => applyNodeStyle({ backgroundColor: color })}
+          />
+        </Field>
       )}
 
       {/*
@@ -226,15 +224,13 @@ export function StylePanel({ store }: { store: CanvasStore }) {
       </Field>
 
       {nodesOnly && (
-        <>
-          <Field label="Align">
-            <SegmentedControl
-              options={TEXT_ALIGN_OPTIONS}
-              value={(sampleStyle as Style).textAlign ?? 'center'}
-              onChange={ta => applyNodeStyle({ textAlign: ta })}
-            />
-          </Field>
-        </>
+        <Field label="Align">
+          <SegmentedControl
+            options={TEXT_ALIGN_OPTIONS}
+            value={(sampleStyle as Style).textAlign ?? 'center'}
+            onChange={ta => applyNodeStyle({ textAlign: ta })}
+          />
+        </Field>
       )}
 
       <Field label="Text style">

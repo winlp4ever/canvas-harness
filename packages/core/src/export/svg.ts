@@ -1,7 +1,7 @@
 import { computeEdgeGeometry } from '../edges'
 import { nodeAABB } from '../spatial'
-import { FONT_FAMILY_MAP, FONT_SIZE_MAP } from '../text'
 import type { CanvasStore } from '../store'
+import { FONT_FAMILY_MAP, FONT_SIZE_MAP } from '../text'
 import type { Edge, Node, NodeId } from '../types'
 
 /**

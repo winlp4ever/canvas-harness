@@ -4,13 +4,13 @@ import { drawShape, isDrawablePrimitive } from '../render/shapes'
 import type { ThemeResolver } from '../render/shapes'
 import { drawWithNodeTransform } from '../render/transform'
 import { nodeAABB } from '../spatial'
+import type { CanvasStore } from '../store'
 import {
   DEFAULT_HIGHLIGHT_COLOR,
   DEFAULT_TEXT_COLOR,
   FONT_SIZE_MAP,
   getOrRenderTextBitmap,
 } from '../text'
-import type { CanvasStore } from '../store'
 import type { Edge, Node, NodeId } from '../types'
 
 /**

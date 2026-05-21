@@ -1,9 +1,9 @@
 import { type CanvasBackground, asNodeId, hitTestAny } from '@canvas-harness/core'
 import {
   type ArrowToolDefaults,
-  Canvas as LibCanvas,
   type CanvasCreateDragEvent,
   type CanvasPointerEvent,
+  Canvas as LibCanvas,
   type ThemeResolver,
   useCanvasStore,
 } from '@canvas-harness/react'

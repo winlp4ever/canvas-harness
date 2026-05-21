@@ -21,11 +21,7 @@ const cache = new Map<string, string>()
  * tonally-shifted variant of `fill` suitable for drawing a soft border.
  * Otherwise returns `stroke` unchanged. Memoized.
  */
-export const deriveRoughStrokeColor = (
-  stroke: string,
-  fill: string,
-  isDark: boolean,
-): string => {
+export const deriveRoughStrokeColor = (stroke: string, fill: string, isDark: boolean): string => {
   if (!isFullyTransparent(stroke)) return stroke
   if (isFullyTransparent(fill)) return stroke
   const key = `${fill}|${isDark ? 'd' : 'l'}`

@@ -15,8 +15,6 @@ import { type Atom, atom, transact } from 'signia'
 import { DEFAULT_CAMERA } from '../camera'
 import { type EdgeGeometry, EdgeGeometryCache } from '../edges/cache'
 import { shouldAutoFit, withAutoFitHeight } from '../edit/auto-fit'
-import { detectConflicts } from './conflict'
-import { inverseBatch } from './inverse-op'
 import { type IdGenerator, makeIdGenerator, randomClientId } from '../ids'
 import { UniformGrid, nodeAABB } from '../spatial'
 import { SCHEMA_VERSION, asBatchId, isAttached } from '../types'
@@ -33,7 +31,9 @@ import type {
   OpBatch,
   Scene,
 } from '../types'
+import { detectConflicts } from './conflict'
 import { type InteractionState, idleInteractionState } from './interaction'
+import { inverseBatch } from './inverse-op'
 import { type PresencePatch, type PresenceState, emptyPresenceState } from './presence'
 import type {
   CanvasStore,
@@ -439,7 +439,12 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
           resolvedPatch = { ...patch, h: fitted.h }
         }
       }
-      enqueueOp({ type: 'node.update', id, patch: resolvedPatch, prev: slicePrev(current, resolvedPatch) })
+      enqueueOp({
+        type: 'node.update',
+        id,
+        patch: resolvedPatch,
+        prev: slicePrev(current, resolvedPatch),
+      })
     },
     removeNode(id) {
       const node = nodeAtoms.get(id)?.value

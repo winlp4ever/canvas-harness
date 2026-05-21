@@ -55,8 +55,6 @@ export const contentBounds = (node: Node): ContentBounds => {
       const notch = Math.min(h * 0.5, w * 0.3)
       return { x: notch, y: 0, w: Math.max(0, w - notch), h }
     }
-    case 'rect':
-    case 'layered-rect':
     default:
       return { x: 0, y: 0, w, h }
   }
