@@ -28,6 +28,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      # Build before typecheck — typecheck resolves cross-package
+      # type imports via each package's `types` field which points to
+      # `dist/index.d.ts`. Without dist, sync-broadcast can't see
+      # core's types and TS falls back to `any`.
+      - run: pnpm build
       - run: pnpm typecheck
 
   test-unit:
@@ -54,6 +59,9 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Browser tests import from @canvas-harness/core via the
+      # workspace dep; need dist to exist.
+      - run: pnpm build
       # Chromium download is ~10-15s on a cold runner; subsequent runs
       # hit the Playwright apt-cache layer.
       - run: pnpm exec playwright install --with-deps chromium

@@ -63,12 +63,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # Safety net: if main is broken, we don't want to ship it.
+      # Build first so workspace deps' `dist/` exist when typecheck
+      # tries to resolve cross-package type imports (e.g. sync-broadcast
+      # importing from @canvas-harness/core).
       - name: Verify the build is green
         run: |
           pnpm lint
+          pnpm build
           pnpm typecheck
           pnpm test
-          pnpm build
 
       - name: Browser tests
         run: |
