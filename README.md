@@ -138,7 +138,7 @@ export function App() {
 
 ## Custom node types
 
-Built-in shapes are `rect`, `ellipse`, `diamond`, `tag`, `capsule`, `thought-cloud`, `layered-rect`, `layered-ellipse`, `layered-diamond`, `text`. For anything else — a chart card, a Kanban column, a video tile — register a `NodeTypeDef`:
+Built-in shapes are `rect`, `ellipse`, `diamond`, `tag`, `capsule`, `thought-cloud`, `layered-rect`, `layered-ellipse`, `layered-diamond`, `soft-diamond`, `text`. For anything else — a chart card, a Kanban column, a video tile — register a `NodeTypeDef`:
 
 ```tsx
 import { defineNode, createCanvasStore } from '@canvas-harness/core'
