@@ -14,6 +14,7 @@ const TOOLS: ToolDef[] = [
   { id: 'layered-rect', label: 'Lyr Rect', enabled: true },
   { id: 'layered-ellipse', label: 'Lyr Ell', enabled: true },
   { id: 'layered-diamond', label: 'Lyr Dmnd', enabled: true },
+  { id: 'soft-diamond', label: 'Sft Dmnd', enabled: true },
   { id: 'arrow', label: 'Arrow', enabled: true },
   { id: 'text', label: 'Text', enabled: true },
   { id: 'frame', label: 'Frame', enabled: true },

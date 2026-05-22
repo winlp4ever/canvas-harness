@@ -19,6 +19,7 @@ type Primitive =
   | 'layered-rect'
   | 'layered-ellipse'
   | 'layered-diamond'
+  | 'soft-diamond'
 
 const palette = ['#dbeafe', '#fef08a', '#fde68a', '#fecaca', '#bbf7d0', '#e9d5ff', '#fed7aa']
 
@@ -29,7 +30,12 @@ const ATOMIC_TYPES: Primitive[] = ['rect', 'ellipse', 'diamond', 'capsule']
 
 // "Layered" pool: shapes that paint two sub-drawables per node
 // (darker back + front, offset). Composite-paint heavy.
-const LAYERED_TYPES: Primitive[] = ['layered-rect', 'layered-ellipse', 'layered-diamond']
+const LAYERED_TYPES: Primitive[] = [
+  'layered-rect',
+  'layered-ellipse',
+  'layered-diamond',
+  'soft-diamond',
+]
 
 // "SVG-path" pool: shapes whose silhouette is a custom union path
 // with curves and arcs. Their rough drawables are slower to build

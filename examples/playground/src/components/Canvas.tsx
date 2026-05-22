@@ -21,6 +21,7 @@ type ShapeTool =
   | 'layered-rect'
   | 'layered-ellipse'
   | 'layered-diamond'
+  | 'soft-diamond'
   | 'frame'
 
 export type Tool = 'select' | 'pan' | ShapeTool | 'arrow' | 'text'
@@ -35,6 +36,7 @@ const SHAPE_TOOLS = new Set<Tool>([
   'layered-rect',
   'layered-ellipse',
   'layered-diamond',
+  'soft-diamond',
   'frame',
 ])
 // Tool name === node type for all shape tools today.
@@ -48,6 +50,7 @@ const TOOL_TO_TYPE: Record<ShapeTool, ShapeTool> = {
   'layered-rect': 'layered-rect',
   'layered-ellipse': 'layered-ellipse',
   'layered-diamond': 'layered-diamond',
+  'soft-diamond': 'soft-diamond',
   frame: 'frame',
 }
 

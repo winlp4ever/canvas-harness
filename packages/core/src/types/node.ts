@@ -15,6 +15,7 @@ export type BuiltInNodeType =
   | 'layered-rect'
   | 'layered-ellipse'
   | 'layered-diamond'
+  | 'soft-diamond'
   | 'text'
   | 'image'
   | 'icon'

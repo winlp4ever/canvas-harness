@@ -41,7 +41,12 @@ export type AtomicPrimitive = 'rect' | 'ellipse' | 'diamond' | 'tag' | 'thought-
  * circle and the rect body reads as two stacked hand-drawn shapes
  * (medicine-pill aesthetic), which we want to keep.
  */
-type CompositePrimitive = 'capsule' | 'layered-rect' | 'layered-ellipse' | 'layered-diamond'
+type CompositePrimitive =
+  | 'capsule'
+  | 'layered-rect'
+  | 'layered-ellipse'
+  | 'layered-diamond'
+  | 'soft-diamond'
 
 export type PrimitiveType = AtomicPrimitive | CompositePrimitive
 
@@ -51,6 +56,7 @@ const COMPOSITE: ReadonlySet<string> = new Set([
   'layered-rect',
   'layered-ellipse',
   'layered-diamond',
+  'soft-diamond',
 ])
 
 /** Whether `type` is a composite primitive (paints multiple atomic sub-shapes). */
@@ -238,6 +244,35 @@ export const compositeLayout = (node: Node): SubShape[] => {
         style: darkenedStyle(node.style),
       }
       const front: SubShape = { atomic, x: 0, y: 0, w, h }
+      return [back, front]
+    }
+    case 'soft-diamond': {
+      // Concentric scale-layered diamond — matches dim0's SoftDiamond.
+      // Back is 108% of the bbox centered (slight overshoot reads as a
+      // tinted outer outline); front is 96% centered (slight inset).
+      // No offset like `layered-diamond` — both centered on the same
+      // point. Reads as a soft-outlined / double-stroked diamond.
+      const backScale = 1.08
+      const frontScale = 0.96
+      const bw = w * backScale
+      const bh = h * backScale
+      const fw = w * frontScale
+      const fh = h * frontScale
+      const back: SubShape = {
+        atomic: 'diamond',
+        x: (w - bw) / 2,
+        y: (h - bh) / 2,
+        w: bw,
+        h: bh,
+        style: darkenedStyle(node.style),
+      }
+      const front: SubShape = {
+        atomic: 'diamond',
+        x: (w - fw) / 2,
+        y: (h - fh) / 2,
+        w: fw,
+        h: fh,
+      }
       return [back, front]
     }
   }

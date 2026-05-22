@@ -27,8 +27,12 @@ export const contentBounds = (node: Node): ContentBounds => {
       return { x: rectX, y: 0, w: Math.max(0, w - rectX), h }
     }
     case 'diamond':
-    case 'layered-diamond': {
+    case 'layered-diamond':
+    case 'soft-diamond': {
       // Inscribed rectangle of a square rotated 45° = bbox × (1/√2).
+      // For `soft-diamond` the inner (front) diamond is 96% of bbox so
+      // its inscribed rect is slightly tighter, but the bbox-relative
+      // formula reads well enough without a separate case.
       const cw = w * SQRT2_INV
       const ch = h * SQRT2_INV
       return { x: (w - cw) / 2, y: (h - ch) / 2, w: cw, h: ch }
