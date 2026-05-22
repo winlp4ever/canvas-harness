@@ -40,6 +40,7 @@ const LONG_PRESS_MAX_MOVE_PX = 10
 
 export type InteractionTool =
   | 'select'
+  | 'pan'
   | 'rect'
   | 'ellipse'
   | 'diamond'

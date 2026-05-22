@@ -119,6 +119,21 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [store])
 
+  // Single-key tool shortcuts: V → select, H → hand (pan). Standard
+  // across Figma / Sketch / Miro / tldraw. Skipped while a text field
+  // is focused so typing in the inline editor doesn't switch tools.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === 'v' || e.key === 'V') setTool('select')
+      else if (e.key === 'h' || e.key === 'H') setTool('pan')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   return (
     <CanvasProvider store={store}>
       <div style={{ position: 'fixed', inset: 0 }}>

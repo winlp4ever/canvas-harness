@@ -13,6 +13,7 @@ import {
 } from '@canvas-harness/core'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { CanvasProvider, useCanvasStore } from './context'
+import { useInteractionMode } from './hooks/use-interaction'
 import { EditorMount } from './internal/editor-mount'
 import { type ArrowToolDefaults, useArrowTool } from './internal/use-arrow-tool'
 import { type InteractionTool, useInteractionGesture } from './internal/use-interaction-gesture'
@@ -200,8 +201,9 @@ function CanvasSurface({
   toolRef.current = tool
 
   const { w, h } = useResizeObserver(wrapRef)
-  usePanZoom(wrapRef, store)
+  usePanZoom(wrapRef, store, tool)
   useInteractionGesture(wrapRef, store, tool as InteractionTool)
+  const interactionMode = useInteractionMode()
   useArrowTool(wrapRef, store, tool === 'arrow', arrowDefaults)
 
   const { mountedIds, setMountedIds } = useOverlayHost()
@@ -478,7 +480,14 @@ function CanvasSurface({
         inset: 0,
         background: '#f8fafc',
         overflow: 'hidden',
-        cursor: tool === 'select' ? 'default' : 'crosshair',
+        cursor:
+          tool === 'pan'
+            ? interactionMode === 'panning'
+              ? 'grabbing'
+              : 'grab'
+            : tool === 'select'
+              ? 'default'
+              : 'crosshair',
         touchAction: 'none',
       }}
     >

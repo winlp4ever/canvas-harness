@@ -8,11 +8,16 @@ import {
   shouldRejectTouch,
   zoomAtScreenPoint,
 } from '@canvas-harness/core'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 /**
  * Wires up wheel zoom, middle-button / spacebar pan, and (phase 11)
  * touch pinch-zoom + two-finger pan + pointer-type write-through.
+ *
+ * When the active tool is `'pan'` (the Hand tool), any left-button
+ * drag pans the camera — equivalent to space-hold + left-drag. The
+ * space-hold modifier still works regardless of active tool, so a
+ * user can quickly pan mid-edit without switching tools.
  *
  * Pointermove fires faster than the display refreshes (often 120-240Hz).
  * Calling `store.setCamera` on every event saturates the main thread at
@@ -28,7 +33,19 @@ import { useEffect } from 'react'
  *   - Palm rejection: touch events ignored while pen is active or for
  *     PALM_REJECTION_GRACE_MS after pen-up.
  */
-export const usePanZoom = (ref: React.RefObject<HTMLElement | null>, store: CanvasStore): void => {
+export const usePanZoom = (
+  ref: React.RefObject<HTMLElement | null>,
+  store: CanvasStore,
+  /** Active canvas tool. When `'pan'`, left-button drag pans the camera. */
+  tool?: string,
+): void => {
+  // `tool` is read inside pointer handlers; ref-bind so changes don't
+  // tear down + re-mount the whole gesture effect (which would lose
+  // in-flight pan state on tool switch — not a real-world risk, but
+  // the ref-bind also keeps listeners stable).
+  const toolRef = useRef<string | undefined>(tool)
+  toolRef.current = tool
+
   useEffect(() => {
     const el = ref.current
     if (!el) return
@@ -216,8 +233,10 @@ export const usePanZoom = (ref: React.RefObject<HTMLElement | null>, store: Canv
         return
       }
 
-      // middle button = pan; or left button while space held
-      if (e.button === 1 || (e.button === 0 && panActivatedBySpace)) {
+      // middle button = pan; or left button while space held; or
+      // left button while Hand (`pan`) tool is active.
+      const handToolActive = toolRef.current === 'pan'
+      if (e.button === 1 || (e.button === 0 && (panActivatedBySpace || handToolActive))) {
         panning = true
         lastX = e.clientX
         lastY = e.clientY

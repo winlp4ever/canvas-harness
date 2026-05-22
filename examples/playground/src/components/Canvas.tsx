@@ -22,7 +22,7 @@ type ShapeTool =
   | 'layered-ellipse'
   | 'layered-diamond'
 
-export type Tool = 'select' | ShapeTool | 'arrow' | 'text'
+export type Tool = 'select' | 'pan' | ShapeTool | 'arrow' | 'text'
 
 const SHAPE_TOOLS = new Set<Tool>([
   'rect',

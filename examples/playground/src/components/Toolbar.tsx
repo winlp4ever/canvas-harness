@@ -4,6 +4,7 @@ type ToolDef = { id: Tool; label: string; enabled: boolean }
 
 const TOOLS: ToolDef[] = [
   { id: 'select', label: 'Select', enabled: true },
+  { id: 'pan', label: 'Pan', enabled: true },
   { id: 'rect', label: 'Rect', enabled: true },
   { id: 'ellipse', label: 'Ellipse', enabled: true },
   { id: 'diamond', label: 'Diamond', enabled: true },
