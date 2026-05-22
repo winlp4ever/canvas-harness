@@ -26,6 +26,14 @@ export type Scene = {
   groups: Record<GroupId, Group>
   camera: CameraState
   selection: (NodeId | EdgeId)[]
+  /**
+   * Presentation order for frame-typed nodes. Auto-maintained by the
+   * store on `node.add` / `node.remove`; explicitly mutated via
+   * `setFrameOrder` (which emits a `frame.reorder` op). Optional for
+   * backward compat — missing on older saved scenes is treated as [].
+   * See ARCHITECTURE.md §3.7 frames.
+   */
+  frameOrder?: NodeId[]
 }
 
 /**
@@ -39,4 +47,5 @@ export type SerializedScene = {
   groups: Group[]
   camera: CameraState
   selection: (NodeId | EdgeId)[]
+  frameOrder?: NodeId[]
 }

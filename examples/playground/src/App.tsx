@@ -15,6 +15,7 @@ import { ExtensionsMenu } from './components/ExtensionsMenu'
 import { HistoryControls } from './components/HistoryControls'
 import { PerfOverlay } from './components/PerfOverlay'
 import { PresenceOverlay } from './components/PresenceOverlay'
+import { PresentMode } from './components/PresentMode'
 import { SaveStatus } from './components/SaveStatus'
 import { StatusBar } from './components/StatusBar'
 import { StressMenu } from './components/StressMenu'
@@ -129,6 +130,7 @@ export function App() {
       if (e.metaKey || e.ctrlKey || e.altKey) return
       if (e.key === 'v' || e.key === 'V') setTool('select')
       else if (e.key === 'h' || e.key === 'H') setTool('pan')
+      else if (e.key === 'f' || e.key === 'F') setTool('frame')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -155,6 +157,7 @@ export function App() {
         <PresenceOverlay store={store} />
         <ExtensionsMenu store={store} />
         <SaveStatus status={saveStatus} />
+        <PresentMode store={store} renderer={renderer} />
         <StatusBar />
         <Minimap
           width={200}

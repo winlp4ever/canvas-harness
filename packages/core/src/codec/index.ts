@@ -34,6 +34,7 @@ export const toSerialized = (scene: Scene): SerializedScene => ({
   groups: Object.values(scene.groups),
   camera: scene.camera,
   selection: scene.selection,
+  ...(scene.frameOrder && scene.frameOrder.length > 0 ? { frameOrder: scene.frameOrder } : {}),
 })
 
 /**
@@ -64,6 +65,7 @@ export const fromSerialized = (raw: SerializedScene | unknown): Scene => {
     groups: Object.fromEntries(ser.groups.map(g => [asGroupId(g.id), g])) as Scene['groups'],
     camera: ser.camera,
     selection: ser.selection,
+    ...(ser.frameOrder ? { frameOrder: ser.frameOrder } : {}),
   }
 }
 

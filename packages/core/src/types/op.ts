@@ -18,6 +18,7 @@ export type Op =
   | { type: 'edge.remove'; edge: Edge }
   | { type: 'group.upsert'; group: Group; prev?: Group }
   | { type: 'group.remove'; group: Group }
+  | { type: 'frame.reorder'; ids: NodeId[]; prev: NodeId[] }
 
 /**
  * A batch is the atomic unit of mutation (also the unit of undo/redo and sync).

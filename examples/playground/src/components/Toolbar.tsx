@@ -16,6 +16,7 @@ const TOOLS: ToolDef[] = [
   { id: 'layered-diamond', label: 'Lyr Dmnd', enabled: true },
   { id: 'arrow', label: 'Arrow', enabled: true },
   { id: 'text', label: 'Text', enabled: true },
+  { id: 'frame', label: 'Frame', enabled: true },
 ]
 
 export function Toolbar({

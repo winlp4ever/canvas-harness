@@ -33,6 +33,8 @@ export const inverseOp = (op: Op): Op => {
       return { type: 'group.remove', group: op.group }
     case 'group.remove':
       return { type: 'group.upsert', group: op.group }
+    case 'frame.reorder':
+      return { type: 'frame.reorder', ids: op.prev, prev: op.ids }
   }
 }
 

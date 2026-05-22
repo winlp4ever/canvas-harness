@@ -52,6 +52,10 @@ export const sceneBounds = (store: CanvasStore): WorldRect | null => {
   let maxY = Number.NEGATIVE_INFINITY
   for (const n of nodes) {
     if (n.hidden) continue
+    // Frames are excluded from minimap content paint; exclude them
+    // from the bounds calculation too, otherwise an off-canvas frame
+    // would scale the minimap to mostly-empty space.
+    if (n.type === 'frame') continue
     const r = nodeAABB(n)
     if (r.x < minX) minX = r.x
     if (r.y < minY) minY = r.y
@@ -100,6 +104,9 @@ export const renderMinimapContent = (
   const defaultColor = opts.defaultNodeColor ?? '#94a3b8'
   for (const node of store.getAllNodes()) {
     if (node.hidden) continue
+    // Frames are slide chrome, not content — skip them so the minimap
+    // shows content density rather than slide boundaries.
+    if (node.type === 'frame') continue
     const r = nodeAABB(node)
     const x = offX + (r.x - bx) * scale
     const y = offY + (r.y - by) * scale

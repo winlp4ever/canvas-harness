@@ -133,6 +133,10 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
 
   const cameraAtom = atom<CameraState>('camera', initial.camera)
   const selectionAtom = atom<(NodeId | EdgeId)[]>('selection', initial.selection)
+  // Presentation order for frame-typed nodes. Auto-maintained on
+  // node.add (push) / node.remove (filter); explicitly mutated via the
+  // `frame.reorder` op. See types/scene.ts.
+  const frameOrderAtom = atom<NodeId[]>('frameOrder', initial.frameOrder ?? [])
   const interactionAtom = atom<InteractionState>('interaction', idleInteractionState())
   const localPresenceAtom = atom<PresenceState>('presence', emptyPresenceState(clientId))
   const remotePresence = new Map<ClientId, PresenceState>()
@@ -283,6 +287,9 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         nodeAtoms.set(op.node.id, a)
         nodeIdsAtom.update(ids => [...ids, op.node.id])
         reindexNode(op.node)
+        if (op.node.type === 'frame') {
+          frameOrderAtom.update(ids => (ids.includes(op.node.id) ? ids : [...ids, op.node.id]))
+        }
         break
       }
       case 'node.update': {
@@ -309,6 +316,9 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         nodeIdsAtom.update(ids => ids.filter(x => x !== id))
         unindexNode(id)
         incidentEdges.delete(id)
+        if (op.node.type === 'frame') {
+          frameOrderAtom.update(ids => ids.filter(x => x !== id))
+        }
         break
       }
       case 'edge.add': {
@@ -358,6 +368,10 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         groupIdsAtom.update(ids => ids.filter(x => x !== id))
         break
       }
+      case 'frame.reorder': {
+        frameOrderAtom.set([...op.ids])
+        break
+      }
     }
   }
 
@@ -386,6 +400,11 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
 
   // hoisted because applyOp/applyBatch and the public methods both need them
   const populateInitial = (scene: Scene): void => {
+    // If the scene didn't carry an explicit frameOrder (older saves),
+    // derive it from iteration order over frame-typed nodes so the
+    // store has a usable order from the first frame the consumer asks
+    // for. The explicit `scene.frameOrder` (when present) wins.
+    const seededFrameOrder: NodeId[] = []
     for (const id of Object.keys(scene.nodes)) {
       const node = scene.nodes[id as NodeId]
       if (!node) continue
@@ -393,7 +412,9 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
       nodeAtoms.set(node.id, a)
       nodeIdsAtom.update(ids => [...ids, node.id])
       reindexNode(node)
+      if (node.type === 'frame') seededFrameOrder.push(node.id)
     }
+    if (!scene.frameOrder) frameOrderAtom.set(seededFrameOrder)
     for (const id of Object.keys(scene.edges)) {
       const edge = scene.edges[id as EdgeId]
       if (!edge) continue
@@ -748,6 +769,66 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     getNodeCount: () => nodeIdsAtom.value.length,
     getEdgeCount: () => edgeIdsAtom.value.length,
     getGroupCount: () => groupIdsAtom.value.length,
+
+    getFrames: () => {
+      const out: Node[] = []
+      for (const id of frameOrderAtom.value) {
+        const n = nodeAtoms.get(id)?.value
+        if (n && n.type === 'frame') out.push(n)
+      }
+      return out
+    },
+    setFrameOrder(ids: NodeId[]) {
+      const valid = new Set<NodeId>()
+      for (const a of nodeAtoms.values()) {
+        if (a.value.type === 'frame') valid.add(a.value.id)
+      }
+      // Drop ids that aren't (or no longer are) frames; append any
+      // frames the caller forgot so the order remains a permutation
+      // of the actual frame set.
+      const filtered: NodeId[] = []
+      const seen = new Set<NodeId>()
+      for (const id of ids) {
+        if (valid.has(id) && !seen.has(id)) {
+          filtered.push(id)
+          seen.add(id)
+        }
+      }
+      for (const id of valid) {
+        if (!seen.has(id)) filtered.push(id)
+      }
+      const prev = [...frameOrderAtom.value]
+      // No-op short-circuit.
+      if (filtered.length === prev.length && filtered.every((id, i) => id === prev[i])) {
+        return
+      }
+      enqueueOp({ type: 'frame.reorder', ids: filtered, prev })
+    },
+    getNodesInFrame(id: NodeId) {
+      const frame = nodeAtoms.get(id)?.value
+      if (!frame || frame.type !== 'frame') return []
+      const frameAabb = nodeAABB(frame)
+      // Spatial broad-phase: any node intersecting the frame's AABB
+      // is a candidate. Then filter to "fully inside" — node's AABB
+      // entirely contained by the frame's AABB.
+      const candidates = nodeIndex.queryRect(frameAabb) as NodeId[]
+      const out: Node[] = []
+      for (const cid of candidates) {
+        if (cid === id) continue
+        const node = nodeAtoms.get(cid)?.value
+        if (!node || node.type === 'frame') continue
+        const a = nodeAABB(node)
+        if (
+          a.x >= frameAabb.x &&
+          a.y >= frameAabb.y &&
+          a.x + a.w <= frameAabb.x + frameAabb.w &&
+          a.y + a.h <= frameAabb.y + frameAabb.h
+        ) {
+          out.push(node)
+        }
+      }
+      return out
+    },
 
     getEdgeGeometry(id: EdgeId): EdgeGeometry | undefined {
       const edge = edgeAtoms.get(id)?.value

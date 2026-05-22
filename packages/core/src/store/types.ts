@@ -313,6 +313,27 @@ export interface CanvasStore {
   getGroupCount(): number
 
   /**
+   * Returns frame nodes (`type === 'frame'`) in presentation order.
+   * Order is auto-maintained on add/remove and can be explicitly
+   * mutated via {@link CanvasStore.setFrameOrder}. Used by present
+   * mode + export to drive slide sequencing.
+   */
+  getFrames(): Node[]
+  /**
+   * Replace the presentation order of frames. `ids` must be a
+   * permutation of the current frame ids (any unknown ids are
+   * dropped; missing frames are appended to preserve invariants).
+   * Emits a `frame.reorder` op; undoable, syncs over collab.
+   */
+  setFrameOrder(ids: NodeId[]): void
+  /**
+   * Geometric containment query: returns all non-frame nodes whose
+   * AABB is fully inside the given frame's AABB. Used to compute
+   * "what's on this slide". Cheap — backed by the spatial index.
+   */
+  getNodesInFrame(id: NodeId): Node[]
+
+  /**
    * Spatial query — ids of nodes + edges that intersect a rect or
    * contain a point. Backed by a uniform grid for sub-millisecond
    * queries at 10k+ entities.

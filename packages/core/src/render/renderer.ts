@@ -37,6 +37,7 @@ import {
   drawRotateHandle,
   drawSelectionOutline,
 } from './overlay'
+import { paintFrameNode } from './paint-frame'
 import { ROUGH_MAX_NODES, ROUGH_MIN_ZOOM, drawCompositeRough, drawRoughShape } from './rough'
 import {
   ROUGH_FILL_MISREGISTER_X,
@@ -118,6 +119,12 @@ export type Renderer = {
   setBackground(bg: CanvasBackground | undefined): void
   /** Update the selection chrome color. Triggers an interactive repaint. */
   setSelectionColor(color: string): void
+  /**
+   * Toggle frame-node paint. Use during a presentation flow to drop
+   * the slide border + label so only the frame contents are visible.
+   * Triggers a static repaint.
+   */
+  setHideFrames(hidden: boolean): void
   /** Per-frame timing (FPS, lastMs, avgMs, frames). */
   stats(): FrameStats
   /** Number of items the most recent paint actually drew. */
@@ -134,6 +141,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   const interactiveSurface = setupSurface(opts.interactiveCanvas)
   let background: CanvasBackground | undefined = opts.background
   let selectionColor: string = opts.selectionColor ?? DEFAULT_SELECTION_COLOR
+  let hideFrames = false
   sizeSurface(staticSurface, opts.width, opts.height)
   sizeSurface(interactiveSurface, opts.width, opts.height)
 
@@ -228,7 +236,23 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       camera.z >= ROUGH_MIN_ZOOM &&
       visible.length <= ROUGH_MAX_NODES
 
+    // First pass: frames. They render behind everything else so the
+    // slide chrome reads as a background region. The main loop below
+    // skips `type === 'frame'`. `hideFrames` (set by a present-mode
+    // flow) skips painting them entirely.
+    if (!hideFrames) {
+      for (const node of visible) {
+        if (node.type !== 'frame') continue
+        if (excludedNodes?.has(node.id)) continue
+        drawWithNodeTransform(staticSurface.ctx, node, () => {
+          paintFrameNode(staticSurface.ctx, node, scale, theme)
+        })
+        drawn++
+      }
+    }
+
     for (const node of visible) {
+      if (node.type === 'frame') continue
       if (excludedNodes?.has(node.id)) continue
 
       // The editing node's content is occluded by the textarea overlay —
@@ -550,10 +574,15 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
           !isDrawablePrimitive(node.type) &&
           node.type !== 'text' &&
           node.type !== 'image' &&
-          node.type !== 'icon'
+          node.type !== 'icon' &&
+          node.type !== 'frame'
         )
           continue
         drawWithNodeTransform(ctx, node, () => {
+          if (node.type === 'frame') {
+            paintFrameNode(ctx, node, scale, theme)
+            return
+          }
           if (node.type === 'image') {
             paintImageNode(ctx, node, assetCache, theme)
             return
@@ -807,6 +836,11 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       // Selection chrome lives on the interactive surface; static doesn't
       // need to repaint. The draft-edge stroke is also interactive-only.
       interactiveDirty = true
+      loop.requestFrame()
+    },
+    setHideFrames(hidden) {
+      hideFrames = hidden
+      staticDirty = true
       loop.requestFrame()
     },
     stats: () => loop.stats(),

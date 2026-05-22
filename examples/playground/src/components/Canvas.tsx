@@ -21,6 +21,7 @@ type ShapeTool =
   | 'layered-rect'
   | 'layered-ellipse'
   | 'layered-diamond'
+  | 'frame'
 
 export type Tool = 'select' | 'pan' | ShapeTool | 'arrow' | 'text'
 
@@ -34,6 +35,7 @@ const SHAPE_TOOLS = new Set<Tool>([
   'layered-rect',
   'layered-ellipse',
   'layered-diamond',
+  'frame',
 ])
 // Tool name === node type for all shape tools today.
 const TOOL_TO_TYPE: Record<ShapeTool, ShapeTool> = {
@@ -46,6 +48,7 @@ const TOOL_TO_TYPE: Record<ShapeTool, ShapeTool> = {
   'layered-rect': 'layered-rect',
   'layered-ellipse': 'layered-ellipse',
   'layered-diamond': 'layered-diamond',
+  frame: 'frame',
 }
 
 /**
@@ -84,20 +87,27 @@ export function Canvas({
     (e: CanvasPointerEvent) => {
       const t = e.tool as Tool
       if (SHAPE_TOOLS.has(t)) {
+        const isFrame = t === 'frame'
         const remembered = styleMemory.getNodeStyle()
-        // Default to roughness:1 so first-time creation has the
-        // hand-drawn look; user-remembered style wins if present.
-        const style = { roughness: 1, ...remembered }
+        // Frames are organizational chrome — no rough wobble, no
+        // remembered fill/stroke. Other shapes default to roughness:1
+        // with the user's last-used style merged in.
+        const style = isFrame ? undefined : { roughness: 1, ...remembered }
+        // Frames default to slide-shaped 600x400; other shapes 120x80.
+        const w = isFrame ? 600 : 120
+        const h = isFrame ? 400 : 80
+        const frameIndex = isFrame ? store.getFrames().length + 1 : 0
         store.addNode({
           id: asNodeId(store.generateId()),
           type: TOOL_TO_TYPE[t as keyof typeof TOOL_TO_TYPE],
-          x: e.world.x - 60,
-          y: e.world.y - 40,
-          w: 120,
-          h: 80,
+          x: e.world.x - w / 2,
+          y: e.world.y - h / 2,
+          w,
+          h,
           angle: 0,
           z: 0,
           groups: [],
+          ...(isFrame ? { content: `Frame ${frameIndex}` } : {}),
           style,
         })
         return
@@ -157,8 +167,10 @@ export function Canvas({
     (e: CanvasCreateDragEvent) => {
       const t = e.tool as Tool
       if (!SHAPE_TOOLS.has(t)) return
+      const isFrame = t === 'frame'
       const remembered = styleMemory.getNodeStyle()
-      const style = { roughness: 1, ...remembered }
+      const style = isFrame ? undefined : { roughness: 1, ...remembered }
+      const frameIndex = isFrame ? store.getFrames().length + 1 : 0
       store.addNode({
         id: asNodeId(store.generateId()),
         type: TOOL_TO_TYPE[t as keyof typeof TOOL_TO_TYPE],
@@ -169,6 +181,7 @@ export function Canvas({
         angle: 0,
         z: 0,
         groups: [],
+        ...(isFrame ? { content: `Frame ${frameIndex}` } : {}),
         style,
       })
     },
