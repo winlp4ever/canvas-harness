@@ -249,6 +249,54 @@ A couple of opinions baked in:
 
 A working version with a fake async DB + live save-status pill ships in the playground at [`examples/playground/src/hooks/useDebouncedSave.ts`](./examples/playground/src/hooks/useDebouncedSave.ts).
 
+## Frames + present mode
+
+`frame` is a built-in node type for slide regions — drag rectangles over parts of the canvas, name them, then cycle through them as slides. The library ships the data + a couple of helpers; a full presentation UI stays in your app.
+
+```tsx
+// Frames are just nodes — create, drag, resize, rename like anything else.
+store.addNode({
+  id: asNodeId(store.generateId()),
+  type: 'frame',
+  x: 0, y: 0, w: 600, h: 400,
+  angle: 0, z: 0, groups: [],
+  content: 'Slide 1', // shown as the label above the top edge
+})
+
+// Read the presentation order:
+const slides = store.getFrames() // Node[] in order
+
+// Re-order (undoable, syncs over collab):
+store.setFrameOrder([id3, id1, id2])
+
+// "What's on this slide?" — strict AABB containment, backed by the spatial index:
+const contents = store.getNodesInFrame(slides[0].id)
+```
+
+Three deliberate design calls:
+
+- **Frames are nodes**, not a separate entity. They reuse selection, drag, resize, undo, sync, hit-test, z-order, theming for free. The only added store surface is the three methods above + an internal `frame.reorder` op.
+- **Dragging a frame doesn't move its contents.** Children are not parented — containment is purely geometric. If you want grouping, use groups (`upsertGroup`). Frames are presentation chrome.
+- **Frames are excluded from the minimap** (both `sceneBounds` and the content paint). They'd otherwise distort scale and add noise — they represent slide boundaries, not content density.
+
+For the slideshow view, `renderer.setHideFrames(true)` drops the frame border + label so only the contents show:
+
+```tsx
+const present = () => {
+  const slides = store.getFrames()
+  if (slides.length === 0) return
+  const savedCamera = store.getCamera()
+  renderer.setHideFrames(true)
+  let i = 0
+  fitCameraToFrame(slides[i]) // your zoom-to-fit helper
+  // wire ←/→ keys to step `i`, Esc to exit:
+  //   renderer.setHideFrames(false)
+  //   store.setCamera(savedCamera)
+}
+```
+
+A working version with keyboard nav, slide counter, and resize-aware refit ships in the playground at [`examples/playground/src/components/PresentMode.tsx`](./examples/playground/src/components/PresentMode.tsx).
+
 ## API surface
 
 ### `@canvas-harness/core`
@@ -261,12 +309,15 @@ A working version with a fake async DB + live save-status pill ships in the play
 - `addEdge(edge)`, `updateEdge(id, patch)`, `removeEdge(id)`
 - `upsertGroup(group)`, `removeGroup(id)`
 - `addImage(opts)` / `addSvg(opts)` — async; validate, sanitize, downscale, commit
+- `setFrameOrder(ids)` — replace the presentation order; emits a `frame.reorder` op (undoable, syncs)
 - `batch(fn)` — coalesce multiple mutations into one undoable batch
 - `bringToFront(ids)`, `sendToBack(ids)`, `bringForward(ids)`, `sendBackward(ids)`
 
 **Reads**
 - `getNode(id)`, `getEdge(id)`, `getGroup(id)`
 - `getAllNodes()`, `getAllEdges()`, `getAllGroups()`
+- `getFrames()` — frame-typed nodes in presentation order
+- `getNodesInFrame(id)` — non-frame nodes strictly inside a frame's AABB
 - `querySpatial({ rect | point })` — viewport visibility / hit candidates
 - `getCamera()`, `getSelection()`, `getInteractionState()`
 
@@ -285,12 +336,13 @@ A working version with a fake async DB + live save-status pill ships in the play
 
 **Built-in renderer + hit-test**
 - `createRenderer(...)` — wires the store to a pair of canvases. The React `<Canvas>` calls this internally; standalone consumers can use it directly.
+- Runtime knobs on the returned `Renderer`: `setBackground`, `setSelectionColor`, `setHideFrames` (drops frame chrome for present mode).
 
 ### `@canvas-harness/react`
 
 **Components**
 - `<CanvasProvider store={...}>` — context wrapper
-- `<Canvas tool="..." onClick={...} onCreateDrag={...} arrowDefaults={...} background={...} theme={...} selectionColor={...} renderCustomNodeView={...} />` — mounts canvas + interactive surface + DOM overlay + editor adapter. `selectionColor` (default `#3b82f6`) drives all selection chrome: outline, resize/rotate handles, edge handles, marquee, drag-create preview.
+- `<Canvas tool="..." onClick={...} onCreateDrag={...} arrowDefaults={...} background={...} theme={...} selectionColor={...} renderCustomNodeView={...} />` — mounts canvas + interactive surface + DOM overlay + editor adapter. `tool` accepts `'select' | 'pan' | 'rect' | 'ellipse' | … | 'arrow' | 'text' | 'frame'`; the Pan (Hand) tool turns left-button drag into camera pan for single-button-mouse users. `selectionColor` (default `#3b82f6`) drives all selection chrome: outline, resize/rotate handles, edge handles, marquee, drag-create preview.
 - `<Minimap viewportColor={...} backgroundColor={...} borderColor={...} />` — overview overlay. Pass the same color as `<Canvas selectionColor>` for `viewportColor` to keep the two visually paired.
 
 **Data hooks**
