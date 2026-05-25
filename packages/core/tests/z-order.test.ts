@@ -1,5 +1,5 @@
 /**
- * Z-order semantics — see ARCHITECTURE.md §3.6.
+ * Z-order semantics — see ARCHITECTURE.md §5.7 ("Z-value allocation").
  *
  * Covers:
  *   - addNode auto-top when z is omitted; literal z when provided
@@ -7,11 +7,12 @@
  *   - paste/duplicate-with-explicit-z doesn't get re-bumped (the
  *     pre-2026-05 sentinel bug)
  *   - Order is preserved through serialize → fromSerialized → store
+ *   - Remote ops (via applyBatch) extend the counters correctly
  */
 import { describe, expect, test } from 'vitest'
 import { fromSerialized, storeToJSON } from '../src/codec'
 import { createCanvasStore } from '../src/store'
-import { type Edge, type Node, asEdgeId, asNodeId } from '../src/types'
+import { type Edge, type Node, asBatchId, asClientId, asEdgeId, asNodeId } from '../src/types'
 
 const baseNode = (over: Partial<Omit<Node, 'z'> & { z?: number }> = {}) => ({
   id: asNodeId('placeholder'),
@@ -166,6 +167,86 @@ describe('paint order via z values', () => {
 
     const sorted = [...store.getAllNodes()].sort((l, r) => l.z - r.z || (l.id < r.id ? -1 : 1))
     expect(sorted.map(n => n.id)).toEqual([back, middle, front])
+  })
+})
+
+describe('remote ops extend the counters', () => {
+  // applyBatch with `origin: 'remote'` (or 'history') routes through
+  // applyOpInternal where the counter-tracking lives, so remote
+  // mutations stay in sync without special handling.
+  test('remote node.add bumps topZ; later local auto-add lands above', () => {
+    const store = createCanvasStore({ clientId: asClientId('u-local') })
+    // Construct a remote batch carrying a node at z=500
+    const remoteBatch = {
+      id: asBatchId('b-remote'),
+      clientId: asClientId('u-other'),
+      ts: Date.now(),
+      origin: 'remote' as const,
+      ops: [
+        {
+          type: 'node.add' as const,
+          node: { ...baseNode({ id: asNodeId('remote-1'), z: 500 }), z: 500 },
+        },
+      ],
+    }
+    store.applyBatch(remoteBatch)
+    // A local auto-add should now land above the remote node.
+    const local = add(store)
+    expect(store.getNode(local)!.z).toBeGreaterThan(500)
+  })
+
+  test('remote node.update with explicit z extends bottomZ', () => {
+    const store = createCanvasStore({ clientId: asClientId('u-local') })
+    const local = add(store) // topZ → 1
+    // Remote pushes local to z = -50
+    const remoteBatch = {
+      id: asBatchId('b-remote'),
+      clientId: asClientId('u-other'),
+      ts: Date.now(),
+      origin: 'remote' as const,
+      ops: [
+        {
+          type: 'node.update' as const,
+          id: local,
+          patch: { z: -50 },
+          prev: { z: 1 },
+        },
+      ],
+    }
+    store.applyBatch(remoteBatch)
+    expect(store.getNode(local)!.z).toBe(-50)
+    // A local sendToBack should now produce something below -50.
+    const newer = add(store)
+    store.sendToBack([newer])
+    expect(store.getNode(newer)!.z).toBeLessThan(-50)
+  })
+
+  test('remote edge.add bumps topZ (same counter as nodes)', () => {
+    const store = createCanvasStore({ clientId: asClientId('u-local') })
+    // Construct a remote batch with an edge at z=200
+    const remoteBatch = {
+      id: asBatchId('b-remote'),
+      clientId: asClientId('u-other'),
+      ts: Date.now(),
+      origin: 'remote' as const,
+      ops: [
+        {
+          type: 'edge.add' as const,
+          edge: {
+            id: asEdgeId('remote-edge'),
+            source: { nodeId: asNodeId('a'), localOffset: { x: 0, y: 0 } },
+            target: { nodeId: asNodeId('b'), localOffset: { x: 0, y: 0 } },
+            pathStyle: 'bezier' as const,
+            z: 200,
+            groups: [],
+          },
+        },
+      ],
+    }
+    store.applyBatch(remoteBatch)
+    // A local auto-add (node, sharing the counter) should land above.
+    const local = add(store)
+    expect(store.getNode(local)!.z).toBeGreaterThan(200)
   })
 })
 
