@@ -16,6 +16,13 @@ export type InlineType =
   | 'highlight'
   | 'code'
   | 'link'
+  /**
+   * LaTeX math expression, content is the source between `$...$` (no
+   * leading/trailing whitespace, no line breaks). Rendered via MathJax
+   * SVG output and rasterized to an inline bitmap at paint time. See
+   * `text/math/`.
+   */
+  | 'math'
 
 export type Token =
   | { type: InlineType; content: string }
@@ -24,8 +31,11 @@ export type Token =
   | { type: 'hr' }
   | { type: 'hr-double' }
 
+// Math `$...$` is matched first so its delimiters can't be confused
+// with italics (`*...*` etc.). Empty math (`$$`) is intentionally not
+// matched — that's a fenced-block math syntax not supported in v1.
 const INLINE_PATTERN =
-  /(\*\*[^*]+\*\*|==[^=\s](?:[^=]*?[^=\s])?==|`[^`]+`|\*[^*]+\*|__[^_]+__|~~[^~]+~~|_[^_]+_|\[[^\]]+\]\([^)]+\))/g
+  /(\$[^$\n]+?\$|\*\*[^*]+\*\*|==[^=\s](?:[^=]*?[^=\s])?==|`[^`]+`|\*[^*]+\*|__[^_]+__|~~[^~]+~~|_[^_]+_|\[[^\]]+\]\([^)]+\))/g
 const HR_LINE_PATTERN = /^[ \t]*---[ \t]*$/
 const DOUBLE_HR_LINE_PATTERN = /^[ \t]*===[ \t]*$/
 
@@ -77,6 +87,10 @@ const tokenizeInline = (segment: string): Token[] => {
       tokens.push({ type: 'link', content: transformSymbols(match.slice(1, splitIndex)) })
     } else if (match.startsWith('`') && match.endsWith('`')) {
       tokens.push({ type: 'code', content: match.slice(1, -1) })
+    } else if (match.startsWith('$') && match.endsWith('$')) {
+      // Strip the `$...$` delimiters; preserve interior whitespace
+      // since LaTeX is whitespace-aware.
+      tokens.push({ type: 'math', content: match.slice(1, -1) })
     } else {
       tokens.push({ type: 'text', content: transformSymbols(match) })
     }

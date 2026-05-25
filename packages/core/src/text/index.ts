@@ -23,6 +23,17 @@ export { clearMeasureCache, getCanvasFont, measureText } from './measure'
 
 export { getFontEpoch, subscribeFontEpoch } from './font-epoch'
 
+export type { MathBitmap } from './math'
+export {
+  clearMathCache,
+  getMathBitmap,
+  getMathCacheSize,
+  getMathEpoch,
+  getMathJax,
+  onMathJaxReady,
+  subscribeMathEpoch,
+} from './math'
+
 export {
   clampEffectiveScale,
   quantizeDpr,

@@ -22,6 +22,7 @@ import {
   FONT_SIZE_MAP,
   getOrRenderTextBitmap,
   subscribeFontEpoch,
+  subscribeMathEpoch,
 } from '../text'
 import type { CameraState, CanvasBackground, Edge, EdgeId, Node, NodeId, WorldRect } from '../types'
 import { createAssetCache, paintIconNode, paintImageNode } from './assets'
@@ -801,6 +802,12 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     staticDirty = true
     loop.requestFrame()
   })
+  // Math formula compile → math-bearing bitmaps get a new cache key
+  // via the math-epoch; repaint to pick up the real glyphs.
+  const unsubMathEpoch = subscribeMathEpoch(() => {
+    staticDirty = true
+    loop.requestFrame()
+  })
 
   return {
     start() {
@@ -853,6 +860,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       unsubSelection()
       unsubInteraction()
       unsubFontEpoch()
+      unsubMathEpoch()
       assetCache.dispose()
     },
   }

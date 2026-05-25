@@ -9,7 +9,8 @@ import type { FontFamily, FontSize, TextStyle } from '../types'
  * Cache is module-level so multiple Canvas instances share it. Eviction is
  * FIFO via Map iteration order (Maps preserve insertion order in JS).
  */
-import { FONT_FAMILY_MAP, FONT_SIZE_MAP } from './defaults'
+import { DEFAULT_TEXT_COLOR, FONT_FAMILY_MAP, FONT_SIZE_MAP } from './defaults'
+import { getMathBitmap } from './math'
 import type { InlineType } from './tokens'
 
 const MAX_WIDTH_CACHE_SIZE = 5000
@@ -50,6 +51,17 @@ export const measureText = (opts: {
   textStyle: TextStyle
 }): number => {
   if (!opts.text) return 0
+  // Math width comes from the bitmap cache (keyed by source + color +
+  // size). Use DEFAULT_TEXT_COLOR so the lookup hits the SAME cache
+  // entry that paint will later look up (paint's fallback is also
+  // DEFAULT_TEXT_COLOR). Mismatch here = paint never finds the
+  // bitmap layout compiled.
+  if (opts.type === 'math') {
+    const fontSizePx = FONT_SIZE_MAP[opts.fontSize]
+    const bitmap = getMathBitmap(opts.text, DEFAULT_TEXT_COLOR, fontSizePx)
+    if (bitmap) return bitmap.width
+    return Math.max(8, opts.text.length * fontSizePx * 0.55 + fontSizePx)
+  }
   const font = getCanvasFont(opts)
   const key = `${font}|${opts.text}`
   const cached = widthCache.get(key)

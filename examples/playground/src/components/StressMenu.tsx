@@ -14,6 +14,7 @@ import {
   fixture200Cards,
   fixtureImagesAndSvgs,
   fixtureMarkdownHeavy,
+  fixtureMathHeavy,
 } from '../fixtures'
 
 type Entry = { label: string; fn: Fixture }
@@ -33,6 +34,7 @@ const ENTRIES: Entry[] = [
   { label: '+ 1k labeled edges', fn: fixture1kLabeledEdges },
   { label: '+ 200 cards', fn: fixture200Cards },
   { label: '+ markdown-heavy', fn: fixtureMarkdownHeavy },
+  { label: '+ math notes', fn: fixtureMathHeavy },
   { label: '+ 30 images + 30 svgs', fn: fixtureImagesAndSvgs },
   { label: 'Clear scene', fn: clearScene },
 ]
