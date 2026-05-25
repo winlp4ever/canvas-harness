@@ -97,6 +97,18 @@ export type RendererOptions = {
    */
   selectionColor?: string
   /**
+   * Cap on the canvas backing-store DPR (device-pixel ratio). At
+   * native DPR on hi-DPI displays, the backing buffer can hit
+   * 20-30 megapixels per frame; the GPU-upload step alone dominates
+   * the frame budget. Defaults to `1` for consistent perf across
+   * hardware. Bump to `2` (or `window.devicePixelRatio`) for
+   * pixel-crisp rendering at the cost of FPS on hi-DPI displays.
+   *
+   * Text is unaffected — the text bitmap cache renders glyphs at
+   * its own DPR-aware scale.
+   */
+  maxDpr?: number
+  /**
    * Fires when the set of custom nodes that should be rendered in the DOM
    * overlay changes. Consumers use this to mount/unmount React subtrees
    * (or whatever framework). See ARCHITECTURE.md §5.2 lifecycle.
@@ -138,13 +150,14 @@ export type Renderer = {
 
 export const createRenderer = (opts: RendererOptions): Renderer => {
   const { store, theme, onOverlayChange } = opts
-  const staticSurface = setupSurface(opts.staticCanvas)
-  const interactiveSurface = setupSurface(opts.interactiveCanvas)
+  const maxDpr = opts.maxDpr
+  const staticSurface = setupSurface(opts.staticCanvas, maxDpr)
+  const interactiveSurface = setupSurface(opts.interactiveCanvas, maxDpr)
   let background: CanvasBackground | undefined = opts.background
   let selectionColor: string = opts.selectionColor ?? DEFAULT_SELECTION_COLOR
   let hideFrames = false
-  sizeSurface(staticSurface, opts.width, opts.height)
-  sizeSurface(interactiveSurface, opts.width, opts.height)
+  sizeSurface(staticSurface, opts.width, opts.height, maxDpr)
+  sizeSurface(interactiveSurface, opts.width, opts.height, maxDpr)
 
   let staticDirty = true
   let interactiveDirty = false
@@ -885,8 +898,8 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       loop.requestFrame()
     },
     setSize(cssW, cssH) {
-      const a = sizeSurface(staticSurface, cssW, cssH)
-      const b = sizeSurface(interactiveSurface, cssW, cssH)
+      const a = sizeSurface(staticSurface, cssW, cssH, maxDpr)
+      const b = sizeSurface(interactiveSurface, cssW, cssH, maxDpr)
       if (a || b) {
         staticDirty = true
         interactiveDirty = true

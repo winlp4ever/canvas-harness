@@ -121,6 +121,24 @@ export type CanvasProps = {
    */
   selectionColor?: string
   /**
+   * Cap on the canvas backing-store DPR. Defaults to `1`.
+   *
+   * At native device-pixel ratio on hi-DPI displays (Mac Retina ≈ 2,
+   * Windows 4K @ 175% ≈ 1.75), the canvas backing buffer can hit
+   * 20-30 megapixels per frame — the per-frame GPU-upload cost alone
+   * eats a sizable slice of the frame budget. Capping DPR at 1 keeps
+   * perf consistent across hardware at the cost of slightly softer
+   * shape outlines on hi-DPI displays. Text remains crisp regardless
+   * (the text bitmap cache handles its own DPR).
+   *
+   * Bump to `2` (or `window.devicePixelRatio`) when crispness matters
+   * more than FPS — e.g. presentation slides, print-export views.
+   *
+   * @example
+   * <Canvas maxDpr={2} />  // pixel-crisp at the cost of FPS on hi-DPI
+   */
+  maxDpr?: number
+  /**
    * Render a custom node's React subtree. Called once per
    * library-mounted custom-node id; positioning is handled by the
    * overlay container (consumer fills the slot).
@@ -188,6 +206,7 @@ function CanvasSurface({
   arrowDefaults,
   background,
   selectionColor,
+  maxDpr,
   renderCustomNodeView,
   children,
 }: CanvasProps) {
@@ -232,6 +251,7 @@ function CanvasSurface({
       height: h,
       background,
       selectionColor,
+      maxDpr,
       onOverlayChange: ids => setMountedIds(ids),
     })
     r.start()
@@ -246,7 +266,7 @@ function CanvasSurface({
     // setSelectionColor effects below so the renderer isn't torn down
     // on every prop change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, theme, w, h, onRenderer, setMountedIds])
+  }, [store, theme, w, h, maxDpr, onRenderer, setMountedIds])
 
   // Forward background prop updates without re-creating the renderer.
   useEffect(() => {
