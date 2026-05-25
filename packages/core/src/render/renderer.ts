@@ -372,8 +372,15 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         continue
       }
       if (def.renderCanvas) {
+        // Custom-node drawers get a save/restore scope: built-in
+        // drawers honor the "set every state you depend on" contract
+        // (see drawWithNodeTransform), but consumer code can't be
+        // assumed to. Cost is one extra save/restore per visible
+        // custom node — negligible since custom nodes are rare.
         drawWithNodeTransform(staticSurface.ctx, node, () => {
+          staticSurface.ctx.save()
           def.renderCanvas!(staticSurface.ctx, node, renderEnv)
+          staticSurface.ctx.restore()
         })
         drawn++
       }
@@ -432,11 +439,21 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       }
     }
     if (def.drawPlaceholder) {
-      drawWithNodeTransform(ctx, node, () => def.drawPlaceholder!(ctx, node, env))
+      // Consumer-supplied drawer — wrap in save/restore so any state
+      // it leaves behind doesn't bleed into the next node.
+      drawWithNodeTransform(ctx, node, () => {
+        ctx.save()
+        def.drawPlaceholder!(ctx, node, env)
+        ctx.restore()
+      })
       return true
     }
     if (def.renderCanvas) {
-      drawWithNodeTransform(ctx, node, () => def.renderCanvas!(ctx, node, env))
+      drawWithNodeTransform(ctx, node, () => {
+        ctx.save()
+        def.renderCanvas!(ctx, node, env)
+        ctx.restore()
+      })
       return true
     }
     return false
