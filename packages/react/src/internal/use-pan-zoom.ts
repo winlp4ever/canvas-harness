@@ -128,12 +128,35 @@ export const usePanZoom = (
       rafId = 0
       // Apply zoom first; pan applies on top of the new camera so order is intuitive.
       if (pendingZoomFactor !== 1 && pendingZoomAnchor) {
+        // Clamp the accumulated factor so a stream of wheel events
+        // queued in one frame can't teleport the user past a 2x /
+        // 0.5x jump. Excess folds back into `pendingZoomFactor` and
+        // applies on the next frame, turning a fast scroll into a
+        // smooth multi-frame zoom instead of one visual jump.
+        const MAX_PER_FRAME = 2
+        const MIN_PER_FRAME = 0.5
+        let appliedFactor = pendingZoomFactor
+        let drained = true
+        if (appliedFactor > MAX_PER_FRAME) {
+          appliedFactor = MAX_PER_FRAME
+          pendingZoomFactor = pendingZoomFactor / MAX_PER_FRAME
+          drained = false
+        } else if (appliedFactor < MIN_PER_FRAME) {
+          appliedFactor = MIN_PER_FRAME
+          pendingZoomFactor = pendingZoomFactor / MIN_PER_FRAME
+          drained = false
+        } else {
+          pendingZoomFactor = 1
+        }
         const camera = store.getCamera()
         store.setCamera(
-          zoomAtScreenPoint(camera, clampZoom(camera.z * pendingZoomFactor), pendingZoomAnchor),
+          zoomAtScreenPoint(camera, clampZoom(camera.z * appliedFactor), pendingZoomAnchor),
         )
-        pendingZoomFactor = 1
-        pendingZoomAnchor = null
+        // Keep the anchor alive across frames until the residual
+        // factor has drained — otherwise the leftover zoom on the
+        // next frame would have no pivot point.
+        if (drained) pendingZoomAnchor = null
+        else schedule()
       }
       if (pendingDx !== 0 || pendingDy !== 0) {
         const camera = store.getCamera()
@@ -179,8 +202,16 @@ export const usePanZoom = (
       if (isEditing()) return
       e.preventDefault()
       if (e.ctrlKey || e.metaKey) {
-        // pinch-zoom signal (trackpads send wheel+ctrl)
-        const factor = Math.exp(-e.deltaY * 0.01)
+        // Mouse wheel vs trackpad pinch heuristic. A notched mouse
+        // wheel sends `|deltaY| ≥ 100` per click (OS-normalized);
+        // trackpad pinch sends a stream of small (1-20) values.
+        // Mouse: discrete 10% step per notch — predictable, lots of
+        // gradations (100→90→81→73→66…), lands near any value.
+        // Trackpad: continuous exponential — feels like pinch.
+        // Without this split, one mouse notch was `exp(-1) ≈ 0.37` —
+        // a 63% drop in a single click.
+        const factor =
+          Math.abs(e.deltaY) >= 100 ? (e.deltaY > 0 ? 1 / 1.1 : 1.1) : Math.exp(-e.deltaY * 0.01)
         pendingZoomFactor *= factor
         pendingZoomAnchor = screenFromClient(e.clientX, e.clientY)
         pulseMotion('zooming')
