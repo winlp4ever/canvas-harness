@@ -38,7 +38,28 @@ export type NodeTypeDefOptions = {
   type: string
 
   // ----- canvas paint paths (one of renderCanvas or react view required) -----
+  /**
+   * Canvas paint for the node body. Caller has already applied the
+   * camera + node transform, so paint at `(0, 0, node.w, node.h)`.
+   *
+   * Context state contract:
+   *   - The renderer wraps this call in `ctx.save()` / `ctx.restore()`
+   *     so any state you change (fillStyle, strokeStyle, lineWidth,
+   *     setLineDash, globalAlpha, font, …) is automatically rolled
+   *     back before the next node draws — set whatever you need
+   *     without worrying about cleanup.
+   *   - Conversely, **do NOT assume default state on entry.** Always
+   *     set the styles you depend on; the previous node's values
+   *     may still be in effect.
+   *   - The transform is NOT save/restore-protected at this level
+   *     (it's managed one frame up by the renderer). Don't leave
+   *     `translate` / `rotate` / `scale` calls un-paired.
+   */
   renderCanvas?: (ctx: CanvasRenderingContext2D, node: Node, env: RenderEnv) => void
+  /**
+   * Low-zoom / motion fallback paint — see ARCHITECTURE.md §5.3 LOD.
+   * Same context-state contract as `renderCanvas`.
+   */
   drawPlaceholder?: (ctx: CanvasRenderingContext2D, node: Node, env: RenderEnv) => void
 
   // ----- React view (opaque to core; the React layer / playground knows what to do) -----

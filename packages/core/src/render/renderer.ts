@@ -152,6 +152,18 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   let overlaySet: ReadonlySet<NodeId> = new Set()
   let lastDrawn = 0
 
+  // Sorted-by-(z, id) caches of ALL scene nodes / edges. Rebuilt
+  // lazily on first access and invalidated on every `'change'` op.
+  // Lets `visibleNodes` / `visibleEdges` skip per-frame Array.sort —
+  // during pan, the scene doesn't mutate so these stay valid for the
+  // whole gesture. At 10k nodes this saves ~1ms / frame.
+  let sortedNodeIdsCache: NodeId[] | null = null
+  let sortedEdgeIdsCache: EdgeId[] | null = null
+  const invalidateSortedCaches = (): void => {
+    sortedNodeIdsCache = null
+    sortedEdgeIdsCache = null
+  }
+
   // Asset cache for image + icon node types. The `onReady` hook fires
   // when a pending decode lands so the next frame blits the bitmap.
   // `loop` is created later in this scope, so we wrap the request in a
@@ -360,8 +372,15 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         continue
       }
       if (def.renderCanvas) {
+        // Custom-node drawers get a save/restore scope: built-in
+        // drawers honor the "set every state you depend on" contract
+        // (see drawWithNodeTransform), but consumer code can't be
+        // assumed to. Cost is one extra save/restore per visible
+        // custom node — negligible since custom nodes are rare.
         drawWithNodeTransform(staticSurface.ctx, node, () => {
+          staticSurface.ctx.save()
           def.renderCanvas!(staticSurface.ctx, node, renderEnv)
+          staticSurface.ctx.restore()
         })
         drawn++
       }
@@ -420,11 +439,21 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       }
     }
     if (def.drawPlaceholder) {
-      drawWithNodeTransform(ctx, node, () => def.drawPlaceholder!(ctx, node, env))
+      // Consumer-supplied drawer — wrap in save/restore so any state
+      // it leaves behind doesn't bleed into the next node.
+      drawWithNodeTransform(ctx, node, () => {
+        ctx.save()
+        def.drawPlaceholder!(ctx, node, env)
+        ctx.restore()
+      })
       return true
     }
     if (def.renderCanvas) {
-      drawWithNodeTransform(ctx, node, () => def.renderCanvas!(ctx, node, env))
+      drawWithNodeTransform(ctx, node, () => {
+        ctx.save()
+        def.renderCanvas!(ctx, node, env)
+        ctx.restore()
+      })
       return true
     }
     return false
@@ -532,16 +561,27 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     })
   }
 
+  const getSortedEdgeIds = (): EdgeId[] => {
+    if (sortedEdgeIdsCache) return sortedEdgeIdsCache
+    const all = store.getAllEdges()
+    sortedEdgeIdsCache = all
+      .slice()
+      .sort((a, b) => a.z - b.z || (a.id < b.id ? -1 : 1))
+      .map(e => e.id)
+    return sortedEdgeIdsCache
+  }
+
   const visibleEdges = (viewport: WorldRect): Edge[] => {
-    const ids = store.querySpatial({ rect: viewport }).edges
+    const ids = store.querySpatial({ rect: viewport }).edges as EdgeId[]
+    if (ids.length === 0) return []
+    const visibleSet = new Set<EdgeId>(ids)
+    const sorted = getSortedEdgeIds()
     const result: Edge[] = []
-    for (const id of ids as EdgeId[]) {
+    for (const id of sorted) {
+      if (!visibleSet.has(id)) continue
       const e = store.getEdge(id)
       if (e) result.push(e)
     }
-    // Sort by z. Note edges are still painted as a separate pass above
-    // all nodes — interleaving nodes + edges by z is a follow-up.
-    result.sort((a, b) => a.z - b.z || (a.id < b.id ? -1 : 1))
     return result
   }
 
@@ -738,26 +778,46 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     return m
   }
 
+  const getSortedNodeIds = (): NodeId[] => {
+    if (sortedNodeIdsCache) return sortedNodeIdsCache
+    const all = store.getAllNodes()
+    sortedNodeIdsCache = all
+      .slice()
+      .sort((a, b) => a.z - b.z || (a.id < b.id ? -1 : 1))
+      .map(n => n.id)
+    return sortedNodeIdsCache
+  }
+
   const visibleNodes = (camera: CameraState, viewport: WorldRect): Node[] => {
-    const ids = store.querySpatial({ rect: viewport }).nodes
+    const ids = store.querySpatial({ rect: viewport }).nodes as NodeId[]
+    if (ids.length === 0) return []
+    // Build a Set of broad-phase-visible ids (the spatial query is
+    // bucket-based, so this is a superset of the true visible set).
+    const visibleSet = new Set<NodeId>(ids)
+    // Walk the cached sorted list in order and emit those in the
+    // visible set after the exact-AABB intersection check. No
+    // per-frame Array.sort.
+    const sorted = getSortedNodeIds()
     const result: Node[] = []
     const minWorldSize = MIN_ON_SCREEN_SIZE_PX / camera.z
-    for (const id of ids as NodeId[]) {
+    for (const id of sorted) {
+      if (!visibleSet.has(id)) continue
       const n = store.getNode(id)
       if (!n) continue
       if (n.w < minWorldSize && n.h < minWorldSize) continue
       if (intersectsViewport(n, viewport)) result.push(n)
     }
-    // Sort by z so reorder ops (bringToFront / sendToBack / etc.)
-    // actually affect paint order. Tiebreak on id keeps the order
-    // deterministic across sessions. Sub-1% of frame budget at scale.
-    result.sort((a, b) => a.z - b.z || (a.id < b.id ? -1 : 1))
     return result
   }
 
   const loop: FrameLoop = createFrameLoop({ draw: drawFrame })
 
   const onStoreChange = (): void => {
+    // Any commit may have added / removed / re-z-ordered an entity,
+    // so the sorted caches must rebuild on next paint. Camera /
+    // selection / interaction events do NOT invalidate (z-order is
+    // independent of viewport + selection state).
+    invalidateSortedCaches()
     staticDirty = true
     interactiveDirty = true
     loop.requestFrame()

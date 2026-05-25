@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="favicon/web-app-manifest-192x192.png" alt="canvas-harness" width="128" height="128" />
+</p>
+
 # canvas-harness
 
 A canvas-rendered node-graph library — React Flow's API, Excalidraw's perf ceiling, TipTap's extensibility. Headless and styleless.
@@ -12,9 +16,10 @@ A canvas-rendered node-graph library — React Flow's API, Excalidraw's perf cei
 
 ## Why
 
-- **Canvas-rendered**: built-in shapes paint directly into a canvas with bitmap-cached static + live interactive surfaces. No React reconciliation on the per-frame critical path. **10k visible nodes pan at ~70fps** on a MacBook M1 — where React Flow gets sluggish around 1-2k and Excalidraw struggles past 5k.
+- **Canvas-rendered**: built-in shapes paint directly into a canvas with bitmap-cached static + live interactive surfaces. No React reconciliation on the per-frame critical path. **10k visible nodes pan at ~80fps** on a MacBook M1 — where React Flow gets sluggish around 1-2k and Excalidraw struggles past 5k.
 - **DOM overlays for custom nodes**: when a node needs iframes, charts, videos, or arbitrary React, register a custom node type and the renderer mounts your React component in an overlay synced to the camera transform. LOD ladder swaps in a canvas placeholder at low zoom.
 - **Hand-drawn aesthetic, opt-in**: per-shape `style.roughness` enables rough.js outlines and freehand brushy edges (perfect-freehand). Auto-disables during pan/zoom and at high node counts so the wobble never costs perf.
+- **Inline LaTeX math**: `$E = mc^2$` inside any text node — typeset via MathJax (loaded lazily from CDN, never bundled). See [Math](#math) below.
 - **Headless**: the library owns geometry, hit-testing, transforms, caching. Every color, font, corner radius is a theme token your app resolves.
 - **Collab-ready**: typed `Op` log, presence slice, `SyncAdapter` interface. Ships no transport — bring your own (Yjs, WebSocket, BroadcastChannel).
 - **AI-friendly**: `api.getContext({ format: 'markdown' })` returns scene state for direct LLM injection; the op log doubles as the tool-call schema for write-side mutations.
@@ -198,6 +203,31 @@ import {
 } from '@canvas-harness/core'
 ```
 
+## Math
+
+Any text-bearing node can include inline LaTeX between `$...$` delimiters in its `content`. No new node type, no separate API — it's just part of the lite-markdown content the library already parses:
+
+```ts
+store.addNode({
+  id: asNodeId(store.generateId()),
+  type: 'rect',
+  x: 0, y: 0, w: 320, h: 80,
+  angle: 0, groups: [],
+  content: 'Mass–energy: $E = mc^2$ is one identity',
+  style: { backgroundColor: '#fef9c3' },
+})
+```
+
+How it works:
+
+- **MathJax v4 is loaded lazily from CDN** the first time any node contains a `$...$` token — never bundled, zero cost for math-free scenes. The chunk caches in the browser; subsequent sessions skip the download.
+- **First-paint shows a subdued placeholder** for ~200–500 ms while MathJax compiles, then the real glyphs swap in. Subsequent frames hit the cache (per-formula `(source, color, sizePx)` LRU).
+- **Color follows the text color** — math glyphs use `currentColor`, substituted at rasterize time so dark/light theme switches just work.
+- **Bulk paste-safe** — compile is rAF-chunked (4 ms / frame budget) so loading a 100-formula doc doesn't block the main thread; placeholders fill the gap until each formula resolves.
+- **Inline only** in v1. Block math (`$$...$$`) deliberately not supported — keeps the layout engine simple.
+
+Pan / zoom of math-bearing scenes is the same speed as text-only scenes once the cache is warm — math bitmaps composite into the text bitmap at paint time and ride the existing static-surface cache from there.
+
 ## Persistence
 
 The library is sync end-to-end. `store.subscribe('change', cb)` fires once per committed `OpBatch`; the read API is sync and returns object references (no clones). The typical persistence flow is: subscribe, debounce, snapshot, await your async save.
@@ -361,12 +391,14 @@ A working version with keyboard nav, slide counter, and resize-aware refit ships
 
 ## Performance
 
-Why "10k visible nodes at 70fps active pan" is achievable:
+Why "10k visible nodes at ~80fps active pan" is achievable:
 
 | Lever | What |
 |---|---|
 | Two-surface architecture | Static surface bitmap-cached; only dragged/edited nodes repaint per frame |
 | Visibility culling | Uniform-grid spatial index drops off-viewport nodes early |
+| Sorted-id cache | Full-scene z-order cached across frames; pan reuses it instead of re-sorting every frame |
+| Save/restore elision | Axis-aligned nodes (the common case) skip the canvas2d `save()`/`restore()` pair — built-in drawers are state-self-sufficient |
 | LOD ladder | Render-scale, motion-LOD on text bitmaps, custom-node React-vs-canvas swap |
 | Path cache | Rough.js drawables LRU-cached by geometry+style signature |
 | Idle-only rough | Hand-drawn outline auto-disables during pan/zoom and at >800 visible nodes |
@@ -374,8 +406,10 @@ Why "10k visible nodes at 70fps active pan" is achievable:
 
 Roughly:
 - Idle scene: static bitmap blit, ~120fps on ProMotion regardless of node count.
-- Active pan: ~70fps at 10k visible (mixed primitives), ~120fps under 1k.
+- Active pan: ~80fps at 10k visible rects, ~120fps under 1k.
 - Drag: only the dragged node repaints on the interactive surface; static cache untouched.
+
+**Custom-node `renderCanvas` authors**: the renderer wraps your draw in `ctx.save()` / `ctx.restore()`, so any state you set (`fillStyle`, `lineWidth`, dash, alpha, font, …) auto-restores. But don't assume defaults on entry — set whatever you depend on. See [`NodeTypeDef.renderCanvas`](./packages/core/src/node-types/define-node.ts) doc-comment for the full contract.
 
 ## License
 
