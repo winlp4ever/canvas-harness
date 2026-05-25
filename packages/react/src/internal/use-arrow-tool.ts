@@ -142,7 +142,6 @@ export const useArrowTool = (
           source: sourceEnd,
           target,
           pathStyle: d?.pathStyle ?? 'bezier',
-          z: 0,
           groups: [],
           ...(d?.style ? { style: d.style } : {}),
         })

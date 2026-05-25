@@ -40,7 +40,7 @@ store.addNode({
   id: asNodeId(store.generateId()),
   type: 'rect',
   x: 100, y: 100, w: 160, h: 80,
-  angle: 0, z: 0, groups: [],
+  angle: 0, groups: [],
   content: 'Hello',
   style: { backgroundColor: '#dbeafe', roughness: 1 },
 })
@@ -49,7 +49,7 @@ store.addNode({
   id: asNodeId(store.generateId()),
   type: 'ellipse',
   x: 320, y: 100, w: 120, h: 80,
-  angle: 0, z: 0, groups: [],
+  angle: 0, groups: [],
   content: 'World',
   style: { backgroundColor: '#bbf7d0', roughness: 1 },
 })
@@ -123,7 +123,7 @@ export function App() {
               x: e.world.x - 60,
               y: e.world.y - 40,
               w: 120, h: 80,
-              angle: 0, z: 0, groups: [],
+              angle: 0, groups: [],
               style: { roughness: 1 },
             })
           }
@@ -259,7 +259,7 @@ store.addNode({
   id: asNodeId(store.generateId()),
   type: 'frame',
   x: 0, y: 0, w: 600, h: 400,
-  angle: 0, z: 0, groups: [],
+  angle: 0, groups: [],
   content: 'Slide 1', // shown as the label above the top edge
 })
 

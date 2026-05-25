@@ -164,14 +164,28 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
   // by removeNode to cascade-delete attached edges.
   const incidentEdges = new Map<NodeId, Set<EdgeId>>()
 
-  // Running ceiling of node + edge z values. New entities created without
-  // an explicit z get `++topZ`, putting them above everything else
-  // (matches Figma / Excalidraw defaults). Monotonic; never decremented
-  // — reordering ops bump it as needed. Initialized from `initial` so
-  // hydration from a saved scene doesn't restart the counter.
+  // Running extremes of node + edge z values. `topZ` only goes up
+  // (++ on auto-create + bringToFront); `bottomZ` only goes down
+  // (-- on sendToBack). New entities created without an explicit z
+  // get `++topZ` (Figma / Excalidraw default — new on top); sendToBack
+  // uses `--bottomZ`. Negative z is a first-class value: anything
+  // sendToBack'd sits at z=-1, -2, … and z=0 is a neutral middle
+  // position between front and back stacks.
+  //
+  // Both counters are tracked from every z-mutation centrally in
+  // `applyOpInternal` so updateNode({ z: ... }) calls and remote ops
+  // keep them in sync. Initialized from `initial` so hydration from
+  // a saved scene preserves the high/low watermarks.
   let topZ = 0
-  for (const n of Object.values(initial.nodes) as Node[]) if (n.z > topZ) topZ = n.z
-  for (const e of Object.values(initial.edges) as Edge[]) if (e.z > topZ) topZ = e.z
+  let bottomZ = 0
+  for (const n of Object.values(initial.nodes) as Node[]) {
+    if (n.z > topZ) topZ = n.z
+    if (n.z < bottomZ) bottomZ = n.z
+  }
+  for (const e of Object.values(initial.edges) as Edge[]) {
+    if (e.z > topZ) topZ = e.z
+    if (e.z < bottomZ) bottomZ = e.z
+  }
 
   const getNodeForGeo = (id: NodeId): Node | undefined => nodeAtoms.get(id)?.value
 
@@ -287,6 +301,8 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         nodeAtoms.set(op.node.id, a)
         nodeIdsAtom.update(ids => [...ids, op.node.id])
         reindexNode(op.node)
+        if (op.node.z > topZ) topZ = op.node.z
+        if (op.node.z < bottomZ) bottomZ = op.node.z
         if (op.node.type === 'frame') {
           frameOrderAtom.update(ids => (ids.includes(op.node.id) ? ids : [...ids, op.node.id]))
         }
@@ -298,6 +314,10 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         const next = { ...a.value, ...op.patch }
         a.set(next)
         reindexNode(next)
+        if (op.patch.z !== undefined) {
+          if (op.patch.z > topZ) topZ = op.patch.z
+          if (op.patch.z < bottomZ) bottomZ = op.patch.z
+        }
         // Edges whose endpoint is on this node now have stale geometry.
         // Bump each incident edge's version so the cache invalidates.
         const incident = incidentEdges.get(op.id)
@@ -328,6 +348,8 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         trackIncidence(op.edge)
         bumpEdgeVersion(op.edge.id)
         reindexEdge(op.edge)
+        if (op.edge.z > topZ) topZ = op.edge.z
+        if (op.edge.z < bottomZ) bottomZ = op.edge.z
         break
       }
       case 'edge.update': {
@@ -340,6 +362,10 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         a.set(next)
         bumpEdgeVersion(op.id)
         reindexEdge(next)
+        if (op.patch.z !== undefined) {
+          if (op.patch.z > topZ) topZ = op.patch.z
+          if (op.patch.z < bottomZ) bottomZ = op.patch.z
+        }
         break
       }
       case 'edge.remove': {
@@ -440,15 +466,12 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     generateId: () => idGenerator(),
 
     addNode(node) {
-      // Auto-top z when not explicitly specified — newly created nodes
-      // sit above everything else (Figma / Excalidraw default).
-      // Convention: `z === 0` (the Node type's default) means
-      // "auto-assign." Callers who explicitly want bottom can pass a
-      // negative value; callers who want a specific layer can pass any
-      // positive value.
-      const withZ = node.z === 0 ? { ...node, z: ++topZ } : node
-      if (withZ.z > topZ) topZ = withZ.z
-      const fitted = withAutoFitHeight(withZ)
+      // Auto-top z when the caller omits the field — newly created
+      // nodes sit above everything else (Figma / Excalidraw default).
+      // An explicit value (incl. 0 or negative) is honored as-is.
+      // `topZ` is then tracked centrally in applyOpInternal.
+      const z = node.z ?? ++topZ
+      const fitted = withAutoFitHeight({ ...node, z })
       enqueueOp({ type: 'node.add', node: fitted })
       return fitted.id
     },
@@ -524,7 +547,6 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         w,
         h,
         angle: 0,
-        z: 0,
         groups: [],
         style: opts.style,
         data: { src, naturalW, naturalH, alt: opts.alt } satisfies ImageNodeData,
@@ -550,7 +572,6 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
         w,
         h,
         angle: 0,
-        z: 0,
         groups: [],
         ...(mergedStyle ? { style: mergedStyle } : {}),
         data: { src: sanitized, alt: opts.alt } satisfies IconNodeData,
@@ -559,8 +580,10 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     },
 
     addEdge(edge) {
-      const withZ = edge.z === 0 ? { ...edge, z: ++topZ } : edge
-      if (withZ.z > topZ) topZ = withZ.z
+      // Same auto-top behavior as addNode — omit z for "on top",
+      // pass an explicit value (incl. 0 / negative) to override.
+      const z = edge.z ?? ++topZ
+      const withZ = { ...edge, z }
       enqueueOp({ type: 'edge.add', edge: withZ })
       return withZ.id
     },
@@ -584,36 +607,13 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
       })
     },
     sendToBack(ids) {
-      // Find the minimum z across all nodes + edges (excluding the
-      // targets themselves), then place each target below that. We do
-      // a single scan rather than maintain a `bottomZ` counter because
-      // sendToBack is rare; the scan is O(n) per call and dominated by
-      // the user gesture, not the frame budget.
-      const targets = new Set<string>(ids as string[])
-      let minZ = 0
-      let initialized = false
-      for (const a of nodeAtoms.values()) {
-        if (targets.has(a.value.id)) continue
-        if (!initialized || a.value.z < minZ) {
-          minZ = a.value.z
-          initialized = true
-        }
-      }
-      for (const a of edgeAtoms.values()) {
-        if (targets.has(a.value.id)) continue
-        if (!initialized || a.value.z < minZ) {
-          minZ = a.value.z
-          initialized = true
-        }
-      }
+      // O(1) per target via the monotonic `--bottomZ` counter. Multi-
+      // select preserves relative order because each step decrements
+      // (first selected lands one above the next).
       this.batch(() => {
-        // Step the new z down per item so multi-select preserves
-        // relative order (first selected stays on top of next).
-        let next = (initialized ? minZ : 0) - 1
         for (const id of ids) {
-          if (nodeAtoms.has(id as NodeId)) this.updateNode(id as NodeId, { z: next })
-          else if (edgeAtoms.has(id as EdgeId)) this.updateEdge(id as EdgeId, { z: next })
-          next -= 1
+          if (nodeAtoms.has(id as NodeId)) this.updateNode(id as NodeId, { z: --bottomZ })
+          else if (edgeAtoms.has(id as EdgeId)) this.updateEdge(id as EdgeId, { z: --bottomZ })
         }
       })
     },
@@ -633,9 +633,9 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
           const currentZ = node?.z ?? edge?.z
           if (currentZ === undefined) continue
           // Smallest non-target z strictly greater than currentZ.
+          // `applyOpInternal` keeps topZ in sync with the new value.
           const idx = binaryFirstGreater(allZ, currentZ)
           const nextZ = idx >= 0 ? allZ[idx]! + 1 : currentZ + 1
-          if (nextZ > topZ) topZ = nextZ
           if (node) this.updateNode(id as NodeId, { z: nextZ })
           else this.updateEdge(id as EdgeId, { z: nextZ })
         }
