@@ -34,22 +34,35 @@ export const worldViewport = (surface: CanvasSurface, camera: CameraState): Worl
  * Wraps a draw callback in the local-frame transform for one node:
  * translates to the node's center, rotates by node.angle, then translates
  * back to the node's top-left so the drawer can build paths in (0..w, 0..h).
+ *
+ * Fast path: when `node.angle === 0` (the common case) we skip the
+ * canvas2d save/restore pair entirely and manually un-translate after
+ * the callback. `save()`/`restore()` allocate + swap a full graphics
+ * state record; at 10k+ nodes/frame that's ~1ms of the paint budget.
+ * The callback is responsible for not leaking transform state — all
+ * built-in drawers (drawShape, drawCompositeRough, paintFrameNode,
+ * paintImageNode, paintIconNode) honor this contract by either
+ * leaving the transform untouched or restoring their own inner pushes.
  */
 export const drawWithNodeTransform = (
   ctx: CanvasRenderingContext2D,
   node: Node,
   fn: () => void,
 ): void => {
-  ctx.save()
   if (node.angle === 0) {
     ctx.translate(node.x, node.y)
-  } else {
-    const cx = node.x + node.w / 2
-    const cy = node.y + node.h / 2
-    ctx.translate(cx, cy)
-    ctx.rotate(node.angle)
-    ctx.translate(-node.w / 2, -node.h / 2)
+    fn()
+    ctx.translate(-node.x, -node.y)
+    return
   }
+  // Rotated path keeps the save/restore — un-doing translate + rotate
+  // + translate manually is error-prone and rotated nodes are rare.
+  ctx.save()
+  const cx = node.x + node.w / 2
+  const cy = node.y + node.h / 2
+  ctx.translate(cx, cy)
+  ctx.rotate(node.angle)
+  ctx.translate(-node.w / 2, -node.h / 2)
   fn()
   ctx.restore()
 }
