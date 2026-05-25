@@ -69,12 +69,11 @@ describe('codec', () => {
     const a = createCanvasStore({ clientId: asClientId('u-a') })
     a.addNode(makeNode())
     a.addNode(makeNode({ id: asNodeId('n-2'), x: 200 }))
-    const edge: Edge = {
+    const edge: Omit<Edge, 'z'> = {
       id: asEdgeId('e-1'),
       source: { nodeId: asNodeId('n-1'), localOffset: { x: 100, y: 50 } },
       target: { nodeId: asNodeId('n-2'), localOffset: { x: 0, y: 50 } },
       pathStyle: 'bezier',
-      z: 0,
       groups: [],
     }
     a.addEdge(edge)
@@ -84,8 +83,8 @@ describe('codec', () => {
     const b = createCanvasStore({ initial: restored })
 
     expect(b.getAllNodes()).toHaveLength(2)
-    // addEdge auto-assigns z (top of stack) when called with z=0; the
-    // restored store hydrates from the post-assignment serialized form.
+    // addEdge auto-assigns z (top of stack) when called without z;
+    // the restored store hydrates from the post-assignment form.
     const restoredEdge = b.getEdge(asEdgeId('e-1'))
     expect(restoredEdge).toEqual({ ...edge, z: restoredEdge!.z })
     expect(restoredEdge!.z).toBeGreaterThan(0)

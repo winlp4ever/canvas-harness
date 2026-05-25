@@ -761,6 +761,28 @@ Workarounds for the 1%:
 
 Document this explicitly so consumers don't file bugs against the architecture for behavior that's deliberate.
 
+#### Z-value allocation: two monotonic counters
+
+Within a layer, paint order is `a.z - b.z` ascending (low z paints behind, high z paints on top). The library maintains two counters per store to allocate z values without overloaded sentinels:
+
+- **`topZ`** — monotonic ↑. Bumped by `++topZ` for `addNode` / `addEdge` when the caller omits `z` (Figma / Excalidraw default: "newly created on top"), and by `bringToFront`. Initialized from the max z found in the loaded scene.
+- **`bottomZ`** — monotonic ↓. Bumped by `--bottomZ` for `sendToBack` (O(1) — no scan needed). Initialized from the min z found in the loaded scene. Initial value `0` when the scene is empty.
+
+Conventions:
+
+| Caller intent                  | Pass                                              | Result                  |
+|--------------------------------|---------------------------------------------------|-------------------------|
+| "I don't care, put on top"     | omit `z` entirely                                 | `z = ++topZ`            |
+| "I want a specific value"      | `z: 42` (or `0`, or `-7`)                         | honored literally       |
+| "Send to back"                 | call `sendToBack([id])`                           | `z = --bottomZ`         |
+| "Specific layer relative order"| set z values yourself; library does not reshuffle | exact z preserved       |
+
+Negative z is a first-class value. Anything `sendToBack`'d lives at z=-1, -2, … and z=0 is a neutral middle position between front and back stacks.
+
+Both counters are updated centrally in `applyOpInternal`, so remote ops (via the sync adapter) and arbitrary `updateNode({ z: ... })` calls extend the watermarks correctly. The counters are watermarks, not real-time min/max — if a `node.z` is raised then lowered, `bottomZ` stays at its previous low (the next `sendToBack` still produces "below anything we've ever seen"). Same applies to `topZ`. This is intentional: dropping the counter would require a O(n) scan, which is what the counter exists to avoid.
+
+Historically (pre-May 2026) the auto-top sentinel was `z === 0`, which was overloaded as both "I didn't set z" and "I literally want z=0." Any code path round-tripping a sendToBack-ed node back through `addNode` (paste, duplicate, custom importers) got re-promoted to the top. The `undefined`-as-sentinel + `bottomZ` counter design fixes this; see `tests/z-order.test.ts` for the regression coverage.
+
 ### 5.8 The escape hatch: `renderCanvas`
 
 For maximum performance, `renderCanvas(ctx, node, env)` lets a custom node draw directly to the canvas like a built-in primitive. No DOM, no React subtree, no LOD swap — also no DOM features (no iframes, no contenteditable, no embedded form fields). Use when:

@@ -64,7 +64,11 @@ const pickType = (i: number, kind: SeedKindValue): Primitive => {
   return SVG_TYPES[i % SVG_TYPES.length]!
 }
 
-const seededRect = (store: CanvasStore, i: number, kind: SeedKindValue): Node => {
+// Omit-z return so each fresh fixture node climbs `topZ` on add and
+// gets a unique stacking position. If we returned a fixed z (e.g. 0),
+// 10k nodes would all stack at the same z and fall back to id-tiebreak
+// (which goes lexicographic at counter > 9 — visible mis-orderings).
+const seededRect = (store: CanvasStore, i: number, kind: SeedKindValue): Omit<Node, 'z'> => {
   const cols = 50
   const x = (i % cols) * 50
   const y = Math.floor(i / cols) * 50
@@ -76,7 +80,6 @@ const seededRect = (store: CanvasStore, i: number, kind: SeedKindValue): Node =>
     w: 40,
     h: 40,
     angle: 0,
-    z: 0,
     groups: [],
     style: { backgroundColor: palette[i % palette.length], roughness: 1 },
   }
@@ -134,7 +137,6 @@ export const fixtureMarkdownHeavy: Fixture = store => {
         w: 220,
         h: 160,
         angle: 0,
-        z: 0,
         groups: [],
         content: MARKDOWN_CONTENTS[i % MARKDOWN_CONTENTS.length]!,
         style: {
@@ -175,7 +177,6 @@ export const fixture200Cards: Fixture = store => {
         w: 180,
         h: 120,
         angle: 0,
-        z: 0,
         groups: [],
         data: { title, series, fill: palette },
       })
@@ -210,7 +211,6 @@ export const fixture5kEdges: Fixture = store => {
         w: 80,
         h: 50,
         angle: 0,
-        z: 0,
         groups: [],
         style: { roughness: 1 },
       })
@@ -225,7 +225,6 @@ export const fixture5kEdges: Fixture = store => {
         source: { nodeId: a, localOffset: { x: 80, y: 25 } },
         target: { nodeId: b, localOffset: { x: 0, y: 25 } },
         pathStyle: 'bezier',
-        z: 0,
         groups: [],
         style: { roughness: 1 },
       })
@@ -282,7 +281,6 @@ export const fixture1kLabeledEdges: Fixture = store => {
           w: 80,
           h: 50,
           angle: 0,
-          z: 0,
           groups: [],
           style: { roughness: 1 },
         })
@@ -299,7 +297,6 @@ export const fixture1kLabeledEdges: Fixture = store => {
         source: { nodeId: a, localOffset: { x: 80, y: 25 } },
         target: { nodeId: b, localOffset: { x: 0, y: 25 } },
         pathStyle: 'bezier',
-        z: 0,
         groups: [],
         content: LABEL_POOL[i % LABEL_POOL.length],
         style: { roughness: 1 },

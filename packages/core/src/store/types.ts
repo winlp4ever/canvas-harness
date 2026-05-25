@@ -132,14 +132,19 @@ export interface CanvasStore {
    * Adds a node. Returns its id. If `node.style.autoFit !== false` and
    * `node.content` is set, height is grown to fit.
    *
+   * `z` is optional — omit to land on top of the current stack (uses
+   * the internal `topZ` counter). Pass a literal value (incl. `0` or
+   * negative) to place the node at that exact z.
+   *
    * @example
+   * // Omit z → goes on top of the current stack.
    * const id = store.addNode({
    *   id: asNodeId(store.generateId()),
    *   type: 'rect', x: 0, y: 0, w: 200, h: 100,
-   *   angle: 0, z: 0, groups: [],
+   *   angle: 0, groups: [],
    * })
    */
-  addNode(node: Node): NodeId
+  addNode(node: Omit<Node, 'z'> & { z?: number }): NodeId
 
   /**
    * Patches fields on an existing node. Captures the previous slice on
@@ -208,8 +213,11 @@ export interface CanvasStore {
     style?: Style
   }): Promise<NodeId>
 
-  /** Adds an edge. Returns its id. */
-  addEdge(edge: Edge): EdgeId
+  /**
+   * Adds an edge. Returns its id. `z` is optional — same auto-top
+   * semantics as {@link CanvasStore.addNode}.
+   */
+  addEdge(edge: Omit<Edge, 'z'> & { z?: number }): EdgeId
   /** Patches fields on an existing edge. */
   updateEdge(id: EdgeId, patch: Partial<Edge>): void
   /** Removes an edge. */

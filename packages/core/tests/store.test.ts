@@ -10,7 +10,12 @@ import {
   asNodeId,
 } from '../src/types'
 
-const makeNode = (overrides: Partial<Node> = {}): Node => ({
+// Test fixtures with optional `z` — addNode/addEdge auto-assign on
+// the top of the stack when z is omitted.
+type NodeInput = Omit<Node, 'z'> & { z?: number }
+type EdgeInput = Omit<Edge, 'z'> & { z?: number }
+
+const makeNode = (overrides: Partial<NodeInput> = {}): NodeInput => ({
   id: asNodeId('n-1'),
   type: 'rect',
   x: 0,
@@ -18,17 +23,15 @@ const makeNode = (overrides: Partial<Node> = {}): Node => ({
   w: 100,
   h: 100,
   angle: 0,
-  z: 0,
   groups: [],
   ...overrides,
 })
 
-const makeEdge = (overrides: Partial<Edge> = {}): Edge => ({
+const makeEdge = (overrides: Partial<EdgeInput> = {}): EdgeInput => ({
   id: asEdgeId('e-1'),
   source: { nodeId: asNodeId('n-1'), localOffset: { x: 100, y: 50 } },
   target: { nodeId: asNodeId('n-2'), localOffset: { x: 0, y: 50 } },
   pathStyle: 'bezier',
-  z: 0,
   groups: [],
   ...overrides,
 })
