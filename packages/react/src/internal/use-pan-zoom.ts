@@ -205,13 +205,13 @@ export const usePanZoom = (
         // Mouse wheel vs trackpad pinch heuristic. A notched mouse
         // wheel sends `|deltaY| ≥ 100` per click (OS-normalized);
         // trackpad pinch sends a stream of small (1-20) values.
-        // Mouse: discrete 10% step per notch — predictable, lots of
-        // gradations (100→90→81→73→66…), lands near any value.
+        // Mouse: discrete 5% step per notch — predictable, fine
+        // gradations (100→95→90→86→81→77…), lands near any value.
         // Trackpad: continuous exponential — feels like pinch.
         // Without this split, one mouse notch was `exp(-1) ≈ 0.37` —
         // a 63% drop in a single click.
         const factor =
-          Math.abs(e.deltaY) >= 100 ? (e.deltaY > 0 ? 1 / 1.1 : 1.1) : Math.exp(-e.deltaY * 0.01)
+          Math.abs(e.deltaY) >= 100 ? (e.deltaY > 0 ? 1 / 1.05 : 1.05) : Math.exp(-e.deltaY * 0.01)
         pendingZoomFactor *= factor
         pendingZoomAnchor = screenFromClient(e.clientX, e.clientY)
         pulseMotion('zooming')
