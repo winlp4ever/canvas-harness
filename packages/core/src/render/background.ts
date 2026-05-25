@@ -77,10 +77,12 @@ const paintDots = (
   zoom: number,
 ): void => {
   // Use a tiny `fillRect` per dot rather than `arc + fill`. At 1-2px
-  // on-screen the corners aren't perceivable, and one canvas2d call
-  // replaces three (beginPath / arc / fill) plus the implicit curve
-  // approximation. ~3-5x faster across thousands of dots/frame.
-  const sizeWorld = Math.max(1, 2.4 / zoom)
+  // on-screen the corners aren't perceivable (antialiasing softens
+  // them into something visually indistinguishable from a small
+  // round dot), and one canvas2d call replaces three (beginPath /
+  // arc / fill) plus the implicit curve approximation. ~3-5x faster
+  // across thousands of dots/frame.
+  const sizeWorld = Math.max(1, 1.6 / zoom)
   const half = sizeWorld / 2
   ctx.save()
   ctx.fillStyle = color
