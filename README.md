@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="favicon/web-app-manifest-192x192.png" alt="canvas-harness" width="128" height="128" />
+</p>
+
 # canvas-harness
 
 A canvas-rendered node-graph library — React Flow's API, Excalidraw's perf ceiling, TipTap's extensibility. Headless and styleless.
