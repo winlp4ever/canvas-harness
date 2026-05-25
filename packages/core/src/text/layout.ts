@@ -10,7 +10,8 @@ import type { FontFamily, FontSize, TextStyle } from '../types'
  * fit precisely. Text lines wrap by word, falling back to char-wrap
  * for words longer than `width`.
  */
-import { CODE_BLOCK_PADDING_X } from './defaults'
+import { CODE_BLOCK_PADDING_X, DEFAULT_TEXT_COLOR, FONT_SIZE_MAP } from './defaults'
+import { getMathBitmap } from './math'
 import { measureText } from './measure'
 import type { InlineType, Token } from './tokens'
 
@@ -29,6 +30,12 @@ export type LayoutOptions = {
   fontFamily: FontFamily
   fontSize: FontSize
   textStyle: TextStyle
+  /**
+   * Used to key the math bitmap cache. Both layout (for measured dims)
+   * and paint (for the actual bitmap) need to query the same cache
+   * entry. Defaults to `#000000` for estimate-only callers.
+   */
+  textColor?: string
 }
 
 const splitChunks = (text: string): string[] => text.split(/(\s+)/g).filter(Boolean)
@@ -183,6 +190,13 @@ export const layoutTokens = (tokens: Token[], opts: LayoutOptions): LayoutLine[]
     cursorX += chunkWidth
   }
 
+  const fontSizePx = FONT_SIZE_MAP[opts.fontSize]
+  // Must match paint-canvas's fallback so the math cache lookup keys
+  // align between layout (measuring) and paint (drawing). The cache
+  // is keyed by (source, color, size); a mismatch means paint never
+  // hits the bitmap layout compiled, and the placeholder sticks.
+  const mathColor = opts.textColor || DEFAULT_TEXT_COLOR
+
   for (const token of tokens) {
     if (token.type === 'code-block') {
       pushCodeBlock(token.content)
@@ -198,6 +212,22 @@ export const layoutTokens = (tokens: Token[], opts: LayoutOptions): LayoutLine[]
     }
     if (token.type === 'hr-double') {
       pushRule(true)
+      continue
+    }
+    if (token.type === 'math') {
+      // Math is an inline atom — never whitespace-split. Width comes
+      // from the cached bitmap (if compiled) or a length-based
+      // placeholder. When the cache resolves later, the math-epoch
+      // bump invalidates this layout's bitmap cache entry.
+      const bitmap = getMathBitmap(token.content, mathColor, fontSizePx)
+      const width = bitmap
+        ? bitmap.width
+        : // Placeholder: roughly proportional to source length so wrap
+          // doesn't dramatically shift on resolve. Capped at maxWidth.
+          Math.min(maxWidth, token.content.length * fontSizePx * 0.55 + fontSizePx)
+      if (cursorX > 0 && cursorX + width > maxWidth) pushLine()
+      currentRuns.push({ text: token.content, type: 'math' })
+      cursorX += width
       continue
     }
     for (const chunk of splitChunks(token.content)) pushChunk(chunk, token.type)

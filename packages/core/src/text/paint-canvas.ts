@@ -20,6 +20,7 @@ import {
 } from './defaults'
 import { getContentHeight } from './estimate-height'
 import { type LayoutLine, layoutTokens } from './layout'
+import { getMathBitmap } from './math'
 import { getCanvasFont, measureText } from './measure'
 import { tokenize } from './tokens'
 import type { InlineType } from './tokens'
@@ -92,6 +93,7 @@ export const drawTextToCanvas = (ctx: CanvasRenderingContext2D, opts: DrawTextOp
     fontFamily: opts.fontFamily,
     fontSize: opts.fontSize,
     textStyle: opts.textStyle,
+    textColor: opts.textColor,
   })
 
   ctx.textBaseline = 'alphabetic'
@@ -216,6 +218,31 @@ export const drawTextToCanvas = (ctx: CanvasRenderingContext2D, opts: DrawTextOp
         fontSize: opts.fontSize,
         textStyle: opts.textStyle,
       })
+
+      // Math runs: blit the cached bitmap if ready, else paint a
+      // subdued placeholder (light gray rectangle with `…`). The
+      // math-epoch invalidates this bitmap on resolve so the next
+      // paint picks up the real glyphs.
+      if (run.type === 'math') {
+        const mathColor = opts.textColor || DEFAULT_TEXT_COLOR
+        const bitmap = getMathBitmap(run.text, mathColor, fontSizePx)
+        if (bitmap) {
+          // Align the bitmap's baseline to the text baseline `y`.
+          // baselineOffset is px from the bitmap top down to baseline.
+          ctx.drawImage(bitmap.bitmap, x, y - bitmap.baselineOffset, runWidth, bitmap.height)
+        } else {
+          ctx.save()
+          ctx.fillStyle = 'rgba(148, 163, 184, 0.18)'
+          ctx.fillRect(x, y - fontSizePx + 2, runWidth, fontSizePx)
+          ctx.fillStyle = '#94a3b8'
+          ctx.font = `italic ${Math.max(8, fontSizePx * 0.75)}px system-ui, sans-serif`
+          ctx.textBaseline = 'alphabetic'
+          ctx.fillText('…', x + runWidth / 2 - 4, y - 2)
+          ctx.restore()
+        }
+        x += runWidth
+        continue
+      }
 
       if (run.type === 'highlight') {
         ctx.save()

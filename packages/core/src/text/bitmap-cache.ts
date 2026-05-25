@@ -1,5 +1,6 @@
 import type { FontFamily, FontSize, TextAlign, TextStyle } from '../types'
 import { getFontEpoch, subscribeFontEpoch } from './font-epoch'
+import { getMathEpoch, subscribeMathEpoch } from './math'
 /**
  * Bitmap cache for rendered markdown content — the architectural rewrite
  * called out in ARCHITECTURE.md §8.
@@ -77,6 +78,18 @@ subscribeFontEpoch(() => {
 })
 
 /**
+ * Listen for math compile resolves → cause math-bearing bitmaps to
+ * miss the cache. We don't actively evict; the new key encodes the
+ * bumped epoch so stale entries simply don't match. They LRU out.
+ */
+subscribeMathEpoch(() => {
+  // No-op body — the epoch bump alone is enough since `makeKey` reads
+  // `getMathEpoch()` for any text containing `$`. We still subscribe
+  // to keep the hook active so consumer-side listeners (e.g. the
+  // renderer triggering a repaint) can opt in via the same channel.
+})
+
+/**
  * Lookup-or-build. Always returns a non-null entry as long as `text` is
  * non-empty — on miss it draws synchronously and stores. Same call site
  * for hit and miss.
@@ -118,7 +131,13 @@ const makeKey = (
   // Cheap deterministic key — small string concat, no number formatting.
   // cachedTextHash memoizes the FNV-1a walk so a node's content is hashed
   // once across frames, not on every cache lookup.
-  return `${epoch}:${cachedTextHash(req.text)}:${req.width}:${req.height}:${zoom}:${dpr}:${scale}:${req.align}:${req.fontFamily}:${req.fontSize}:${req.textStyle}:${req.textColor}:${req.highlightColor}`
+  //
+  // Math-epoch is folded in ONLY when the text contains `$` (cheap
+  // includes check). Bitmaps without math never invalidate when math
+  // compiles resolve; bitmaps with math get a new key on each epoch
+  // bump and stale entries LRU out naturally.
+  const mathSuffix = req.text.includes('$') ? `:m${getMathEpoch()}` : ''
+  return `${epoch}:${cachedTextHash(req.text)}:${req.width}:${req.height}:${zoom}:${dpr}:${scale}:${req.align}:${req.fontFamily}:${req.fontSize}:${req.textStyle}:${req.textColor}:${req.highlightColor}${mathSuffix}`
 }
 
 const cachedTextHash = (value: string): string => {
