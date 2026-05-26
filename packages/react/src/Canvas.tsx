@@ -121,6 +121,24 @@ export type CanvasProps = {
    */
   selectionColor?: string
   /**
+   * Cap on the canvas backing-store DPR. Defaults to `1`.
+   *
+   * At native device-pixel ratio on hi-DPI displays (Mac Retina ≈ 2,
+   * Windows 4K @ 175% ≈ 1.75), the canvas backing buffer can hit
+   * 20-30 megapixels per frame — the per-frame GPU-upload cost alone
+   * eats a sizable slice of the frame budget. Capping DPR at 1 keeps
+   * perf consistent across hardware at the cost of slightly softer
+   * shape outlines on hi-DPI displays. Text remains crisp regardless
+   * (the text bitmap cache handles its own DPR).
+   *
+   * Bump to `2` (or `window.devicePixelRatio`) when crispness matters
+   * more than FPS — e.g. presentation slides, print-export views.
+   *
+   * @example
+   * <Canvas maxDpr={2} />  // pixel-crisp at the cost of FPS on hi-DPI
+   */
+  maxDpr?: number
+  /**
    * Render a custom node's React subtree. Called once per
    * library-mounted custom-node id; positioning is handled by the
    * overlay container (consumer fills the slot).
@@ -188,6 +206,7 @@ function CanvasSurface({
   arrowDefaults,
   background,
   selectionColor,
+  maxDpr,
   renderCustomNodeView,
   children,
 }: CanvasProps) {
@@ -207,9 +226,20 @@ function CanvasSurface({
   useArrowTool(wrapRef, store, tool === 'arrow', arrowDefaults)
 
   const { mountedIds, setMountedIds } = useOverlayHost()
-  const [camera, setCamera] = useState(() => store.getCamera())
 
-  useEffect(() => store.subscribe('camera', c => setCamera({ ...c })), [store])
+  // Camera follows pan/zoom on the overlay div via a direct
+  // style.transform write — keeps the React render tree out of the
+  // hot path. Reconciling Canvas + OverlayItems on every pan was the
+  // single largest per-frame cost at 3k+ nodes.
+  useEffect(() => {
+    const el = overlayRef.current
+    if (!el) return
+    const apply = (c: { x: number; y: number; z: number }) => {
+      el.style.transform = `translate(${-c.x * c.z}px, ${-c.y * c.z}px) scale(${c.z})`
+    }
+    apply(store.getCamera())
+    return store.subscribe('camera', apply)
+  }, [store])
 
   // Renderer lifecycle. Creates on first mount + size>0; disposes on
   // unmount. `background` and `selectionColor` are intentionally
@@ -232,6 +262,7 @@ function CanvasSurface({
       height: h,
       background,
       selectionColor,
+      maxDpr,
       onOverlayChange: ids => setMountedIds(ids),
     })
     r.start()
@@ -246,7 +277,7 @@ function CanvasSurface({
     // setSelectionColor effects below so the renderer isn't torn down
     // on every prop change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, theme, w, h, onRenderer, setMountedIds])
+  }, [store, theme, w, h, maxDpr, onRenderer, setMountedIds])
 
   // Forward background prop updates without re-creating the renderer.
   useEffect(() => {
@@ -468,8 +499,10 @@ function CanvasSurface({
     return () => window.removeEventListener('keydown', onKey)
   }, [store])
 
-  // CSS transform on overlay div so child positions in world coords follow camera with one composite op.
-  const overlayTransform = `translate(${-camera.x * camera.z}px, ${-camera.y * camera.z}px) scale(${camera.z})`
+  // Initial transform — subsequent updates are written directly to
+  // overlayRef.current.style by the camera-subscription effect above.
+  const initialCamera = store.getCamera()
+  const overlayTransform = `translate(${-initialCamera.x * initialCamera.z}px, ${-initialCamera.y * initialCamera.z}px) scale(${initialCamera.z})`
 
   return (
     <div

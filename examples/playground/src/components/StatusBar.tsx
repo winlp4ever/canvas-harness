@@ -1,19 +1,39 @@
-import { useCursor, useInteractionMode, useSelection } from '@canvas-harness/react'
+import type { PointerInfo } from '@canvas-harness/core'
+import { useCanvasStore } from '@canvas-harness/react'
+import { useEffect, useRef } from 'react'
 
 /**
- * Phase 12 deliverable: validates that `useInteractionState` /
- * `useCursor` / `useSelection` are cheap to call from many places.
- *
- * Each line subscribes to one signal — re-renders on mode change /
- * cursor move / selection delta independently.
+ * Subscribes directly to the store and mutates text nodes via refs —
+ * bypasses React reconciliation entirely on pointermove / mode flip,
+ * which fire at the monitor refresh rate during pan.
  */
+const formatCursor = (p: PointerInfo | null): string =>
+  p ? `(${p.worldX.toFixed(1)}, ${p.worldY.toFixed(1)}) ${p.pointerType}` : '—'
+
 export function StatusBar() {
-  const mode = useInteractionMode()
-  const cursor = useCursor()
-  const selection = useSelection()
-  const cursorText = cursor
-    ? `(${cursor.worldX.toFixed(1)}, ${cursor.worldY.toFixed(1)}) ${cursor.pointerType}`
-    : '—'
+  const store = useCanvasStore()
+  const modeRef = useRef<HTMLElement>(null)
+  const cursorRef = useRef<HTMLSpanElement>(null)
+  const selectionRef = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    const s = store.getInteractionState()
+    if (modeRef.current) modeRef.current.textContent = s.mode
+    if (cursorRef.current) cursorRef.current.textContent = formatCursor(s.pointer)
+    if (selectionRef.current) selectionRef.current.textContent = String(store.getSelection().length)
+
+    const offInteraction = store.subscribe('interaction', state => {
+      if (modeRef.current) modeRef.current.textContent = state.mode
+      if (cursorRef.current) cursorRef.current.textContent = formatCursor(state.pointer)
+    })
+    const offSelection = store.subscribe('selection', sel => {
+      if (selectionRef.current) selectionRef.current.textContent = String(sel.length)
+    })
+    return () => {
+      offInteraction()
+      offSelection()
+    }
+  }, [store])
 
   return (
     <div
@@ -37,10 +57,14 @@ export function StatusBar() {
       }}
     >
       <span>
-        mode: <strong style={{ color: '#0f172a' }}>{mode}</strong>
+        mode: <strong ref={modeRef} style={{ color: '#0f172a' }} />
       </span>
-      <span>cursor: {cursorText}</span>
-      <span>selected: {selection.length}</span>
+      <span>
+        cursor: <span ref={cursorRef} />
+      </span>
+      <span>
+        selected: <span ref={selectionRef} />
+      </span>
     </div>
   )
 }

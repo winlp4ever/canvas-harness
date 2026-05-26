@@ -1,4 +1,4 @@
-import type { CanvasStore, PresenceState } from '@canvas-harness/core'
+import type { CanvasStore, ClientId, PresenceState } from '@canvas-harness/core'
 import { useEffect, useRef, useState } from 'react'
 
 /**
@@ -9,14 +9,54 @@ import { useEffect, useRef, useState } from 'react'
  *
  * Updates the local cursor presence on mousemove (throttled to rAF) so
  * peers see this user's cursor too.
+ *
+ * Per-frame strategy: React re-renders only when the *set* of peers (or
+ * their color/name) changes. Cursor positions are written directly to
+ * the DOM via refs on every camera or presence event — sidesteps
+ * reconciliation during pan, which fires this subscription at vsync.
  */
+const peerListChanged = (a: PresenceState[], b: PresenceState[]): boolean => {
+  if (a.length !== b.length) return true
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!
+    const y = b[i]!
+    if (x.clientId !== y.clientId || x.color !== y.color || x.name !== y.name) return true
+  }
+  return false
+}
+
 export function PresenceOverlay({ store }: { store: CanvasStore }) {
   const [remotes, setRemotes] = useState<PresenceState[]>([])
+  const dotRefs = useRef(new Map<ClientId, HTMLDivElement>())
 
   useEffect(() => {
-    const snapshot = () => setRemotes([...store.presence.getAll().values()])
-    snapshot()
-    return store.subscribe('presence', () => snapshot())
+    const reposition = () => {
+      const camera = store.getCamera()
+      const presences = store.presence.getAll()
+      for (const [id, el] of dotRefs.current) {
+        const p = presences.get(id)
+        if (!p?.cursor) {
+          el.style.display = 'none'
+          continue
+        }
+        el.style.display = 'flex'
+        const x = (p.cursor.x - camera.x) * camera.z - 2
+        const y = (p.cursor.y - camera.y) * camera.z - 2
+        el.style.transform = `translate(${x}px, ${y}px)`
+      }
+    }
+    const sync = () => {
+      const latest = [...store.presence.getAll().values()]
+      setRemotes(prev => (peerListChanged(prev, latest) ? latest : prev))
+      reposition()
+    }
+    sync()
+    const offPresence = store.subscribe('presence', sync)
+    const offCamera = store.subscribe('camera', reposition)
+    return () => {
+      offPresence()
+      offCamera()
+    }
   }, [store])
 
   // Track local cursor → presence so peers see it. Throttle to rAF to
@@ -25,7 +65,6 @@ export function PresenceOverlay({ store }: { store: CanvasStore }) {
   const pendingCursor = useRef<{ x: number; y: number } | null>(null)
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      // Convert screen → world via the current camera.
       const camera = store.getCamera()
       pendingCursor.current = {
         x: e.clientX / camera.z + camera.x,
@@ -47,16 +86,6 @@ export function PresenceOverlay({ store }: { store: CanvasStore }) {
     }
   }, [store])
 
-  // Re-render on camera change so the overlay tracks pan/zoom.
-  const [, force] = useState(0)
-  useEffect(() => store.subscribe('camera', () => force(n => n + 1)), [store])
-
-  const camera = store.getCamera()
-  const toScreen = (wx: number, wy: number) => ({
-    x: (wx - camera.x) * camera.z,
-    y: (wy - camera.y) * camera.z,
-  })
-
   return (
     <div
       style={{
@@ -66,48 +95,48 @@ export function PresenceOverlay({ store }: { store: CanvasStore }) {
         zIndex: 15,
       }}
     >
-      {remotes.map(p => {
-        if (!p.cursor) return null
-        const pt = toScreen(p.cursor.x, p.cursor.y)
-        return (
+      {remotes.map(p => (
+        <div
+          key={p.clientId}
+          ref={el => {
+            if (el) dotRefs.current.set(p.clientId, el)
+            else dotRefs.current.delete(p.clientId)
+          }}
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            display: 'none',
+            alignItems: 'flex-start',
+            gap: 4,
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            willChange: 'transform',
+          }}
+        >
           <div
-            key={p.clientId}
             style={{
-              position: 'absolute',
-              left: pt.x,
-              top: pt.y,
-              transform: 'translate(-2px, -2px)',
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 4,
-              fontFamily: 'system-ui, -apple-system, sans-serif',
+              width: 10,
+              height: 10,
+              background: p.color,
+              borderRadius: '50%',
+              border: '1px solid #fff',
+              boxShadow: '0 0 0 1px rgba(0,0,0,0.12)',
+            }}
+          />
+          <div
+            style={{
+              background: p.color,
+              color: '#fff',
+              padding: '2px 6px',
+              borderRadius: 4,
+              fontSize: 11,
+              whiteSpace: 'nowrap',
             }}
           >
-            <div
-              style={{
-                width: 10,
-                height: 10,
-                background: p.color,
-                borderRadius: '50%',
-                border: '1px solid #fff',
-                boxShadow: '0 0 0 1px rgba(0,0,0,0.12)',
-              }}
-            />
-            <div
-              style={{
-                background: p.color,
-                color: '#fff',
-                padding: '2px 6px',
-                borderRadius: 4,
-                fontSize: 11,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {p.name || p.clientId.slice(0, 6)}
-            </div>
+            {p.name || p.clientId.slice(0, 6)}
           </div>
-        )
-      })}
+        </div>
+      ))}
     </div>
   )
 }

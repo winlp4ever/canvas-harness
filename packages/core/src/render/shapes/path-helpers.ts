@@ -11,23 +11,17 @@ export const buildRectPath = (
   h: number,
   radius: number,
 ): void => {
+  ctx.beginPath()
   if (radius <= 0) {
-    ctx.beginPath()
     ctx.rect(0, 0, w, h)
     return
   }
-  const r = Math.min(radius, w / 2, h / 2)
-  ctx.beginPath()
-  ctx.moveTo(r, 0)
-  ctx.lineTo(w - r, 0)
-  ctx.quadraticCurveTo(w, 0, w, r)
-  ctx.lineTo(w, h - r)
-  ctx.quadraticCurveTo(w, h, w - r, h)
-  ctx.lineTo(r, h)
-  ctx.quadraticCurveTo(0, h, 0, h - r)
-  ctx.lineTo(0, r)
-  ctx.quadraticCurveTo(0, 0, r, 0)
-  ctx.closePath()
+  // Native roundRect — one C++ call per rect. The manual 4×
+  // quadraticCurveTo + 4× lineTo build was 28k JS→native crossings
+  // per frame at 7k visible rects and dominated paint on lower-end
+  // GPUs (Windows 4K + integrated graphics). roundRect clamps the
+  // radius to min(w/2, h/2) internally, matching the previous behavior.
+  ctx.roundRect(0, 0, w, h, radius)
 }
 
 export const buildEllipsePath = (ctx: CanvasRenderingContext2D, w: number, h: number): void => {
