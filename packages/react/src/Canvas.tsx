@@ -226,9 +226,20 @@ function CanvasSurface({
   useArrowTool(wrapRef, store, tool === 'arrow', arrowDefaults)
 
   const { mountedIds, setMountedIds } = useOverlayHost()
-  const [camera, setCamera] = useState(() => store.getCamera())
 
-  useEffect(() => store.subscribe('camera', c => setCamera({ ...c })), [store])
+  // Camera follows pan/zoom on the overlay div via a direct
+  // style.transform write — keeps the React render tree out of the
+  // hot path. Reconciling Canvas + OverlayItems on every pan was the
+  // single largest per-frame cost at 3k+ nodes.
+  useEffect(() => {
+    const el = overlayRef.current
+    if (!el) return
+    const apply = (c: { x: number; y: number; z: number }) => {
+      el.style.transform = `translate(${-c.x * c.z}px, ${-c.y * c.z}px) scale(${c.z})`
+    }
+    apply(store.getCamera())
+    return store.subscribe('camera', apply)
+  }, [store])
 
   // Renderer lifecycle. Creates on first mount + size>0; disposes on
   // unmount. `background` and `selectionColor` are intentionally
@@ -488,8 +499,10 @@ function CanvasSurface({
     return () => window.removeEventListener('keydown', onKey)
   }, [store])
 
-  // CSS transform on overlay div so child positions in world coords follow camera with one composite op.
-  const overlayTransform = `translate(${-camera.x * camera.z}px, ${-camera.y * camera.z}px) scale(${camera.z})`
+  // Initial transform — subsequent updates are written directly to
+  // overlayRef.current.style by the camera-subscription effect above.
+  const initialCamera = store.getCamera()
+  const overlayTransform = `translate(${-initialCamera.x * initialCamera.z}px, ${-initialCamera.y * initialCamera.z}px) scale(${initialCamera.z})`
 
   return (
     <div
