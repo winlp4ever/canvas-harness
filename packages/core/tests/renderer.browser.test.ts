@@ -257,6 +257,55 @@ describe('Renderer (browser)', () => {
     cleanup(staticCanvas, interactiveCanvas)
   })
 
+  test('strip extend: panning past the margin matches a full re-render', async () => {
+    const { staticCanvas, interactiveCanvas } = makeCanvases()
+    const store = createCanvasStore({ clientId: asClientId('u-test') })
+    // Grid of rects across a wide area so each pan reveals new content
+    // and some rects straddle the strip seams.
+    let k = 0
+    for (let gx = 0; gx < 1400; gx += 120) {
+      for (let gy = 0; gy < 1400; gy += 120) {
+        store.addNode(rectNode(`g-${k++}`, { x: gx, y: gy, w: 80, h: 60 }))
+      }
+    }
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 800,
+      height: 600,
+    })
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+
+    // Pan past the 256px margin in steps: horizontal, then vertical,
+    // then diagonal — exercising single-strip and L-shape extends.
+    for (const cam of [
+      { x: 300, y: 0 },
+      { x: 300, y: 300 },
+      { x: 600, y: 600 },
+    ]) {
+      store.setCamera(cam)
+      await waitFrame()
+      await waitFrame()
+    }
+    const extended = readPixels(staticCanvas)
+    expect(countNonEmptyPixels(staticCanvas)).toBeGreaterThan(0)
+
+    // A full re-render at the same final camera must match what the
+    // shift + strip repaints produced.
+    renderer.invalidate()
+    await waitFrame()
+    await waitFrame()
+    const full = readPixels(staticCanvas)
+
+    expect(diffByteCount(extended, full)).toBeLessThan(extended.length * 0.01)
+
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
+
   test('skip-tiny LOD: sub-pixel-on-screen shapes are culled', async () => {
     const { staticCanvas, interactiveCanvas } = makeCanvases()
     const store = createCanvasStore({ clientId: asClientId('u-test') })

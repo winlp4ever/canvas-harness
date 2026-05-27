@@ -264,6 +264,12 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     surface: CanvasSurface,
     camera: CameraState,
     viewport: WorldRect,
+    // Strip renders (Phase 3 cache extension) paint only a sliver of
+    // the scene, so they must NOT publish the draw count or the
+    // React-overlay mount set — those describe the whole viewport and
+    // are owned by full renders. Same contract as the blit-only path,
+    // which doesn't run this body at all.
+    fullRender = true,
   ): void => {
     const scale = camera.z * surface.dpr
     const interaction = store.getInteractionState()
@@ -473,6 +479,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       paintOneEdge(surface.ctx, edge, scale, edgeRoughEnabled, camera.z, isMoving)
       drawn++
     }
+    if (!fullRender) return
     lastDrawn = drawn
 
     // Emit overlay event if the React-mount set changed.
@@ -488,14 +495,26 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
    * SCENE_CACHE_MARGIN_PX on every side. Records `cacheCam*` so a
    * subsequent `presentStatic` knows where the viewport sits inside it.
    */
+  /**
+   * Sets the cache's world→device transform centered on (`centerX`,
+   * `centerY`) at zoom `z`, shifted by the margin so the world point at
+   * screen (-margin, -margin) maps to cache device (0, 0).
+   */
+  const applyCacheTransform = (
+    cache: CanvasSurface,
+    centerX: number,
+    centerY: number,
+    z: number,
+  ): void => {
+    const s = z * cache.dpr
+    const m = SCENE_CACHE_MARGIN_PX * cache.dpr
+    cache.ctx.setTransform(s, 0, 0, s, -centerX * s + m, -centerY * s + m)
+  }
+
   const renderFullCache = (camera: CameraState): void => {
     const cache = ensureCacheSurface()
     clearSurface(cache)
-    // world→device transform, shifted by the margin so world point at
-    // screen (-margin, -margin) maps to cache device (0, 0).
-    const s = camera.z * cache.dpr
-    const m = SCENE_CACHE_MARGIN_PX * cache.dpr
-    cache.ctx.setTransform(s, 0, 0, s, -camera.x * s + m, -camera.y * s + m)
+    applyCacheTransform(cache, camera.x, camera.y, camera.z)
     const marginWorld = SCENE_CACHE_MARGIN_PX / camera.z
     const viewport = inflateRect(worldViewport(staticSurface, camera), marginWorld)
     paintSceneBody(cache, camera, viewport)
@@ -503,6 +522,96 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     cacheCamY = camera.y
     cacheCamZ = camera.z
     cacheStale = false
+  }
+
+  /**
+   * True when a pan past the margin still overlaps the cache enough to
+   * be worth extending (vs a full re-render). False on big jumps
+   * (minimap click, programmatic teleport) where nothing can be reused.
+   */
+  const canExtend = (camera: CameraState): boolean => {
+    if (!cacheSurface) return false
+    const s = camera.z * staticSurface.dpr
+    const dx = Math.abs((cacheCamX - camera.x) * s)
+    const dy = Math.abs((cacheCamY - camera.y) * s)
+    return dx < cacheSurface.canvas.width && dy < cacheSurface.canvas.height
+  }
+
+  /**
+   * Repaints one device-space strip of the cache: clip + clear it, then
+   * render the scene clipped to that strip under the cache transform
+   * centered on (`centerX`, `centerY`).
+   */
+  const renderCacheStrip = (
+    cache: CanvasSurface,
+    centerX: number,
+    centerY: number,
+    z: number,
+    px: number,
+    py: number,
+    pw: number,
+    ph: number,
+  ): void => {
+    const ctx = cache.ctx
+    const s = z * cache.dpr
+    const m = SCENE_CACHE_MARGIN_PX * cache.dpr
+    ctx.save()
+    // Clip + clear in device space; the clip persists across setTransform.
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.beginPath()
+    ctx.rect(px, py, pw, ph)
+    ctx.clip()
+    ctx.clearRect(px, py, pw, ph)
+    applyCacheTransform(cache, centerX, centerY, z)
+    // device → world for the strip rect (inverse of the cache transform).
+    const viewport: WorldRect = {
+      x: (px - m) / s + centerX,
+      y: (py - m) / s + centerY,
+      w: pw / s,
+      h: ph / s,
+    }
+    paintSceneBody(cache, { x: centerX, y: centerY, z }, viewport, false)
+    ctx.restore()
+  }
+
+  /**
+   * Reuses the cache across a pan that left the margin: shifts the
+   * existing pixels to recenter on `camera` (integer device-px copy, so
+   * no resample / no accumulating blur), then repaints only the
+   * L-shaped strip the shift exposed. Pre: cache valid, same zoom,
+   * `canExtend(camera)` true.
+   */
+  const extendCache = (camera: CameraState): void => {
+    const cache = ensureCacheSurface()
+    const s = camera.z * cache.dpr
+    const cacheW = cache.canvas.width
+    const cacheH = cache.canvas.height
+    // Integer device-px shift that recenters old content on `camera`,
+    // and the exact world center that integer shift implies (keeps the
+    // transform consistent with the rounded copy).
+    const dx = Math.round((cacheCamX - camera.x) * s)
+    const dy = Math.round((cacheCamY - camera.y) * s)
+    const newCamX = cacheCamX - dx / s
+    const newCamY = cacheCamY - dy / s
+
+    // 1. Shift existing pixels. Self-copy is spec-safe (source snapshot).
+    cache.ctx.setTransform(1, 0, 0, 1, 0, 0)
+    cache.ctx.drawImage(cache.canvas, 0, 0, cacheW, cacheH, dx, dy, cacheW, cacheH)
+    cacheCamX = newCamX
+    cacheCamY = newCamY
+    cacheCamZ = camera.z
+
+    // 2. Repaint the vacated L-shape as two disjoint rects. Horizontal
+    //    strip spans full height; vertical strip takes the remaining
+    //    width so the corner is painted exactly once.
+    const hw = Math.abs(dx)
+    const vh = Math.abs(dy)
+    const hx = dx > 0 ? 0 : cacheW - hw
+    const vy = dy > 0 ? 0 : cacheH - vh
+    const vx = dx > 0 ? hw : 0
+    const vw = cacheW - hw
+    if (hw > 0) renderCacheStrip(cache, newCamX, newCamY, camera.z, hx, 0, hw, cacheH)
+    if (vh > 0 && vw > 0) renderCacheStrip(cache, newCamX, newCamY, camera.z, vx, vy, vw, vh)
   }
 
   /**
@@ -550,16 +659,24 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   }
 
   /**
-   * Static-layer paint entry point. Fast path: when the cache content is
-   * still valid (no content/zoom/size change) and the viewport hasn't
-   * panned outside the cached margin, present by blitting alone — no
-   * scene render. Otherwise re-render the full cache, then present.
+   * Static-layer paint entry point. Three tiers, cheapest first:
+   *   1. cache valid + viewport inside the margin → blit only (Phase 2)
+   *   2. cache valid + panned past the margin but still overlapping →
+   *      shift + repaint the exposed strip, then blit (Phase 3)
+   *   3. otherwise (stale content, zoom, big jump) → full re-render
    */
   const paintStatic = (): void => {
     const camera = store.getCamera()
-    if (!cacheStale && camera.z === cacheCamZ && viewportFitsInCache(camera)) {
-      presentStatic(camera)
-      return
+    if (!cacheStale && camera.z === cacheCamZ) {
+      if (viewportFitsInCache(camera)) {
+        presentStatic(camera)
+        return
+      }
+      if (canExtend(camera)) {
+        extendCache(camera)
+        presentStatic(camera)
+        return
+      }
     }
     renderFullCache(camera)
     presentStatic(camera)
