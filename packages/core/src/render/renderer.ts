@@ -181,6 +181,10 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   let cacheCamX = 0
   let cacheCamY = 0
   let cacheCamZ = 1
+  // True when the cache's *content* is stale (a scene/zoom/size change,
+  // anything but a pure pan). Pan leaves it false so `paintStatic` can
+  // present by blitting alone. `renderFullCache` clears it.
+  let cacheStale = true
 
   /**
    * Lazily allocates / resizes the offscreen cache to `viewport + 2·margin`
@@ -230,6 +234,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   // closure that resolves it at call time.
   const requestRepaint = (): void => {
     staticDirty = true
+    cacheStale = true
     loop.requestFrame()
   }
   const assetCache = createAssetCache({ onReady: requestRepaint })
@@ -376,6 +381,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
             if (useRough && !roughReady) {
               onRoughReady(() => {
                 staticDirty = true
+                cacheStale = true
                 loop.requestFrame()
               })
             }
@@ -496,6 +502,36 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     cacheCamX = camera.x
     cacheCamY = camera.y
     cacheCamZ = camera.z
+    cacheStale = false
+  }
+
+  /**
+   * The viewport's top-left offset inside the cache, in cache device
+   * pixels, given the pan since `cacheCam*`. Rounded so the present blit
+   * and the fits-in-cache test agree on the same integer rect.
+   */
+  const cacheSourceOffset = (camera: CameraState): { x: number; y: number } => {
+    const dpr = staticSurface.dpr
+    return {
+      x: Math.round(((camera.x - cacheCamX) * cacheCamZ + SCENE_CACHE_MARGIN_PX) * dpr),
+      y: Math.round(((camera.y - cacheCamY) * cacheCamZ + SCENE_CACHE_MARGIN_PX) * dpr),
+    }
+  }
+
+  /**
+   * True when the current viewport lies entirely within the cached
+   * region — i.e. the pan since the last full render stayed inside the
+   * margin, so we can present by blitting alone.
+   */
+  const viewportFitsInCache = (camera: CameraState): boolean => {
+    if (!cacheSurface) return false
+    const { x, y } = cacheSourceOffset(camera)
+    return (
+      x >= 0 &&
+      y >= 0 &&
+      x + staticSurface.canvas.width <= cacheSurface.canvas.width &&
+      y + staticSurface.canvas.height <= cacheSurface.canvas.height
+    )
   }
 
   /**
@@ -505,23 +541,26 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
    */
   const presentStatic = (camera: CameraState): void => {
     const cache = ensureCacheSurface()
-    const dpr = staticSurface.dpr
     const w = staticSurface.canvas.width
     const h = staticSurface.canvas.height
-    const srcX = Math.round(((camera.x - cacheCamX) * cacheCamZ + SCENE_CACHE_MARGIN_PX) * dpr)
-    const srcY = Math.round(((camera.y - cacheCamY) * cacheCamZ + SCENE_CACHE_MARGIN_PX) * dpr)
+    const { x: srcX, y: srcY } = cacheSourceOffset(camera)
     staticSurface.ctx.setTransform(1, 0, 0, 1, 0, 0)
     staticSurface.ctx.clearRect(0, 0, w, h)
     staticSurface.ctx.drawImage(cache.canvas, srcX, srcY, w, h, 0, 0, w, h)
   }
 
   /**
-   * Static-layer paint entry point. Phase 1: always re-render the full
-   * cache at the current camera, then present. Phases 2-3 add pan reuse
-   * (blit-only) and strip extension here.
+   * Static-layer paint entry point. Fast path: when the cache content is
+   * still valid (no content/zoom/size change) and the viewport hasn't
+   * panned outside the cached margin, present by blitting alone — no
+   * scene render. Otherwise re-render the full cache, then present.
    */
   const paintStatic = (): void => {
     const camera = store.getCamera()
+    if (!cacheStale && camera.z === cacheCamZ && viewportFitsInCache(camera)) {
+      presentStatic(camera)
+      return
+    }
     renderFullCache(camera)
     presentStatic(camera)
   }
@@ -936,9 +975,13 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // independent of viewport + selection state).
     invalidateSortedCaches()
     staticDirty = true
+    cacheStale = true
     interactiveDirty = true
     loop.requestFrame()
   }
+  // Camera is the one static-dirtying event that does NOT stale the
+  // cache content: a pure pan reuses the cache (blit-only), and a zoom
+  // is caught by the `z !== cacheCamZ` check in `paintStatic`.
   const onCameraChange = (): void => {
     staticDirty = true
     interactiveDirty = true
@@ -966,6 +1009,11 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       state.mode === 'idle'
     ) {
       staticDirty = true
+      // A mode transition changes the excluded set and/or motion-LOD,
+      // so the cache content must be rebuilt. This also guarantees the
+      // first frame of a pan does a full render — which is what swaps
+      // custom-node React overlays to their canvas fallback.
+      cacheStale = true
     }
     loop.requestFrame()
   }
@@ -977,12 +1025,14 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   // Custom-font load → bitmap cache clears itself; we just need a repaint.
   const unsubFontEpoch = subscribeFontEpoch(() => {
     staticDirty = true
+    cacheStale = true
     loop.requestFrame()
   })
   // Math formula compile → math-bearing bitmaps get a new cache key
   // via the math-epoch; repaint to pick up the real glyphs.
   const unsubMathEpoch = subscribeMathEpoch(() => {
     staticDirty = true
+    cacheStale = true
     loop.requestFrame()
   })
 
@@ -990,6 +1040,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     start() {
       loop.start()
       staticDirty = true
+      cacheStale = true
       interactiveDirty = isInteractive(store.getInteractionState())
       loop.requestFrame()
     },
@@ -998,6 +1049,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     },
     invalidate() {
       staticDirty = true
+      cacheStale = true
       interactiveDirty = true
       loop.requestFrame()
     },
@@ -1006,6 +1058,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       const b = sizeSurface(interactiveSurface, cssW, cssH, maxDpr)
       if (a || b) {
         staticDirty = true
+        cacheStale = true
         interactiveDirty = true
         loop.requestFrame()
       }
@@ -1013,6 +1066,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     setBackground(bg) {
       background = bg
       staticDirty = true
+      cacheStale = true
       loop.requestFrame()
     },
     setSelectionColor(color) {
@@ -1025,6 +1079,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     setHideFrames(hidden) {
       hideFrames = hidden
       staticDirty = true
+      cacheStale = true
       loop.requestFrame()
     },
     stats: () => loop.stats(),
