@@ -142,6 +142,7 @@ These are the calls made during the build that differ from the doc above. Each w
 | `<Canvas>` accepts uncontrolled props only (no `selection={ids}` etc.) | 9 | Store is the controlled source. Controlled-prop variants would create two sources of truth. |
 | Conflict event includes per-field record, not just batch | 8 | The doc said `conflict: { batch, conflicts }` — we ship `conflicts: { op, field }[]` so a consumer toast can name the property that was overwritten ("background color was just changed by Alice"). |
 | Undo stack capped at 50 (not unlimited or 200) | 8 | Excalidraw is unlimited; Photoshop default is 50. User picked 50 as a memory safety net; size easily configurable later. |
+| Static scene cache (offscreen viewport+margin buffer; blit / strip-extend / re-render tiers) | post-12 | The original "camera changes never touch static" was never built — pan re-rendered every visible node. The cache (ARCHITECTURE.md §4.4) makes pan cost independent of scene size. Optimizes pan only; zoom + live-mutating scenes still full-render. |
 
 ### 3.1 Playground UI deliverables per phase
 
@@ -419,5 +420,6 @@ Track choices made AFTER this plan is committed, so future devs can read the rea
 | 2026-05-19 | Phase 11.5: drag-to-create + dbl-click-text fold into Phase 11 polish | Both were small (~200 LOC) and unblock the "feels like excalidraw" tactile flow | yes |
 | 2026-05-19 | Phase 11.5: bump resize handle size 10 → 14px, rotate 7 → 9px | Touch reach (44 / 48px target floor is unreachable without making handles dominate at desktop); 14px is the tldraw value, minor desktop impact | yes |
 | 2026-05-19 | Phase 12: getContext markdown is full-text, not tabular; opSchemas ships both raw JSON schemas + Anthropic tool-def wrapper; snap-to-grid is playground demo not library export | LLMs read prose better than tables (wastes tokens); both formats are useful (validate vs tool-use); extension *mechanism* is library, extension *policy* is consumer | yes |
+| 2026-05-27 | Static scene cache (3 tiers: blit / strip-extend / full re-render). Static layer now presents from an offscreen viewport+256px cache; a pan blits, a margin crossing shifts + repaints only the exposed strip, only content/zoom changes re-render the scene | Pan was re-rendering all visible nodes every frame (the old "camera never touches static" was aspirational, never implemented). Profiling on a 4K/discrete-GPU Windows box showed full re-render dominating pan frames. Cache makes pan cost O(1) in scene size: 10k & 20k both hit the 120fps vsync ceiling | yes (`ARCHITECTURE.md` §4.4) |
 
 Append on every reversal or refinement. This is the trail when someone asks "why are we using X."

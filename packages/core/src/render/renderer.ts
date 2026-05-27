@@ -57,11 +57,12 @@ import { applyCameraTransform, drawWithNodeTransform, worldViewport } from './tr
 
 /**
  * The static scene is rendered into an offscreen cache sized to the
- * viewport plus this margin (CSS px) on every side. Presenting blits
- * the viewport-sized sub-rect onto the on-screen static canvas. Phase
- * 1 re-renders the whole cache on every `staticDirty` frame (no reuse
- * yet); the margin is here so Phases 2-3 can pan within it without a
- * re-render. See ARCHITECTURE.md §4.3.
+ * viewport plus this margin (CSS px) on every side. The on-screen
+ * canvas is presented from that cache: a sub-margin pan blits, a pan
+ * past the margin shifts + repaints only the exposed strip, and only a
+ * content/zoom change re-renders the whole scene. The margin is the
+ * pan distance reused before a strip extend is needed. See
+ * ARCHITECTURE.md §4.4.
  */
 const SCENE_CACHE_MARGIN_PX = 256
 
