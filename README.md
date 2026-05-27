@@ -6,6 +6,12 @@
 
 A canvas-rendered node-graph library — React Flow's API, Excalidraw's perf ceiling, TipTap's extensibility. Headless and styleless.
 
+<p align="center">
+  <a href="https://www.dim0.net/canvas-harness"><b>Website</b></a>
+  ·
+  <a href="https://www.dim0.net/canvas-harness/playground"><b>Live playground</b></a>
+</p>
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ Node-graph diagrams, mind-maps, whiteboards, flow editors,      │
@@ -16,7 +22,7 @@ A canvas-rendered node-graph library — React Flow's API, Excalidraw's perf cei
 
 ## Why
 
-- **Canvas-rendered**: built-in shapes paint directly into a canvas with bitmap-cached static + live interactive surfaces. No React reconciliation on the per-frame critical path. **10k visible nodes pan at ~80fps** on a MacBook M1 — where React Flow gets sluggish around 1-2k and Excalidraw struggles past 5k.
+- **Canvas-rendered**: built-in shapes paint directly into a canvas with a cached static surface + live interactive surface. No React reconciliation on the per-frame critical path. **10k visible nodes pan at ~80fps** on a MacBook M1 — where React Flow gets sluggish around 1-2k and Excalidraw struggles past 5k.
 - **DOM overlays for custom nodes**: when a node needs iframes, charts, videos, or arbitrary React, register a custom node type and the renderer mounts your React component in an overlay synced to the camera transform. LOD ladder swaps in a canvas placeholder at low zoom.
 - **Hand-drawn aesthetic, opt-in**: per-shape `style.roughness` enables rough.js outlines and freehand brushy edges (perfect-freehand). Auto-disables during pan/zoom and at high node counts so the wobble never costs perf.
 - **Inline LaTeX math**: `$E = mc^2$` inside any text node — typeset via MathJax (loaded lazily from CDN, never bundled). See [Math](#math) below.
@@ -396,6 +402,7 @@ Why "10k visible nodes at ~80fps active pan" is achievable:
 | Lever | What |
 |---|---|
 | Two-surface architecture | Static surface bitmap-cached; only dragged/edited nodes repaint per frame |
+| Static scene cache | Pan presents from an offscreen viewport+margin cache — sub-margin pans blit, margin crossings shift + repaint only the newly-revealed strip; only content/zoom changes re-render |
 | Visibility culling | Uniform-grid spatial index drops off-viewport nodes early |
 | Sorted-id cache | Full-scene z-order cached across frames; pan reuses it instead of re-sorting every frame |
 | Save/restore elision | Axis-aligned nodes (the common case) skip the canvas2d `save()`/`restore()` pair — built-in drawers are state-self-sufficient |
@@ -405,8 +412,8 @@ Why "10k visible nodes at ~80fps active pan" is achievable:
 | Auto-fit on commit | Text height computed at commit, never per-keystroke |
 
 Roughly:
-- Idle scene: static bitmap blit, ~120fps on ProMotion regardless of node count.
-- Active pan: ~80fps at 10k visible rects, ~120fps under 1k.
+- Idle scene: static bitmap blit, ~120fps regardless of node count.
+- Active pan: served from the scene cache — most pan frames are a single blit; only content/zoom changes re-render the scene.
 - Drag: only the dragged node repaints on the interactive surface; static cache untouched.
 
 **Custom-node `renderCanvas` authors**: the renderer wraps your draw in `ctx.save()` / `ctx.restore()`, so any state you set (`fillStyle`, `lineWidth`, dash, alpha, font, …) auto-restores. But don't assume defaults on entry — set whatever you depend on. See [`NodeTypeDef.renderCanvas`](./packages/core/src/node-types/define-node.ts) doc-comment for the full contract.

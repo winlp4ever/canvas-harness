@@ -30,7 +30,7 @@ Treat this as an RFC, not a spec — every section is meant to be argued with.
 ┌──────────────────────────────────────────────────────────────────────┐
 │  <Canvas>                                                            │
 │  ┌────────────────────────────────────────────────────────────────┐  │
-│  │  <canvas id="static"/>      committed primitives (rare redraw) │  │
+│  │  <canvas id="static"/>      committed primitives (cached; pan=blit) │
 │  │  <div    id="overlay"/>     custom-node React subtrees         │  │
 │  │  <canvas id="interactive"/> drag/draw + handles (per-frame)    │  │
 │  └────────────────────────────────────────────────────────────────┘  │
@@ -40,7 +40,7 @@ Treat this as an RFC, not a spec — every section is meant to be argued with.
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-- **`static` canvas** (bottom): every committed primitive at its committed position. Redraws ONLY when the committed scene changes — never during pan/zoom of a stationary scene, never during in-progress drag. This is the trick that lets us hit 10k+ nodes.
+- **`static` canvas** (bottom): every committed primitive at its committed position. The scene is rasterized into an offscreen cache; the on-screen canvas is presented from that cache. The scene is only *re-rasterized* when the committed scene changes or zoom changes — **pan is served by blitting (or extending) the cache, never by re-rendering the scene** (see §4.4). This is the trick that lets us hit 10k+ nodes and keep pan cost independent of scene size.
 - **`overlay` div** (middle): React subtrees for custom nodes that need DOM (iframes, rich components). Viewport-culled — mounted on enter, unmounted on exit, with overscan. CSS-transformed as a single container by the camera.
 - **`interactive` canvas** (top): elements currently being dragged or drawn, selection rects, edge handles, marquee, snap guides. Cleared + fully repainted every frame during interaction; idle when nothing is moving.
 
@@ -469,7 +469,7 @@ The single hardest perf constraint: **never redraw 10k nodes inside a 16ms frame
 
 Two canvases, with distinct redraw cadences:
 
-- **`static`** — every committed primitive at its committed position. Redraws ONLY when committed scene state changes (a mutation flushed, undo/redo, paste, load, drag-end commit). During pan/zoom of a stationary scene: 0 redraws. During an in-progress drag of 5 nodes: 0 redraws.
+- **`static`** — every committed primitive at its committed position. The *scene* is re-rasterized only when committed scene state changes (a mutation flushed, undo/redo, paste, load, drag-end commit) or zoom changes. During **pan** of a stationary scene the scene is not re-rendered at all — the on-screen canvas is presented from an offscreen cache by blitting, and only the thin newly-revealed strip is repainted when the pan leaves the cached margin (§4.4). During an in-progress drag of 5 nodes: 0 scene re-renders (the moved set lives on `interactive`, §4.2).
 - **`interactive`** — whatever is being actively dragged, drawn, resized, or routed, PLUS selection visuals (resize handles, edge endpoints, marquee, hover indicators, snap guides). Cleared + fully repainted every frame during interaction; idle when nothing is moving.
 
 Z-stack: `static` (bottom) → `overlay` (DOM, middle) → `interactive` (top).
@@ -503,7 +503,7 @@ pointer / keyboard / store event
    2. update spatial index (deltas only — nodes whose AABB changed)
    3. compute viewport visibility set; diff against previous frame
    4. mount/unmount overlay children at viewport boundary
-   5. if static.dirty       → repaint static
+   5. if static.dirty       → present static (§4.4 three-tier: blit / extend / re-render)
       else                  → no-op
    6. always repaint interactive (clear + redraw moving set + UI)
    7. apply CSS transform to overlay container, once
@@ -513,10 +513,33 @@ Several rules baked in:
 
 - **One frame, one paint per layer.** Multiple mutations in the same tick batch into one frame.
 - **During interaction, the store does not see partial state.** Pointer deltas write to a per-frame buffer; commit to the store only at drag-end.
-- **Camera changes never touch static.** Pan/zoom = update camera + `ctx.setTransform` on static (no redraw) + CSS transform on overlay + redraw interactive (which is small).
+- **A pan never re-renders the scene.** Pan = present the static cache (blit, or shift + strip-extend) + CSS transform on overlay + redraw interactive (small). The scene is re-rasterized only on a content change or a zoom change. See §4.4.
 - **Visibility is recomputed per frame, but as a delta.** Spatial-index query returns the current visible set; we compare to the previous set to produce mount/unmount lists for the overlay. The diff is O(visible) not O(scene).
 
-### 4.4 Cache hierarchy
+### 4.4 Static scene cache
+
+The static layer is not the on-screen canvas directly — it's presented from an **offscreen cache** sized to the viewport plus a fixed margin (`SCENE_CACHE_MARGIN_PX = 256` CSS px on every side, at the static surface's DPR). Because pan only changes *which part of the scene you see* — not the scene — most pan frames need no scene render at all. `paintStatic` picks the cheapest of three tiers:
+
+```
+cache valid (no content/zoom/size change) AND same zoom?
+  ├─ viewport still inside the cached margin      → BLIT      (Tier 1)
+  └─ panned past the margin, still overlapping     → EXTEND    (Tier 2)
+otherwise (stale content / zoom / big jump)        → RE-RENDER (Tier 3)
+```
+
+**Tier 1 — blit.** Copy the viewport-sized sub-rect of the cache onto the on-screen canvas (one `drawImage`). No spatial query, no node paint, no background fill. Cost is O(1) in scene size — 10k and 100k nodes pan identically. The source offset is rounded to whole device pixels so the copy never resamples.
+
+**Tier 2 — extend (strip redraw).** When the pan leaves the cached margin but still overlaps it: shift the cache's existing pixels by the integer-device-pixel pan delta (a self-`drawImage`, spec-safe — the source is snapshotted), recenter the cache on the new camera, then repaint *only* the L-shaped region the shift exposed. The L-shape is split into two disjoint rects (a full-height strip of width `|dx|` plus a vertical strip across the remaining width) so the corner is painted once. Each strip is clipped, cleared, and rendered via the normal scene paint restricted to its world rect — a few hundred nodes instead of thousands. Because the shift is integer-aligned and exactly matches the recentered transform, shifted pixels land where a fresh render would, so seams align.
+
+**Tier 3 — full re-render.** Clear the cache, paint the whole scene (viewport + margin) into it, present. Triggered by: any committed-scene mutation, a zoom change (the cache is rasterized at one zoom — resolution can't be reused), a viewport resize, a DPR change, the drag-exclusion set changing, font/math epoch bumps, or a pan/teleport so large there's no overlap to reuse. The first frame of any pan gesture is a Tier-3 render (the idle→panning transition stales the cache), which is also what swaps custom-node React views to their canvas fallback (§4.6).
+
+**Invalidation.** A single `cacheStale` flag is set wherever the scene content / zoom / size / exclusion set changes — i.e. everywhere the static layer is marked dirty *except* a pure camera pan (`onCameraChange`), which leaves the cache valid so Tiers 1–2 can reuse it. Zoom comes through `onCameraChange` too, but is caught by the `z !== cacheCamZ` check, forcing Tier 3.
+
+**Strip renders are partial.** They paint only a sliver, so they must not publish the per-frame draw count or the React-overlay mount set (those describe the whole viewport). `paintSceneBody` takes a `fullRender` flag; strip and blit frames leave the overlay set untouched — the pan-start Tier-3 render already set it to the motion state.
+
+**Cost & trade-offs.** Memory: one extra buffer of `(vw+512)×(vh+512)×dpr²` (~13–75 MB depending on resolution/DPR). The extend self-blit copies the whole cache (~1–2 ms at Retina) — tiny next to the ~16 ms full repaint it replaces. **The cache optimizes pan only:** zoom and live/animated committed scenes still go through Tier 3 every frame. A "ring buffer" variant could avoid the extend self-blit but splits every blit into up to four pieces — deferred until that ~1–2 ms ever matters.
+
+### 4.5 Cache hierarchy
 
 Three caches, each with explicit invalidation triggers:
 
@@ -539,7 +562,7 @@ The bitmap cache key is composed from the fields that affect *visible output*. M
 
 LRU cap ~500–1000 entries; on miss, regenerate synchronously (text layout + `drawToCanvas` for text; path stroke + fill for geometry); on hit, `ctx.drawImage(cached, x, y, w, h)`.
 
-### 4.5 Level of detail (LOD)
+### 4.6 Level of detail (LOD)
 
 Each visible item picks one of three render regimes based on `zoom` and `isMoving`:
 
@@ -551,21 +574,21 @@ Each visible item picks one of three render regimes based on `zoom` and `isMovin
 
 Global `isMoving` flag (camera moving OR shape dragging): drop one quality level while true, restore on idle (~80ms after last input). The text subsystem (§8) already implements this via `resolveRenderScale` — same mechanism extends to custom nodes.
 
-### 4.6 Per-frame budget (mid-range laptop)
+### 4.7 Per-frame budget (mid-range laptop)
 
 Measured from rAF tick to compositor handoff. These are targets; CI perf tests assert no regression beyond 20%.
 
-| Phase                              | Idle pan  | Active drag |
-|------------------------------------|-----------|-------------|
-| Drain mutation buffer              | <1ms      | <1ms        |
-| Spatial index delta update         | <0.5ms    | <0.5ms      |
-| Visibility diff + overlay decisions| <1ms      | <1ms        |
-| Static repaint                     | 0ms       | 0ms         |
-| Interactive repaint                | <0.5ms    | <2ms        |
-| Overlay CSS transform              | <0.5ms    | <0.5ms      |
-| **Total**                          | **<3ms**  | **<5ms**    |
+| Phase                              | Pan (blit) | Pan (strip extend) | Active drag |
+|------------------------------------|-----------|--------------------|-------------|
+| Drain mutation buffer              | <1ms      | <1ms               | <1ms        |
+| Spatial index delta update         | 0ms       | <0.5ms (strip only)| <0.5ms      |
+| Visibility diff + overlay decisions| 0ms       | 0ms                | <1ms        |
+| Static present                     | ~1ms (blit)| ~2-3ms (shift+strip)| 0ms (cache valid) |
+| Interactive repaint                | <0.5ms    | <0.5ms             | <2ms        |
+| Overlay CSS transform              | <0.5ms    | <0.5ms             | <0.5ms      |
+| **Total**                          | **<3ms**  | **<5ms**           | **<5ms**    |
 
-Static repaint worst case, broken down by realistic regime (the "10k nodes" target needs to be honest about LOD):
+These pan costs are **independent of scene size** (§4.4) — 10k and 100k nodes pan identically. The figures below are the **Tier-3 full re-render** cost (a content/zoom change, or the first frame of a pan), broken down by realistic regime — the "10k nodes" target needs to be honest about LOD:
 
 | Scenario                                                            | Visible items by tier                                                                | Paint cost  |
 |---------------------------------------------------------------------|--------------------------------------------------------------------------------------|-------------|
@@ -578,9 +601,9 @@ The "10k node ceiling" relies on LOD doing the bulk of the work at small zoom. T
 
 Paid once on commit, never per frame.
 
-### 4.7 What we adopt and from where
+### 4.8 What we adopt and from where
 
-- From **Excalidraw**: the static / interactive canvas split, exclusion of moving elements from the static draw list, bitmap caches per shape keyed on geometry + style, rough.js as an opt-in for the hand-drawn aesthetic.
+- From **Excalidraw**: the static / interactive canvas split, exclusion of moving elements from the static draw list, bitmap caches per shape keyed on geometry + style, rough.js as an opt-in for the hand-drawn aesthetic. We go one step further with the **whole-scene overscan cache** (§4.4): Excalidraw's per-element bitmap cache still issues one `drawImage` per visible element each pan frame, whereas our cache collapses a sub-margin pan into a *single* blit and a margin crossing into a shift + thin strip — making pan cost independent of element count.
 - From **tldraw**: signal-based store (atoms + selector subscriptions), shape-util plug-in surface, geometry cache shared between renderer and hit-tester.
 - From **`dim0/webui/.../canvas-lite-markdown.tsx`** (your work): text measurement LRU, font-epoch reactivity, zoom/DPR quantization, moving-vs-idle render-scale resolution.
 - **Novel to canvas-harness**: nothing critical. Performance in this space is a *solved problem* — the work is composing the right tricks, not inventing new ones. The novelty is in the API design (tiptap-style NodeViews on canvas) and the headless ethos, not the perf engine.

@@ -27,7 +27,7 @@ import {
 import type { CameraState, CanvasBackground, Edge, EdgeId, Node, NodeId, WorldRect } from '../types'
 import { createAssetCache, paintIconNode, paintImageNode } from './assets'
 import { paintBackground } from './background'
-import { clearSurface, setupSurface, sizeSurface } from './canvas-setup'
+import { type CanvasSurface, clearSurface, setupSurface, sizeSurface } from './canvas-setup'
 import { type FrameLoop, type FrameStats, createFrameLoop } from './frame-loop'
 import {
   DEFAULT_SELECTION_COLOR,
@@ -55,8 +55,16 @@ import {
 } from './shapes'
 import { applyCameraTransform, drawWithNodeTransform, worldViewport } from './transform'
 
-/** A small overscan keeps shapes near the viewport edge from popping. */
-const VIEWPORT_OVERSCAN_PX = 64
+/**
+ * The static scene is rendered into an offscreen cache sized to the
+ * viewport plus this margin (CSS px) on every side. The on-screen
+ * canvas is presented from that cache: a sub-margin pan blits, a pan
+ * past the margin shifts + repaints only the exposed strip, and only a
+ * content/zoom change re-renders the whole scene. The margin is the
+ * pan distance reused before a strip extend is needed. See
+ * ARCHITECTURE.md §4.4.
+ */
+const SCENE_CACHE_MARGIN_PX = 256
 
 /**
  * Minimum on-screen size (in logical CSS pixels) for a shape to be worth drawing.
@@ -165,6 +173,50 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   let overlaySet: ReadonlySet<NodeId> = new Set()
   let lastDrawn = 0
 
+  // Offscreen scene cache (viewport + margin). Rendered by
+  // `renderFullCache`, blitted to the on-screen static surface by
+  // `presentStatic`. `cacheCam*` records the camera the cache is valid
+  // for — used by the present blit to compute the source offset (and,
+  // from Phase 2 on, to decide whether a re-render is needed at all).
+  let cacheSurface: CanvasSurface | null = null
+  let cacheCamX = 0
+  let cacheCamY = 0
+  let cacheCamZ = 1
+  // True when the cache's *content* is stale (a scene/zoom/size change,
+  // anything but a pure pan). Pan leaves it false so `paintStatic` can
+  // present by blitting alone. `renderFullCache` clears it.
+  let cacheStale = true
+
+  /**
+   * Lazily allocates / resizes the offscreen cache to `viewport + 2·margin`
+   * at the static surface's DPR. The DPR is copied from `staticSurface`
+   * (not recomputed from the cache's larger size) so the cache↔screen blit
+   * stays a 1:1 device-pixel copy.
+   */
+  const ensureCacheSurface = (): CanvasSurface => {
+    const dpr = staticSurface.dpr
+    const cssW = staticSurface.cssWidth + 2 * SCENE_CACHE_MARGIN_PX
+    const cssH = staticSurface.cssHeight + 2 * SCENE_CACHE_MARGIN_PX
+    if (!cacheSurface) {
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Canvas 2d context unavailable')
+      cacheSurface = { canvas, ctx, cssWidth: 0, cssHeight: 0, dpr: 1 }
+    }
+    if (
+      cacheSurface.cssWidth !== cssW ||
+      cacheSurface.cssHeight !== cssH ||
+      cacheSurface.dpr !== dpr
+    ) {
+      cacheSurface.cssWidth = cssW
+      cacheSurface.cssHeight = cssH
+      cacheSurface.dpr = dpr
+      cacheSurface.canvas.width = Math.max(1, Math.round(cssW * dpr))
+      cacheSurface.canvas.height = Math.max(1, Math.round(cssH * dpr))
+    }
+    return cacheSurface
+  }
+
   // Sorted-by-(z, id) caches of ALL scene nodes / edges. Rebuilt
   // lazily on first access and invalidated on every `'change'` op.
   // Lets `visibleNodes` / `visibleEdges` skip per-frame Array.sort —
@@ -183,6 +235,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   // closure that resolves it at call time.
   const requestRepaint = (): void => {
     staticDirty = true
+    cacheStale = true
     loop.requestFrame()
   }
   const assetCache = createAssetCache({ onReady: requestRepaint })
@@ -201,11 +254,25 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     }
   }
 
-  const paintStatic = (): void => {
-    const camera = store.getCamera()
-    clearSurface(staticSurface)
-    applyCameraTransform(staticSurface, camera)
-    const scale = camera.z * staticSurface.dpr
+  /**
+   * Paints the full static scene (background + frames + nodes + edges)
+   * into `surface` in world coordinates. The caller is responsible for
+   * having cleared the surface and applied the world→device transform;
+   * `viewport` is the world rect to cull against (it may extend beyond
+   * the on-screen viewport when painting into the oversized cache).
+   */
+  const paintSceneBody = (
+    surface: CanvasSurface,
+    camera: CameraState,
+    viewport: WorldRect,
+    // Strip renders (Phase 3 cache extension) paint only a sliver of
+    // the scene, so they must NOT publish the draw count or the
+    // React-overlay mount set — those describe the whole viewport and
+    // are owned by full renders. Same contract as the blit-only path,
+    // which doesn't run this body at all.
+    fullRender = true,
+  ): void => {
+    const scale = camera.z * surface.dpr
     const interaction = store.getInteractionState()
     // Per ARCHITECTURE.md §4.2: nodes currently being dragged or resized,
     // AND edges incident to them, are excluded from static and drawn on
@@ -215,10 +282,9 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         ? new Set(interaction.draggedIds)
         : null
     const excludedEdges = excludedNodes ? incidentEdgeIds(excludedNodes) : null
-    const viewport = inflateRect(worldViewport(staticSurface, camera), VIEWPORT_OVERSCAN_PX)
 
     // ---- background (page color + dot/grid pattern) ----
-    paintBackground(staticSurface.ctx, { viewport, zoom: camera.z, background })
+    paintBackground(surface.ctx, { viewport, zoom: camera.z, background })
 
     // ---- nodes ----
     const visible = visibleNodes(camera, viewport)
@@ -270,8 +336,8 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       for (const node of visible) {
         if (node.type !== 'frame') continue
         if (excludedNodes?.has(node.id)) continue
-        drawWithNodeTransform(staticSurface.ctx, node, () => {
-          paintFrameNode(staticSurface.ctx, node, scale, theme)
+        drawWithNodeTransform(surface.ctx, node, () => {
+          paintFrameNode(surface.ctx, node, scale, theme)
         })
         drawn++
       }
@@ -293,23 +359,23 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         // resolved yet this session.
         const roughReady = useRough ? getRoughCanvasCtor() !== null : false
         const composite = isCompositePrimitive(node.type)
-        drawWithNodeTransform(staticSurface.ctx, node, () => {
+        drawWithNodeTransform(surface.ctx, node, () => {
           if (useRough && roughReady) {
             if (composite) {
               // Composites paint each sub fully (misregistered fill +
               // rough stroke) before moving to the next sub. Crucial
               // so the back layer's stroke is covered by the front
               // layer's fill in the overlap region.
-              drawCompositeRough(staticSurface.ctx, node, camera.z, theme)
+              drawCompositeRough(surface.ctx, node, camera.z, theme)
             } else {
               // Atomic: misregistered fill in one pass, rough stroke
               // in a second pass. Print-misregistration shifts fill
               // up-and-left a few pixels from the rough stroke. See
               // ROUGH_FILL_MISREGISTER_X/Y in rough/constants.
-              staticSurface.ctx.translate(ROUGH_FILL_MISREGISTER_X, ROUGH_FILL_MISREGISTER_Y)
-              drawShape(staticSurface.ctx, node, scale, theme, { skipStroke: true })
-              staticSurface.ctx.translate(-ROUGH_FILL_MISREGISTER_X, -ROUGH_FILL_MISREGISTER_Y)
-              drawRoughShape(staticSurface.ctx, node, camera.z, theme)
+              surface.ctx.translate(ROUGH_FILL_MISREGISTER_X, ROUGH_FILL_MISREGISTER_Y)
+              drawShape(surface.ctx, node, scale, theme, { skipStroke: true })
+              surface.ctx.translate(-ROUGH_FILL_MISREGISTER_X, -ROUGH_FILL_MISREGISTER_Y)
+              drawRoughShape(surface.ctx, node, camera.z, theme)
             }
           } else {
             // Plain fill + stroke at native origin — also the fallback
@@ -318,44 +384,45 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
             // mode propagation set up in `use-pan-zoom`) is what keeps
             // layered shapes smooth here; no special LOD fast-path
             // needed for composites at the count cap.
-            drawShape(staticSurface.ctx, node, scale, theme)
+            drawShape(surface.ctx, node, scale, theme)
             if (useRough && !roughReady) {
               onRoughReady(() => {
                 staticDirty = true
+                cacheStale = true
                 loop.requestFrame()
               })
             }
           }
-          if (!isEditingThis) paintNodeContent(staticSurface.ctx, node, renderEnv)
+          if (!isEditingThis) paintNodeContent(surface.ctx, node, renderEnv)
         })
         drawn++
         continue
       }
       // Image node: blit cached bitmap (or placeholder if still loading).
       if (node.type === 'image') {
-        drawWithNodeTransform(staticSurface.ctx, node, () => {
-          paintImageNode(staticSurface.ctx, node, assetCache, theme)
+        drawWithNodeTransform(surface.ctx, node, () => {
+          paintImageNode(surface.ctx, node, assetCache, theme)
         })
         drawn++
         continue
       }
       // Icon node: rasterized SVG with optional `style.iconColor` tint.
       if (node.type === 'icon') {
-        drawWithNodeTransform(staticSurface.ctx, node, () => {
-          paintIconNode(staticSurface.ctx, node, assetCache, scale, theme)
+        drawWithNodeTransform(surface.ctx, node, () => {
+          paintIconNode(surface.ctx, node, assetCache, scale, theme)
         })
         drawn++
         continue
       }
       // Text-only shape: no fill/stroke, just content (or placeholder).
       if (node.type === 'text') {
-        drawWithNodeTransform(staticSurface.ctx, node, () => {
+        drawWithNodeTransform(surface.ctx, node, () => {
           if (isEditingThis) return
           const hasContent = node.content && node.content.trim().length > 0
           if (hasContent) {
-            paintNodeContent(staticSurface.ctx, node, renderEnv)
+            paintNodeContent(surface.ctx, node, renderEnv)
           } else {
-            paintEmptyTextPlaceholder(staticSurface.ctx, node, camera.z)
+            paintEmptyTextPlaceholder(surface.ctx, node, camera.z)
           }
         })
         drawn++
@@ -373,7 +440,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       // paths. Order: getSnapshot → drawPlaceholder → renderCanvas → skip.
       const preferCanvas = camera.z < def.lod.minZoomForReact || isMoving
       if (preferCanvas) {
-        if (paintCustomCanvasFallback(staticSurface.ctx, node, def, scale, renderEnv)) {
+        if (paintCustomCanvasFallback(surface.ctx, node, def, scale, renderEnv)) {
           drawn++
         }
         continue
@@ -390,10 +457,10 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         // (see drawWithNodeTransform), but consumer code can't be
         // assumed to. Cost is one extra save/restore per visible
         // custom node — negligible since custom nodes are rare.
-        drawWithNodeTransform(staticSurface.ctx, node, () => {
-          staticSurface.ctx.save()
-          def.renderCanvas!(staticSurface.ctx, node, renderEnv)
-          staticSurface.ctx.restore()
+        drawWithNodeTransform(surface.ctx, node, () => {
+          surface.ctx.save()
+          def.renderCanvas!(surface.ctx, node, renderEnv)
+          surface.ctx.restore()
         })
         drawn++
       }
@@ -410,9 +477,10 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       visEdges.length <= ROUGH_MAX_NODES
     for (const edge of visEdges) {
       if (excludedEdges?.has(edge.id)) continue
-      paintOneEdge(staticSurface.ctx, edge, scale, edgeRoughEnabled, camera.z, isMoving)
+      paintOneEdge(surface.ctx, edge, scale, edgeRoughEnabled, camera.z, isMoving)
       drawn++
     }
+    if (!fullRender) return
     lastDrawn = drawn
 
     // Emit overlay event if the React-mount set changed.
@@ -420,6 +488,199 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       overlaySet = nextOverlaySet
       onOverlayChange?.([...overlaySet])
     }
+  }
+
+  /**
+   * Renders the whole scene into the offscreen cache at `camera`, with a
+   * margin offset so the cache covers the viewport inflated by
+   * SCENE_CACHE_MARGIN_PX on every side. Records `cacheCam*` so a
+   * subsequent `presentStatic` knows where the viewport sits inside it.
+   */
+  /**
+   * Sets the cache's world→device transform centered on (`centerX`,
+   * `centerY`) at zoom `z`, shifted by the margin so the world point at
+   * screen (-margin, -margin) maps to cache device (0, 0).
+   */
+  const applyCacheTransform = (
+    cache: CanvasSurface,
+    centerX: number,
+    centerY: number,
+    z: number,
+  ): void => {
+    const s = z * cache.dpr
+    const m = SCENE_CACHE_MARGIN_PX * cache.dpr
+    cache.ctx.setTransform(s, 0, 0, s, -centerX * s + m, -centerY * s + m)
+  }
+
+  const renderFullCache = (camera: CameraState): void => {
+    const cache = ensureCacheSurface()
+    clearSurface(cache)
+    applyCacheTransform(cache, camera.x, camera.y, camera.z)
+    const marginWorld = SCENE_CACHE_MARGIN_PX / camera.z
+    const viewport = inflateRect(worldViewport(staticSurface, camera), marginWorld)
+    paintSceneBody(cache, camera, viewport)
+    cacheCamX = camera.x
+    cacheCamY = camera.y
+    cacheCamZ = camera.z
+    cacheStale = false
+  }
+
+  /**
+   * True when a pan past the margin still overlaps the cache enough to
+   * be worth extending (vs a full re-render). False on big jumps
+   * (minimap click, programmatic teleport) where nothing can be reused.
+   */
+  const canExtend = (camera: CameraState): boolean => {
+    if (!cacheSurface) return false
+    const s = camera.z * staticSurface.dpr
+    const dx = Math.abs((cacheCamX - camera.x) * s)
+    const dy = Math.abs((cacheCamY - camera.y) * s)
+    return dx < cacheSurface.canvas.width && dy < cacheSurface.canvas.height
+  }
+
+  /**
+   * Repaints one device-space strip of the cache: clip + clear it, then
+   * render the scene clipped to that strip under the cache transform
+   * centered on (`centerX`, `centerY`).
+   */
+  const renderCacheStrip = (
+    cache: CanvasSurface,
+    centerX: number,
+    centerY: number,
+    z: number,
+    px: number,
+    py: number,
+    pw: number,
+    ph: number,
+  ): void => {
+    const ctx = cache.ctx
+    const s = z * cache.dpr
+    const m = SCENE_CACHE_MARGIN_PX * cache.dpr
+    ctx.save()
+    // Clip + clear in device space; the clip persists across setTransform.
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.beginPath()
+    ctx.rect(px, py, pw, ph)
+    ctx.clip()
+    ctx.clearRect(px, py, pw, ph)
+    applyCacheTransform(cache, centerX, centerY, z)
+    // device → world for the strip rect (inverse of the cache transform).
+    const viewport: WorldRect = {
+      x: (px - m) / s + centerX,
+      y: (py - m) / s + centerY,
+      w: pw / s,
+      h: ph / s,
+    }
+    paintSceneBody(cache, { x: centerX, y: centerY, z }, viewport, false)
+    ctx.restore()
+  }
+
+  /**
+   * Reuses the cache across a pan that left the margin: shifts the
+   * existing pixels to recenter on `camera` (integer device-px copy, so
+   * no resample / no accumulating blur), then repaints only the
+   * L-shaped strip the shift exposed. Pre: cache valid, same zoom,
+   * `canExtend(camera)` true.
+   */
+  const extendCache = (camera: CameraState): void => {
+    const cache = ensureCacheSurface()
+    const s = camera.z * cache.dpr
+    const cacheW = cache.canvas.width
+    const cacheH = cache.canvas.height
+    // Integer device-px shift that recenters old content on `camera`,
+    // and the exact world center that integer shift implies (keeps the
+    // transform consistent with the rounded copy).
+    const dx = Math.round((cacheCamX - camera.x) * s)
+    const dy = Math.round((cacheCamY - camera.y) * s)
+    const newCamX = cacheCamX - dx / s
+    const newCamY = cacheCamY - dy / s
+
+    // 1. Shift existing pixels. Self-copy is spec-safe (source snapshot).
+    cache.ctx.setTransform(1, 0, 0, 1, 0, 0)
+    cache.ctx.drawImage(cache.canvas, 0, 0, cacheW, cacheH, dx, dy, cacheW, cacheH)
+    cacheCamX = newCamX
+    cacheCamY = newCamY
+    cacheCamZ = camera.z
+
+    // 2. Repaint the vacated L-shape as two disjoint rects. Horizontal
+    //    strip spans full height; vertical strip takes the remaining
+    //    width so the corner is painted exactly once.
+    const hw = Math.abs(dx)
+    const vh = Math.abs(dy)
+    const hx = dx > 0 ? 0 : cacheW - hw
+    const vy = dy > 0 ? 0 : cacheH - vh
+    const vx = dx > 0 ? hw : 0
+    const vw = cacheW - hw
+    if (hw > 0) renderCacheStrip(cache, newCamX, newCamY, camera.z, hx, 0, hw, cacheH)
+    if (vh > 0 && vw > 0) renderCacheStrip(cache, newCamX, newCamY, camera.z, vx, vy, vw, vh)
+  }
+
+  /**
+   * The viewport's top-left offset inside the cache, in cache device
+   * pixels, given the pan since `cacheCam*`. Rounded so the present blit
+   * and the fits-in-cache test agree on the same integer rect.
+   */
+  const cacheSourceOffset = (camera: CameraState): { x: number; y: number } => {
+    const dpr = staticSurface.dpr
+    return {
+      x: Math.round(((camera.x - cacheCamX) * cacheCamZ + SCENE_CACHE_MARGIN_PX) * dpr),
+      y: Math.round(((camera.y - cacheCamY) * cacheCamZ + SCENE_CACHE_MARGIN_PX) * dpr),
+    }
+  }
+
+  /**
+   * True when the current viewport lies entirely within the cached
+   * region — i.e. the pan since the last full render stayed inside the
+   * margin, so we can present by blitting alone.
+   */
+  const viewportFitsInCache = (camera: CameraState): boolean => {
+    if (!cacheSurface) return false
+    const { x, y } = cacheSourceOffset(camera)
+    return (
+      x >= 0 &&
+      y >= 0 &&
+      x + staticSurface.canvas.width <= cacheSurface.canvas.width &&
+      y + staticSurface.canvas.height <= cacheSurface.canvas.height
+    )
+  }
+
+  /**
+   * Blits the viewport-sized sub-rect of the cache onto the on-screen
+   * static surface. The source offset is the viewport's position inside
+   * the cache, derived from the pan since `cacheCam*`.
+   */
+  const presentStatic = (camera: CameraState): void => {
+    const cache = ensureCacheSurface()
+    const w = staticSurface.canvas.width
+    const h = staticSurface.canvas.height
+    const { x: srcX, y: srcY } = cacheSourceOffset(camera)
+    staticSurface.ctx.setTransform(1, 0, 0, 1, 0, 0)
+    staticSurface.ctx.clearRect(0, 0, w, h)
+    staticSurface.ctx.drawImage(cache.canvas, srcX, srcY, w, h, 0, 0, w, h)
+  }
+
+  /**
+   * Static-layer paint entry point. Three tiers, cheapest first:
+   *   1. cache valid + viewport inside the margin → blit only (Phase 2)
+   *   2. cache valid + panned past the margin but still overlapping →
+   *      shift + repaint the exposed strip, then blit (Phase 3)
+   *   3. otherwise (stale content, zoom, big jump) → full re-render
+   */
+  const paintStatic = (): void => {
+    const camera = store.getCamera()
+    if (!cacheStale && camera.z === cacheCamZ) {
+      if (viewportFitsInCache(camera)) {
+        presentStatic(camera)
+        return
+      }
+      if (canExtend(camera)) {
+        extendCache(camera)
+        presentStatic(camera)
+        return
+      }
+    }
+    renderFullCache(camera)
+    presentStatic(camera)
   }
 
   /**
@@ -832,9 +1093,13 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // independent of viewport + selection state).
     invalidateSortedCaches()
     staticDirty = true
+    cacheStale = true
     interactiveDirty = true
     loop.requestFrame()
   }
+  // Camera is the one static-dirtying event that does NOT stale the
+  // cache content: a pure pan reuses the cache (blit-only), and a zoom
+  // is caught by the `z !== cacheCamZ` check in `paintStatic`.
   const onCameraChange = (): void => {
     staticDirty = true
     interactiveDirty = true
@@ -862,6 +1127,11 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       state.mode === 'idle'
     ) {
       staticDirty = true
+      // A mode transition changes the excluded set and/or motion-LOD,
+      // so the cache content must be rebuilt. This also guarantees the
+      // first frame of a pan does a full render — which is what swaps
+      // custom-node React overlays to their canvas fallback.
+      cacheStale = true
     }
     loop.requestFrame()
   }
@@ -873,12 +1143,14 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   // Custom-font load → bitmap cache clears itself; we just need a repaint.
   const unsubFontEpoch = subscribeFontEpoch(() => {
     staticDirty = true
+    cacheStale = true
     loop.requestFrame()
   })
   // Math formula compile → math-bearing bitmaps get a new cache key
   // via the math-epoch; repaint to pick up the real glyphs.
   const unsubMathEpoch = subscribeMathEpoch(() => {
     staticDirty = true
+    cacheStale = true
     loop.requestFrame()
   })
 
@@ -886,6 +1158,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     start() {
       loop.start()
       staticDirty = true
+      cacheStale = true
       interactiveDirty = isInteractive(store.getInteractionState())
       loop.requestFrame()
     },
@@ -894,6 +1167,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     },
     invalidate() {
       staticDirty = true
+      cacheStale = true
       interactiveDirty = true
       loop.requestFrame()
     },
@@ -902,6 +1176,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       const b = sizeSurface(interactiveSurface, cssW, cssH, maxDpr)
       if (a || b) {
         staticDirty = true
+        cacheStale = true
         interactiveDirty = true
         loop.requestFrame()
       }
@@ -909,6 +1184,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     setBackground(bg) {
       background = bg
       staticDirty = true
+      cacheStale = true
       loop.requestFrame()
     },
     setSelectionColor(color) {
@@ -921,6 +1197,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     setHideFrames(hidden) {
       hideFrames = hidden
       staticDirty = true
+      cacheStale = true
       loop.requestFrame()
     },
     stats: () => loop.stats(),
@@ -935,6 +1212,12 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       unsubFontEpoch()
       unsubMathEpoch()
       assetCache.dispose()
+      if (cacheSurface) {
+        // Drop the backing store so the GPU buffer is freed promptly.
+        cacheSurface.canvas.width = 0
+        cacheSurface.canvas.height = 0
+        cacheSurface = null
+      }
     },
   }
 }

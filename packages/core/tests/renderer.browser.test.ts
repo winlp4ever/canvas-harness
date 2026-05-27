@@ -36,6 +36,16 @@ const countNonEmptyPixels = (canvas: HTMLCanvasElement): number => {
   return count
 }
 
+const readPixels = (canvas: HTMLCanvasElement): Uint8ClampedArray =>
+  canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data
+
+/** Count of RGBA bytes that differ between two equally-sized buffers. */
+const diffByteCount = (a: Uint8ClampedArray, b: Uint8ClampedArray): number => {
+  let n = 0
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n++
+  return n
+}
+
 /**
  * Forces the renderer to paint synchronously by running one rAF tick.
  */
@@ -204,6 +214,93 @@ describe('Renderer (browser)', () => {
     await waitFrame()
     await waitFrame()
     expect(renderer.lastDrawCount()).toBe(0)
+
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
+
+  test('pan within cache margin: blit-only output matches a full re-render', async () => {
+    const { staticCanvas, interactiveCanvas } = makeCanvases()
+    const store = createCanvasStore({ clientId: asClientId('u-test') })
+    store.addNode(rectNode('n-1', { x: 300, y: 200, w: 150, h: 120 }))
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 800,
+      height: 600,
+    })
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+
+    // Small pan, well inside the 256px cache margin → paintStatic takes
+    // the blit-only fast path (no scene re-render).
+    store.setCamera({ x: 40, y: 25 })
+    await waitFrame()
+    await waitFrame()
+    const blit = readPixels(staticCanvas)
+    expect(countNonEmptyPixels(staticCanvas)).toBeGreaterThan(0)
+
+    // Force a full re-render at the same camera; the presented pixels
+    // must match what the blit produced.
+    renderer.invalidate()
+    await waitFrame()
+    await waitFrame()
+    const full = readPixels(staticCanvas)
+
+    // Integer-pixel pan → expect an exact match (tiny tolerance guards
+    // against AA jitter at rect edges across paths).
+    expect(diffByteCount(blit, full)).toBeLessThan(blit.length * 0.005)
+
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
+
+  test('strip extend: panning past the margin matches a full re-render', async () => {
+    const { staticCanvas, interactiveCanvas } = makeCanvases()
+    const store = createCanvasStore({ clientId: asClientId('u-test') })
+    // Grid of rects across a wide area so each pan reveals new content
+    // and some rects straddle the strip seams.
+    let k = 0
+    for (let gx = 0; gx < 1400; gx += 120) {
+      for (let gy = 0; gy < 1400; gy += 120) {
+        store.addNode(rectNode(`g-${k++}`, { x: gx, y: gy, w: 80, h: 60 }))
+      }
+    }
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 800,
+      height: 600,
+    })
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+
+    // Pan past the 256px margin in steps: horizontal, then vertical,
+    // then diagonal — exercising single-strip and L-shape extends.
+    for (const cam of [
+      { x: 300, y: 0 },
+      { x: 300, y: 300 },
+      { x: 600, y: 600 },
+    ]) {
+      store.setCamera(cam)
+      await waitFrame()
+      await waitFrame()
+    }
+    const extended = readPixels(staticCanvas)
+    expect(countNonEmptyPixels(staticCanvas)).toBeGreaterThan(0)
+
+    // A full re-render at the same final camera must match what the
+    // shift + strip repaints produced.
+    renderer.invalidate()
+    await waitFrame()
+    await waitFrame()
+    const full = readPixels(staticCanvas)
+
+    expect(diffByteCount(extended, full)).toBeLessThan(extended.length * 0.01)
 
     renderer.dispose()
     cleanup(staticCanvas, interactiveCanvas)
