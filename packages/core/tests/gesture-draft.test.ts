@@ -7,7 +7,7 @@
  */
 import { describe, expect, test, vi } from 'vitest'
 import { createCanvasStore } from '../src/store'
-import { type Node, asClientId, asNodeId } from '../src/types'
+import { type Edge, type Node, asClientId, asEdgeId, asNodeId } from '../src/types'
 
 const makeRect = (overrides: Partial<Node> = {}): Omit<Node, 'z'> & { z?: number } => ({
   id: asNodeId('n-1'),
@@ -105,5 +105,102 @@ describe('Resize draft model', () => {
     store.resetInteractionState()
     expect(store.getInteractionState().resizeDraft).toBeNull()
     expect(store.getInteractionState().mode).toBe('idle')
+  })
+})
+
+const makeEdge = (overrides: Partial<Edge> = {}): Omit<Edge, 'z'> & { z?: number } => ({
+  id: asEdgeId('e-1'),
+  source: { nodeId: asNodeId('n-a'), localOffset: { x: 100, y: 50 } },
+  target: { nodeId: asNodeId('n-b'), localOffset: { x: 0, y: 50 } },
+  pathStyle: 'bezier',
+  groups: [],
+  ...overrides,
+})
+
+describe('Edge midpoint draft model', () => {
+  test('midpointDraft updates do not emit change events', () => {
+    const store = createCanvasStore({ clientId: asClientId('u-test') })
+    store.addNode(makeRect({ id: asNodeId('n-a') }))
+    store.addNode(makeRect({ id: asNodeId('n-b'), x: 500 }))
+    store.addEdge(makeEdge())
+    const onChange = vi.fn()
+    const unsub = store.subscribe('change', onChange)
+
+    for (let i = 0; i < 30; i++) {
+      store.setInteractionState({
+        mode: 'idle',
+        midpointDraft: {
+          edgeId: asEdgeId('e-1'),
+          control: [
+            { x: 200 + i, y: 100 },
+            { x: 300 + i, y: 100 },
+          ],
+        },
+      })
+    }
+
+    expect(onChange).not.toHaveBeenCalled()
+    // Edge in the store is still at its original (undefined) control —
+    // draft state lives only on InteractionState.
+    expect(store.getEdge(asEdgeId('e-1'))?.control).toBeUndefined()
+    const draft = store.getInteractionState().midpointDraft
+    expect(draft?.edgeId).toBe('e-1')
+    expect(draft?.control[0].x).toBe(229)
+
+    unsub()
+  })
+
+  test('commit writes the draft and emits exactly one change', () => {
+    const store = createCanvasStore({ clientId: asClientId('u-test') })
+    store.addNode(makeRect({ id: asNodeId('n-a') }))
+    store.addNode(makeRect({ id: asNodeId('n-b'), x: 500 }))
+    store.addEdge(makeEdge())
+
+    // Many in-progress draft updates first.
+    for (let i = 0; i < 10; i++) {
+      store.setInteractionState({
+        mode: 'idle',
+        midpointDraft: {
+          edgeId: asEdgeId('e-1'),
+          control: [
+            { x: 200 + i, y: 100 },
+            { x: 300 + i, y: 100 },
+          ],
+        },
+      })
+    }
+
+    const onChange = vi.fn()
+    const unsub = store.subscribe('change', onChange)
+
+    const draft = store.getInteractionState().midpointDraft!
+    store.updateEdge(draft.edgeId, { control: draft.control })
+    store.resetInteractionState()
+
+    expect(onChange).toHaveBeenCalledTimes(1)
+    const after = store.getEdge(asEdgeId('e-1'))
+    expect(after?.control).toEqual([
+      { x: 209, y: 100 },
+      { x: 309, y: 100 },
+    ])
+    expect(store.getInteractionState().midpointDraft).toBeNull()
+
+    unsub()
+  })
+
+  test('resetInteractionState clears the midpoint draft', () => {
+    const store = createCanvasStore({ clientId: asClientId('u-test') })
+    store.setInteractionState({
+      midpointDraft: {
+        edgeId: asEdgeId('e-1'),
+        control: [
+          { x: 0, y: 0 },
+          { x: 10, y: 10 },
+        ],
+      },
+    })
+    expect(store.getInteractionState().midpointDraft).not.toBeNull()
+    store.resetInteractionState()
+    expect(store.getInteractionState().midpointDraft).toBeNull()
   })
 })

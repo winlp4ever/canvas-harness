@@ -281,7 +281,14 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       interaction.mode === 'dragging' || interaction.mode === 'resizing'
         ? new Set(interaction.draggedIds)
         : null
-    const excludedEdges = excludedNodes ? incidentEdgeIds(excludedNodes) : null
+    // An edge being mid-point-dragged is excluded too — the interactive
+    // layer paints it with the in-progress control from `midpointDraft`.
+    const baseExcludedEdges = excludedNodes ? incidentEdgeIds(excludedNodes) : null
+    const midpointEdgeId = interaction.midpointDraft?.edgeId ?? null
+    const excludedEdges: ReadonlySet<EdgeId> | null =
+      midpointEdgeId !== null
+        ? new Set<EdgeId>([...(baseExcludedEdges ?? []), midpointEdgeId])
+        : baseExcludedEdges
 
     // ---- background (page color + dot/grid pattern) ----
     paintBackground(surface.ctx, { viewport, zoom: camera.z, background })
@@ -944,6 +951,28 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
           const sourceNode = geom.sourceNodeId ? (wrapGetNode(geom.sourceNodeId) ?? null) : null
           const targetNode = geom.targetNodeId ? (wrapGetNode(geom.targetNodeId) ?? null) : null
           drawEdge(ctx, edge, geom, sourceNode, targetNode, scale, theme, {
+            zoom: camera.z,
+            dpr: interactiveSurface.dpr,
+            isMoving: true,
+          })
+        }
+      }
+    }
+
+    // 1b. Edge being mid-point-dragged. Excluded from the static layer
+    //     via excludedEdges; painted here with the draft cubic controls.
+    //     Bypasses the edge-geometry cache (keyed on edge.version, which
+    //     doesn't bump during the gesture).
+    if (interaction.midpointDraft) {
+      const { edgeId, control } = interaction.midpointDraft
+      const edge = store.getEdge(edgeId)
+      if (edge) {
+        const draftEdge: Edge = { ...edge, control }
+        const geom = computeEdgeGeometry(draftEdge, id => store.getNode(id))
+        if (geom) {
+          const sourceNode = geom.sourceNodeId ? (store.getNode(geom.sourceNodeId) ?? null) : null
+          const targetNode = geom.targetNodeId ? (store.getNode(geom.targetNodeId) ?? null) : null
+          drawEdge(ctx, draftEdge, geom, sourceNode, targetNode, scale, theme, {
             zoom: camera.z,
             dpr: interactiveSurface.dpr,
             isMoving: true,

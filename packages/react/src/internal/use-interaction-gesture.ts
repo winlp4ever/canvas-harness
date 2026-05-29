@@ -448,7 +448,20 @@ export const useInteractionGesture = (
       const geom = store.getEdgeGeometry(midpointEdgeId)
       if (!geom) return
       const { c1, c2 } = midpointToCubicControls(geom.source, world, geom.target)
-      store.updateEdge(midpointEdgeId, { control: [c1, c2] })
+      // Draft-only — the renderer reads `midpointDraft` and overrides the
+      // edge's control on the interactive layer. No store.updateEdge per
+      // move keeps the static cache valid and the 'change' bus quiet.
+      store.setInteractionState({
+        midpointDraft: { edgeId: midpointEdgeId, control: [c1, c2] },
+      })
+    }
+
+    const commitEdgeMidpoint = (): void => {
+      // Commit the in-progress draft to the store in a single update —
+      // one 'change' event, one undo entry, one wire message.
+      const draft = store.getInteractionState().midpointDraft
+      if (draft) store.updateEdge(draft.edgeId, { control: draft.control })
+      store.resetInteractionState()
     }
 
     const updateReconnect = (world: Vec2): void => {
@@ -537,8 +550,7 @@ export const useInteractionGesture = (
           commitReconnect(e)
           break
         case 'edge-midpoint':
-          // updateEdgeMidpoint already wrote each move via store.updateEdge;
-          // pointerup just clears the gesture state.
+          commitEdgeMidpoint()
           break
         // 'click-pending' was already handled in pointerdown (selection set);
         // nothing more to do.
