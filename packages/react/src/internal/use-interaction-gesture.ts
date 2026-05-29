@@ -119,6 +119,7 @@ export const useInteractionGesture = (
 
     const beginResize = (id: NodeId, handle: ResizeHandle): void => {
       dragOriginals = snapshotOriginals([id])
+      const o = dragOriginals[0]
       store.setInteractionState({
         mode: 'resizing',
         draggedIds: [id],
@@ -126,6 +127,9 @@ export const useInteractionGesture = (
         resizeHandle: handle,
         resizeLockAspect: false,
         resizeFromCenter: false,
+        // Seed the draft with original geometry so the first frame
+        // before any pointermove already paints from the draft.
+        resizeDraft: o ? { x: o.x, y: o.y, w: o.w, h: o.h, angle: o.angle } : null,
       })
     }
 
@@ -176,13 +180,16 @@ export const useInteractionGesture = (
       const orig = dragOriginals[0]
       if (!orig || !resizeHandle) return
       const next = computeResizeGeometry(orig, resizeHandle, worldPoint, modifiers)
-      // Commit live to the store so the static canvas reflects it; phase 3
-      // single-node resize. Multi-select group resize is similar but scales
-      // each member proportionally — left for §11.6 follow-up.
-      store.updateNode(orig.id, next)
+      // Write the in-progress geometry to the draft slot only — no
+      // store mutation. The renderer reads `resizeDraft` via
+      // mapDragPositions, so the static cache stays valid and no
+      // 'change' event fires per move. Same model as drag.
+      // Single-node resize for now; multi-select group resize is
+      // a §11.6 follow-up.
       store.setInteractionState({
         resizeLockAspect: modifiers.shift,
         resizeFromCenter: modifiers.alt,
+        resizeDraft: { x: next.x, y: next.y, w: next.w, h: next.h, angle: orig.angle },
       })
     }
 
@@ -200,19 +207,35 @@ export const useInteractionGesture = (
     }
 
     const commitResize = (): void => {
-      // updateResize already committed via store.updateNode each pointermove;
-      // we only need to clear the interaction state. The history-aware
-      // version (phase 8 undo) will collapse these into one OpBatch.
-      // Refit autofit nodes now that the resize stream is over (we
-      // suppress mid-stream refit so the user's drag isn't overridden).
-      const selected = store.getSelection()
-      for (const id of selected) {
-        const node = store.getNode(id as NodeId)
-        if (!node) continue
-        if (!shouldAutoFit(node)) continue
-        const fitted = computeAutoFitHeight(node)
-        // Grow-only — preserve a user's deliberately-tall node.
-        if (fitted > node.h) store.updateNode(node.id, { h: fitted })
+      // Commit the draft geometry to the store in a single batch — one
+      // 'change' event, one undo entry, one sync message per gesture.
+      // The autofit pass goes in the same batch so undo is atomic.
+      const interaction = store.getInteractionState()
+      const draft = interaction.resizeDraft
+      const orig = dragOriginals[0]
+      if (draft && orig) {
+        store.batch(() => {
+          store.updateNode(orig.id, {
+            x: draft.x,
+            y: draft.y,
+            w: draft.w,
+            h: draft.h,
+            angle: draft.angle,
+          })
+          // Refit autofit nodes now that the gesture is over (we
+          // suppress mid-stream refit so the user's drag isn't
+          // overridden). Iterate selection — preserves the prior
+          // behavior, which handled the multi-select case.
+          const selected = store.getSelection()
+          for (const id of selected) {
+            const node = store.getNode(id as NodeId)
+            if (!node) continue
+            if (!shouldAutoFit(node)) continue
+            const fitted = computeAutoFitHeight(node)
+            // Grow-only — preserve a user's deliberately-tall node.
+            if (fitted > node.h) store.updateNode(node.id, { h: fitted })
+          }
+        })
       }
       store.resetInteractionState()
     }

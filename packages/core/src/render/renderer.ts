@@ -1046,7 +1046,16 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
           y: orig.y + interaction.dragDelta.y,
         })
       } else {
-        m.set(orig.id, live)
+        // Resize: the store still holds the original geometry until
+        // pointer-up. Overlay the in-progress geometry from resizeDraft
+        // so the interactive layer (and incident-edge re-routing
+        // through this same map) paints the live shape.
+        const d = interaction.resizeDraft
+        if (d) {
+          m.set(orig.id, { ...live, x: d.x, y: d.y, w: d.w, h: d.h, angle: d.angle })
+        } else {
+          m.set(orig.id, live)
+        }
       }
     }
     return m
