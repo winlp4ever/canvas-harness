@@ -460,6 +460,74 @@ export const fixtureImagesAndSvgs: Fixture = async store => {
   return { added, ms: performance.now() - t0 }
 }
 
+/**
+ * Mindmap with a central node and N peripheral nodes radiating around
+ * it, connected by edges whose endpoints are at the **center** of each
+ * node (localOffset = w/2, h/2). This is the AI-/programmatic-style
+ * anchor that triggers the asymmetric auto-route (radial exit on
+ * source, perpendicular entry on target). Use to eyeball how edges
+ * leave the central node toward each peripheral, and how they enter
+ * each peripheral perpendicular to its facing side.
+ */
+export const fixtureMindmap: Fixture = store => {
+  const t0 = performance.now()
+  const camera = store.getCamera()
+  const centerX = camera.x + 400
+  const centerY = camera.y + 300
+  const centralW = 220
+  const centralH = 120
+  const peripheralW = 140
+  const peripheralH = 70
+  const radius = 360
+  const N = 12
+  let added = 0
+  store.batch(() => {
+    const centerId = asNodeId(store.generateId())
+    store.addNode({
+      id: centerId,
+      type: 'rect',
+      x: centerX - centralW / 2,
+      y: centerY - centralH / 2,
+      w: centralW,
+      h: centralH,
+      angle: 0,
+      groups: [],
+      content: 'Mindmap',
+      style: { backgroundColor: '#c7d2fe', roundness: 2 },
+    })
+    added++
+    for (let i = 0; i < N; i++) {
+      const angle = (i / N) * Math.PI * 2 - Math.PI / 2
+      const px = centerX + Math.cos(angle) * radius
+      const py = centerY + Math.sin(angle) * radius
+      const id = asNodeId(store.generateId())
+      store.addNode({
+        id,
+        type: 'rect',
+        x: px - peripheralW / 2,
+        y: py - peripheralH / 2,
+        w: peripheralW,
+        h: peripheralH,
+        angle: 0,
+        groups: [],
+        content: `Topic ${i + 1}`,
+        style: { backgroundColor: CARD_PALETTE[i % CARD_PALETTE.length], roundness: 2 },
+      })
+      added++
+      // Center-anchored edge — triggers the asymmetric auto-route.
+      store.addEdge({
+        id: asEdgeId(store.generateId()),
+        source: { nodeId: centerId, localOffset: { x: centralW / 2, y: centralH / 2 } },
+        target: { nodeId: id, localOffset: { x: peripheralW / 2, y: peripheralH / 2 } },
+        pathStyle: 'bezier',
+        groups: [],
+      })
+      added++
+    }
+  })
+  return { added, ms: performance.now() - t0 }
+}
+
 export const clearScene: Fixture = store => {
   const t0 = performance.now()
   const nodeCount = store.getAllNodes().length
