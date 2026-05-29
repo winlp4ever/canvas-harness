@@ -117,21 +117,21 @@ const MARKDOWN_SIZES = ['S', 'M', 'L'] as const
 const MARKDOWN_FILLS = ['#fef9c3', '#fce7f3', '#dbeafe', '#dcfce7', '#fee2e2', '#ede9fe']
 
 /**
- * 25 rect notes carrying LaTeX math (inline `$...$` only). Exercises
+ * 25 rect notes carrying LaTeX math (inline `$$...$$` only). Exercises
  * the MathJax lazy load, compile queue, and bitmap cache. First load
  * pulls the ~600KB MathJax chunk; subsequent runs reuse the cache.
  */
 const MATH_CONTENTS = [
-  'Mass–energy: $E = mc^2$',
-  'Pythagoras: $a^2 + b^2 = c^2$',
-  'Quadratic: $x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$',
-  "Euler's identity: $e^{i\\pi} + 1 = 0$",
-  'Sum: $\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$',
-  'Limit: $\\lim_{x \\to 0} \\frac{\\sin x}{x} = 1$',
-  'Integral: $\\int_{0}^{1} x^2 \\,dx = \\frac{1}{3}$',
-  'Binomial: $(a+b)^n = \\sum_{k=0}^{n} \\binom{n}{k} a^{n-k} b^k$',
-  'Probability: $P(A \\cup B) = P(A) + P(B) - P(A \\cap B)$',
-  'Maxwell: $\\nabla \\times \\mathbf{E} = -\\frac{\\partial \\mathbf{B}}{\\partial t}$',
+  'Mass–energy: $$E = mc^2$$',
+  'Pythagoras: $$a^2 + b^2 = c^2$$',
+  'Quadratic: $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$',
+  "Euler's identity: $$e^{i\\pi} + 1 = 0$$",
+  'Sum: $$\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$$',
+  'Limit: $$\\lim_{x \\to 0} \\frac{\\sin x}{x} = 1$$',
+  'Integral: $$\\int_{0}^{1} x^2 \\,dx = \\frac{1}{3}$$',
+  'Binomial: $$(a+b)^n = \\sum_{k=0}^{n} \\binom{n}{k} a^{n-k} b^k$$',
+  'Probability: $$P(A \\cup B) = P(A) + P(B) - P(A \\cap B)$$',
+  'Maxwell: $$\\nabla \\times \\mathbf{E} = -\\frac{\\partial \\mathbf{B}}{\\partial t}$$',
 ]
 
 export const fixtureMathHeavy: Fixture = store => {

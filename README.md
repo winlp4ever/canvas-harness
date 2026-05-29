@@ -25,7 +25,7 @@ A canvas-rendered node-graph library — React Flow's API, Excalidraw's perf cei
 - **Canvas-rendered**: built-in shapes paint directly into a canvas with a cached static surface + live interactive surface. No React reconciliation on the per-frame critical path. **10k visible nodes pan at ~80fps** on a MacBook M1 — where React Flow gets sluggish around 1-2k and Excalidraw struggles past 5k.
 - **DOM overlays for custom nodes**: when a node needs iframes, charts, videos, or arbitrary React, register a custom node type and the renderer mounts your React component in an overlay synced to the camera transform. LOD ladder swaps in a canvas placeholder at low zoom.
 - **Hand-drawn aesthetic, opt-in**: per-shape `style.roughness` enables rough.js outlines and freehand brushy edges (perfect-freehand). Auto-disables during pan/zoom and at high node counts so the wobble never costs perf.
-- **Inline LaTeX math**: `$E = mc^2$` inside any text node — typeset via MathJax (loaded lazily from CDN, never bundled). See [Math](#math) below.
+- **Inline LaTeX math**: `$$E = mc^2$$` inside any text node — typeset via MathJax (loaded lazily from CDN, never bundled). See [Math](#math) below.
 - **Headless**: the library owns geometry, hit-testing, transforms, caching. Every color, font, corner radius is a theme token your app resolves.
 - **Collab-ready**: typed `Op` log, presence slice, `SyncAdapter` interface. Ships no transport — bring your own (Yjs, WebSocket, BroadcastChannel).
 - **AI-friendly**: `api.getContext({ format: 'markdown' })` returns scene state for direct LLM injection; the op log doubles as the tool-call schema for write-side mutations.
@@ -211,7 +211,7 @@ import {
 
 ## Math
 
-Any text-bearing node can include inline LaTeX between `$...$` delimiters in its `content`. No new node type, no separate API — it's just part of the lite-markdown content the library already parses:
+Any text-bearing node can include inline LaTeX between `$$...$$` delimiters in its `content`. No new node type, no separate API — it's just part of the lite-markdown content the library already parses. Double-dollar (rather than single `$`) avoids false-positives in prose mentioning currency (e.g. `$5 to $10`).
 
 ```ts
 store.addNode({
@@ -219,18 +219,18 @@ store.addNode({
   type: 'rect',
   x: 0, y: 0, w: 320, h: 80,
   angle: 0, groups: [],
-  content: 'Mass–energy: $E = mc^2$ is one identity',
+  content: 'Mass–energy: $$E = mc^2$$ is one identity',
   style: { backgroundColor: '#fef9c3' },
 })
 ```
 
 How it works:
 
-- **MathJax v4 is loaded lazily from CDN** the first time any node contains a `$...$` token — never bundled, zero cost for math-free scenes. The chunk caches in the browser; subsequent sessions skip the download.
+- **MathJax v4 is loaded lazily from CDN** the first time any node contains a `$$...$$` token — never bundled, zero cost for math-free scenes. The chunk caches in the browser; subsequent sessions skip the download.
 - **First-paint shows a subdued placeholder** for ~200–500 ms while MathJax compiles, then the real glyphs swap in. Subsequent frames hit the cache (per-formula `(source, color, sizePx)` LRU).
 - **Color follows the text color** — math glyphs use `currentColor`, substituted at rasterize time so dark/light theme switches just work.
 - **Bulk paste-safe** — compile is rAF-chunked (4 ms / frame budget) so loading a 100-formula doc doesn't block the main thread; placeholders fill the gap until each formula resolves.
-- **Inline only** in v1. Block math (`$$...$$`) deliberately not supported — keeps the layout engine simple.
+- **Inline only** in v1. Block / display math is deliberately not supported — keeps the layout engine simple.
 
 Pan / zoom of math-bearing scenes is the same speed as text-only scenes once the cache is warm — math bitmaps composite into the text bitmap at paint time and ride the existing static-surface cache from there.
 
