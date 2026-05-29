@@ -1,6 +1,6 @@
 {
   "name": "@canvas-harness/sync-broadcast",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "BroadcastChannel-backed SyncAdapter for canvas-harness — single-machine multi-tab demos.",
   "type": "module",
   "main": "./dist/index.cjs",
