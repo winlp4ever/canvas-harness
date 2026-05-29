@@ -15,6 +15,7 @@ import {
   fixtureImagesAndSvgs,
   fixtureMarkdownHeavy,
   fixtureMathHeavy,
+  fixtureMindmap,
 } from '../fixtures'
 
 type Entry = { label: string; fn: Fixture }
@@ -36,6 +37,9 @@ const ENTRIES: Entry[] = [
   { label: '+ markdown-heavy', fn: fixtureMarkdownHeavy },
   { label: '+ math notes', fn: fixtureMathHeavy },
   { label: '+ 30 images + 30 svgs', fn: fixtureImagesAndSvgs },
+  // Mindmap fixture exercises the asymmetric auto-route: edges with
+  // center-anchored endpoints (localOffset inside the node body).
+  { label: '+ mindmap (asymmetric routing)', fn: fixtureMindmap },
   { label: 'Clear scene', fn: clearScene },
 ]
 

@@ -27,7 +27,6 @@ import {
   screenToWorld,
   shouldAutoFit,
   shouldRejectTouch,
-  worldToNodeLocal,
 } from '@canvas-harness/core'
 import { useEffect } from 'react'
 
@@ -493,12 +492,15 @@ export const useInteractionGesture = (
       if (hit?.kind === 'body' && 'nodeId' in hit) {
         const node = store.getNode(hit.nodeId)
         if (node) {
-          const local = worldToNodeLocal(world, node)
-          const clamped = {
-            x: Math.max(0, Math.min(node.w, local.x)),
-            y: Math.max(0, Math.min(node.h, local.y)),
-          }
-          return { end: { nodeId: node.id, localOffset: clamped }, nodeId: node.id }
+          // Snap to the nearest boundary side (matches commitReconnect).
+          // Two reasons: (1) the preview matches what's committed on
+          // release — no hop at pointer-up; (2) the boundary anchor
+          // keeps the dragged endpoint out of the asymmetric-routing
+          // trigger (which fires only when both ends are inside the
+          // body), so the curve follows the cursor instead of snapping
+          // to the auto-computed exit.
+          const localOffset = projectToNodeBoundary(world, node)
+          return { end: { nodeId: node.id, localOffset }, nodeId: node.id }
         }
       }
       return { end: { worldPoint: world }, nodeId: null }
