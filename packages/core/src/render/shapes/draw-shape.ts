@@ -72,13 +72,6 @@ export const isDrawablePrimitive = (type: string): type is PrimitiveType =>
  */
 const PLAIN_RECT_CORNER_THRESHOLD_PX = 1.5
 
-/**
- * Below this on-screen stroke width, the stroke contributes only noisy
- * anti-aliased edge pixels — skipping it removes a per-shape ctx.stroke()
- * call with no visible loss.
- */
-const STROKE_VISIBILITY_THRESHOLD_PX = 0.5
-
 /** Offset for layered composites — back layer shifted down-right by this amount. */
 const LAYERED_OFFSET = 12
 
@@ -120,10 +113,7 @@ export const drawAtomic = (
   const fill = resolveColor(style, 'backgroundColor', DEFAULT_STYLE.backgroundColor, theme)
   const stroke = resolveColor(style, 'strokeColor', DEFAULT_STYLE.strokeColor, theme)
   const fillVisible = !isFullyTransparent(fill)
-  const strokeVisible =
-    strokeWidth > 0 &&
-    strokeWidth * scale >= STROKE_VISIBILITY_THRESHOLD_PX &&
-    !isFullyTransparent(stroke)
+  const strokeVisible = strokeWidth > 0 && !isFullyTransparent(stroke)
   if (!fillVisible && !strokeVisible) return
 
   const cornerRadius = (style?.roundness ?? DEFAULT_STYLE.roundness) * 4
@@ -163,7 +153,16 @@ export const drawAtomic = (
   }
   if (strokeVisible && !opts?.skipStroke) {
     ctx.strokeStyle = stroke
-    ctx.lineWidth = strokeWidth
+    // Clamp lineWidth so the on-screen stroke is at least 1 device
+    // pixel. At low zoom this keeps the shape silhouette visible
+    // (the alternative — skipping the stroke — made big nodes look
+    // like featureless colored blobs at fit-all). The scene cache
+    // makes this affordable: pan reuses the rendered border, only
+    // zoom/edit pays the per-frame cost.
+    ctx.lineWidth = Math.max(strokeWidth, 1 / scale)
+    // Dash pattern stays keyed to the natural strokeWidth — at low
+    // zoom sub-pixel dashes collapse visually into a near-solid line,
+    // matching what the user would perceive anyway.
     ctx.setLineDash(dashPatternFor(style?.strokeStyle, strokeWidth))
     ctx.stroke()
   }

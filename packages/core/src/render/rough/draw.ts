@@ -18,6 +18,7 @@ import {
   DEFAULT_STYLE,
   type ThemeResolver,
   dashPatternFor,
+  isFullyTransparent,
   resolveColor,
   resolveStrokeWidth,
 } from '../shapes/defaults'
@@ -150,15 +151,26 @@ const paintAtomicRough = (
   const isDark = theme?.('mode') === 'dark'
   const fill = resolveColor(style, 'backgroundColor', DEFAULT_STYLE.backgroundColor, theme)
   const strokeColor = deriveRoughStrokeColor(rawStroke, fill, isDark)
-  const strokeWidth = resolveStrokeWidth(style, theme)
-  if (strokeWidth <= 0) return
+  const rawStrokeWidth = resolveStrokeWidth(style, theme)
+  if (rawStrokeWidth <= 0) return
 
   const roughness = style?.roughness ?? 0
   if (roughness <= 0) return
 
+  // When the user picked "no border" (transparent stroke), rough still
+  // paints a soft fill-derived outline for the misregistration effect
+  // — but the user's strokeStyle (dashed/dotted) and strokeWidth were
+  // *border* choices they didn't make, so don't apply them to the soft
+  // outline. Force the system baseline so every no-border node renders
+  // a uniform subtle outline regardless of the panel's current values.
+  // Nodes with a real strokeColor keep the user's chosen style + width.
+  const isNoBorderIntent = isFullyTransparent(rawStroke)
+  const effectiveStrokeStyle = isNoBorderIntent ? 'solid' : (style?.strokeStyle ?? 'solid')
+  const strokeWidth = isNoBorderIntent ? DEFAULT_STYLE.strokeWidth : rawStrokeWidth
+
   const cornerRadius = (style?.roundness ?? DEFAULT_STYLE.roundness) * 4
   const radius = Math.max(0, Math.min(cornerRadius, w / 2, h / 2))
-  const dash = dashPatternFor(style?.strokeStyle, strokeWidth)
+  const dash = dashPatternFor(effectiveStrokeStyle, strokeWidth)
   const detail = apparentDetail(Math.max(w, h), scale)
 
   const cacheKey = [
@@ -168,7 +180,7 @@ const paintAtomicRough = (
     radius.toFixed(1),
     strokeColor,
     strokeWidth.toFixed(2),
-    style?.strokeStyle ?? 'solid',
+    effectiveStrokeStyle,
     roughness.toFixed(2),
     seed,
     detail.curveStepCount,

@@ -62,11 +62,27 @@ export type InteractionState = {
   resizeLockAspect: boolean
   /** Whether the user is holding Alt during a resize (resize from center). */
   resizeFromCenter: boolean
+  /**
+   * Live in-progress geometry of the resized node — written every
+   * pointermove, committed to the store once on pointer-up. While
+   * present, `store.getNode(id)` still returns the original geometry;
+   * the renderer overlays this draft via `mapDragPositions` for the
+   * interactive layer paint. Mirrors how `dragDelta` works for drag.
+   */
+  resizeDraft: { x: number; y: number; w: number; h: number; angle: number } | null
 
   // Marquee state — populated when mode is 'marqueeing'.
   marqueeRect: WorldRect | null
   /** Whether the marquee should add to (true, shift held) or replace selection. */
   marqueeAdditive: boolean
+
+  /**
+   * Live in-progress cubic controls of an edge being mid-point-dragged.
+   * Written every pointermove, committed to the store once on
+   * pointer-up. Same draft+commit model as `resizeDraft` and
+   * `dragDelta` — keeps mid-gesture mutations off the 'change' bus.
+   */
+  midpointDraft: { edgeId: EdgeId; control: [Vec2, Vec2] } | null
 
   // Edge-creation state — populated when mode is 'creating-edge' or
   // 'reconnecting-edge'. `draftEdge` is the source/target the renderer
@@ -106,6 +122,8 @@ export const idleInteractionState = (): InteractionState => ({
   resizeHandle: null,
   resizeLockAspect: false,
   resizeFromCenter: false,
+  resizeDraft: null,
+  midpointDraft: null,
   marqueeRect: null,
   marqueeAdditive: false,
   draftEdge: null,
