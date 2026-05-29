@@ -17,10 +17,11 @@ export type InlineType =
   | 'code'
   | 'link'
   /**
-   * LaTeX math expression, content is the source between `$...$` (no
-   * leading/trailing whitespace, no line breaks). Rendered via MathJax
-   * SVG output and rasterized to an inline bitmap at paint time. See
-   * `text/math/`.
+   * LaTeX math expression, content is the source between `$$...$$` (no
+   * line breaks). Rendered via MathJax SVG output and rasterized to an
+   * inline bitmap at paint time. See `text/math/`. Double-dollar
+   * delimiters avoid the false-positives of single `$` in prose that
+   * mentions currency (e.g. `$5 to $10`).
    */
   | 'math'
 
@@ -31,11 +32,13 @@ export type Token =
   | { type: 'hr' }
   | { type: 'hr-double' }
 
-// Math `$...$` is matched first so its delimiters can't be confused
-// with italics (`*...*` etc.). Empty math (`$$`) is intentionally not
-// matched — that's a fenced-block math syntax not supported in v1.
+// Math `$$...$$` is matched first so its delimiters can't be confused
+// with italics (`*...*` etc.). Single `$` is treated as literal text —
+// avoids false-positives in prose mentioning currency (`$5 to $10`).
+// Empty math (`$$$$`) is intentionally not matched; lazy `+?` requires
+// at least one interior char.
 const INLINE_PATTERN =
-  /(\$[^$\n]+?\$|\*\*[^*]+\*\*|==[^=\s](?:[^=]*?[^=\s])?==|`[^`]+`|\*[^*]+\*|__[^_]+__|~~[^~]+~~|_[^_]+_|\[[^\]]+\]\([^)]+\))/g
+  /(\$\$[^\n]+?\$\$|\*\*[^*]+\*\*|==[^=\s](?:[^=]*?[^=\s])?==|`[^`]+`|\*[^*]+\*|__[^_]+__|~~[^~]+~~|_[^_]+_|\[[^\]]+\]\([^)]+\))/g
 const HR_LINE_PATTERN = /^[ \t]*---[ \t]*$/
 const DOUBLE_HR_LINE_PATTERN = /^[ \t]*===[ \t]*$/
 
@@ -87,10 +90,10 @@ const tokenizeInline = (segment: string): Token[] => {
       tokens.push({ type: 'link', content: transformSymbols(match.slice(1, splitIndex)) })
     } else if (match.startsWith('`') && match.endsWith('`')) {
       tokens.push({ type: 'code', content: match.slice(1, -1) })
-    } else if (match.startsWith('$') && match.endsWith('$')) {
-      // Strip the `$...$` delimiters; preserve interior whitespace
+    } else if (match.startsWith('$$') && match.endsWith('$$')) {
+      // Strip the `$$...$$` delimiters; preserve interior whitespace
       // since LaTeX is whitespace-aware.
-      tokens.push({ type: 'math', content: match.slice(1, -1) })
+      tokens.push({ type: 'math', content: match.slice(2, -2) })
     } else {
       tokens.push({ type: 'text', content: transformSymbols(match) })
     }

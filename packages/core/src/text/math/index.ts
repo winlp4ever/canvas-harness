@@ -1,5 +1,5 @@
 /**
- * Inline math support — LaTeX `$...$` tokens rendered via MathJax SVG.
+ * Inline math support — LaTeX `$$...$$` tokens rendered via MathJax SVG.
  *
  * Exports the loader + cache. Layout / paint code imports from here
  * to compile and look up math bitmaps; consumers usually don't touch

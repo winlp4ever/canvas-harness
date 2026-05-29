@@ -11,8 +11,8 @@ import { layoutTokens } from '../src/text/layout'
 import { tokenize } from '../src/text/tokens'
 
 describe('tokenize math', () => {
-  test('inline math via $...$', () => {
-    expect(tokenize('Mass $E=mc^2$ is famous')).toEqual([
+  test('inline math via $$...$$', () => {
+    expect(tokenize('Mass $$E=mc^2$$ is famous')).toEqual([
       { type: 'text', content: 'Mass ' },
       { type: 'math', content: 'E=mc^2' },
       { type: 'text', content: ' is famous' },
@@ -20,7 +20,7 @@ describe('tokenize math', () => {
   })
 
   test('multiple math expressions on one line', () => {
-    expect(tokenize('$a$ and $b$')).toEqual([
+    expect(tokenize('$$a$$ and $$b$$')).toEqual([
       { type: 'math', content: 'a' },
       { type: 'text', content: ' and ' },
       { type: 'math', content: 'b' },
@@ -28,52 +28,62 @@ describe('tokenize math', () => {
   })
 
   test('math preserves interior whitespace + special chars', () => {
-    const result = tokenize('$\\frac{a}{b} + c$')
+    const result = tokenize('$$\\frac{a}{b} + c$$')
     expect(result).toHaveLength(1)
     expect(result[0]).toEqual({ type: 'math', content: '\\frac{a}{b} + c' })
   })
 
-  test('empty $$ is NOT matched as math (block-math not supported)', () => {
-    // The regex requires at least one non-$, non-newline char inside.
-    const result = tokenize('a $$ b')
+  test('empty $$$$ is NOT matched as math', () => {
+    // The regex requires at least one non-newline char between the
+    // `$$` delimiters.
+    const result = tokenize('a $$$$ b')
     expect(result.find(t => t.type === 'math')).toBeUndefined()
   })
 
   test('math at the start of a line', () => {
-    expect(tokenize('$x$ rest')).toEqual([
+    expect(tokenize('$$x$$ rest')).toEqual([
       { type: 'math', content: 'x' },
       { type: 'text', content: ' rest' },
     ])
   })
 
   test('math at the end of a line', () => {
-    expect(tokenize('prefix $x$')).toEqual([
+    expect(tokenize('prefix $$x$$')).toEqual([
       { type: 'text', content: 'prefix ' },
       { type: 'math', content: 'x' },
     ])
   })
 
   test('math takes precedence over italic (single * inside)', () => {
-    // $a*b$ → math, not italic-with-stars
-    const result = tokenize('$a*b$')
+    // $$a*b$$ → math, not italic-with-stars
+    const result = tokenize('$$a*b$$')
     expect(result).toEqual([{ type: 'math', content: 'a*b' }])
   })
 
-  test('unmatched $ stays as text', () => {
-    // No closing $ → no match → falls through to text.
+  test('single $ in prose stays as text (currency-safe)', () => {
+    // The whole point of double-dollar: prose mentioning currency
+    // must not be silently converted into math.
     expect(tokenize('cost is $5 total')).toEqual([{ type: 'text', content: 'cost is $5 total' }])
+    expect(tokenize('budget $5 to $10 per item')).toEqual([
+      { type: 'text', content: 'budget $5 to $10 per item' },
+    ])
+  })
+
+  test('unmatched $$ stays as text', () => {
+    // Lone opening $$ with no closing pair → no match → falls through.
+    expect(tokenize('open $$only here')).toEqual([{ type: 'text', content: 'open $$only here' }])
   })
 
   test('math content does not break across lines', () => {
-    // Newlines inside `$...$` should NOT match — regex uses `[^$\n]+?`.
-    const result = tokenize('a $x\ny$ b')
+    // Newlines inside `$$...$$` should NOT match — regex uses `[^\n]+?`.
+    const result = tokenize('a $$x\ny$$ b')
     expect(result.find(t => t.type === 'math')).toBeUndefined()
   })
 })
 
 describe('layoutTokens with math (no MathJax)', () => {
   test('math token becomes a math-typed StyledRun', () => {
-    const lines = layoutTokens(tokenize('Hello $x$ world'), {
+    const lines = layoutTokens(tokenize('Hello $$x$$ world'), {
       width: 400,
       fontFamily: 'sans-serif',
       fontSize: 'M',
@@ -88,7 +98,7 @@ describe('layoutTokens with math (no MathJax)', () => {
   })
 
   test('math placeholder width is positive and bounded by maxWidth', () => {
-    const lines = layoutTokens(tokenize('$\\sum_{i=1}^{n} i^2$'), {
+    const lines = layoutTokens(tokenize('$$\\sum_{i=1}^{n} i^2$$'), {
       width: 200,
       fontFamily: 'sans-serif',
       fontSize: 'M',
@@ -100,7 +110,7 @@ describe('layoutTokens with math (no MathJax)', () => {
   })
 
   test('math is never whitespace-split (preserved as single run)', () => {
-    const lines = layoutTokens(tokenize('$ a b c $'), {
+    const lines = layoutTokens(tokenize('$$ a b c $$'), {
       width: 400,
       fontFamily: 'sans-serif',
       fontSize: 'M',

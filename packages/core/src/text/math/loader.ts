@@ -2,7 +2,7 @@
  * Lazy loader for MathJax — same pattern as `render/rough/loader.ts`.
  *
  * MathJax is ~600KB and only useful for scenes with LaTeX math. We
- * defer loading until the first `$...$` token requests a compile,
+ * defer loading until the first `$$...$$` token requests a compile,
  * then convert LaTeX → SVG strings off the main rAF path.
  *
  * Loaded from jsDelivr CDN rather than bundled because the v4
