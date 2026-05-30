@@ -361,7 +361,15 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
 
       // Built-in primitive path: shape paint + optional content paint.
       if (isDrawablePrimitive(node.type)) {
-        const useRough = roughEnabled && (node.style?.roughness ?? 0) > 0
+        // Rough is only used for SOLID strokes — rough.js's wobble
+        // distorts each dash differently and the line stops reading
+        // as a regular pattern. Dashed/dotted nodes fall through to
+        // plain drawShape (loses fill misregistration on those nodes,
+        // but the dashed border is what the user explicitly asked
+        // for; the misregister effect is preserved on solid-stroke
+        // nodes).
+        const isSolidStroke = (node.style?.strokeStyle ?? 'solid') === 'solid'
+        const useRough = isSolidStroke && roughEnabled && (node.style?.roughness ?? 0) > 0
         // Peek (and trigger lazy import) — null means rough.js hasn't
         // resolved yet this session.
         const roughReady = useRough ? getRoughCanvasCtor() !== null : false
@@ -914,7 +922,10 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
             return
           }
           if (isDrawablePrimitive(node.type)) {
-            const useRough = dragRoughEnabled && (node.style?.roughness ?? 0) > 0
+            // Same solid-stroke gate as the static branch above: rough's
+            // wobble breaks regular dashed/dotted patterns.
+            const isSolidStroke = (node.style?.strokeStyle ?? 'solid') === 'solid'
+            const useRough = isSolidStroke && dragRoughEnabled && (node.style?.roughness ?? 0) > 0
             const roughReady = useRough ? getRoughCanvasCtor() !== null : false
             if (useRough && roughReady) {
               if (isCompositePrimitive(node.type)) {
