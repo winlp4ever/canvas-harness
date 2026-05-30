@@ -54,8 +54,17 @@ export const cut = async (store: CanvasStore): Promise<SerializedClipboard> => {
 /**
  * Paste from the system clipboard (or a supplied payload). Every node
  * + edge gets a fresh id; edge endpoints rewire to the new ids; the
- * paste is offset by `(+20, +20)` world units so it doesn't overlay
- * the original. Wrapped in one undoable batch.
+ * resulting nodes + edges become the new selection. Wrapped in one
+ * undoable batch.
+ *
+ * Positioning, in precedence order:
+ *   1. `opts.offset` — relative offset, used as-is.
+ *   2. `opts.at` — absolute target; the paste's bbox center lands here.
+ *   3. The store's current cursor (`interactionState.pointer`) — the
+ *      paste lands centered under the cursor. This is the default
+ *      `paste(store)` behavior on a Cmd+V keybind.
+ *   4. Fallback `(20, 20)` relative offset when nothing else is known
+ *      (e.g. fresh session with no pointermove yet).
  *
  * Returns the new node ids on success, or `null` if the clipboard
  * didn't contain a canvas-harness payload.
@@ -64,8 +73,8 @@ export const cut = async (store: CanvasStore): Promise<SerializedClipboard> => {
  * <button onClick={() => paste(store)}>Paste</button>
  *
  * @example
- * // Programmatic paste from a saved JSON snippet:
- * paste(store, savedClip, { offset: { x: 0, y: 0 }, select: false })
+ * // Programmatic paste at a specific world point:
+ * paste(store, savedClip, { at: { x: 300, y: 200 }, select: false })
  */
 export const paste = async (
   store: CanvasStore,
@@ -74,7 +83,18 @@ export const paste = async (
 ): Promise<(NodeId | EdgeId)[] | null> => {
   const clip = payload ?? (await readClipboard())
   if (!clip) return null
-  const ids = deserializeClipboard(store, clip, opts)
+  // Cursor-as-default: when the caller didn't specify positioning,
+  // and the store has tracked the pointer at least once, paste at
+  // the cursor's world position. deserializeClipboard handles the
+  // bbox-center math.
+  let effective = opts
+  if (!opts?.offset && !opts?.at) {
+    const pointer = store.getInteractionState().pointer
+    if (pointer) {
+      effective = { ...opts, at: { x: pointer.worldX, y: pointer.worldY } }
+    }
+  }
+  const ids = deserializeClipboard(store, clip, effective)
   return ids
 }
 
