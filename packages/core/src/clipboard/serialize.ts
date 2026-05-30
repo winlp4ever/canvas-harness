@@ -76,16 +76,57 @@ const endInside = (end: EdgeEnd, ids: ReadonlySet<NodeId>): boolean => {
 }
 
 export type DeserializeOptions = {
-  /** World-space offset applied to all pasted nodes. Default (20, 20). */
+  /**
+   * Relative world-space offset added to every pasted node's `x/y`
+   * (and to free-floating edge endpoints). Takes precedence over
+   * `at` when both are passed. Default `(20, 20)` when neither is
+   * given.
+   */
   offset?: Vec2
+  /**
+   * Absolute world-space target — the *center* of the pasted bbox
+   * lands here. Used by `paste()` to place the paste at the cursor;
+   * pass directly for programmatic absolute placement. Ignored if
+   * `offset` is also set.
+   */
+  at?: Vec2
   /** Override the selection on the store after applying. Default true. */
   select?: boolean
 }
 
 /**
+ * Bounding-box center of a clip's node rects (pre-offset). Used to
+ * translate an absolute `at` target into the per-node offset that
+ * lands the paste's visual center on that point.
+ */
+const clipBboxCenter = (nodes: Node[]): Vec2 => {
+  if (nodes.length === 0) return { x: 0, y: 0 }
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+  for (const n of nodes) {
+    if (n.x < minX) minX = n.x
+    if (n.y < minY) minY = n.y
+    if (n.x + n.w > maxX) maxX = n.x + n.w
+    if (n.y + n.h > maxY) maxY = n.y + n.h
+  }
+  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+}
+
+/**
  * Applies a clipboard payload to the store. New ids are minted; edge
- * endpoints are rewired; offset defaults to `(20, 20)` world units;
- * the resulting nodes + edges become the new selection by default.
+ * endpoints are rewired; the resulting nodes + edges become the new
+ * selection by default. Positioning precedence:
+ *
+ *   1. `opts.offset` (relative) — used as-is.
+ *   2. `opts.at` (absolute) — offset computed so the clip's bbox
+ *      center lands on this point.
+ *   3. Default — relative `(20, 20)` offset.
+ *
+ * Free-floating edge endpoints (`{ worldPoint }`) also receive the
+ * offset so an edge with an unattached end stays connected to the
+ * surrounding nodes after the paste.
  *
  * One `store.batch` — one undo step.
  *
@@ -99,7 +140,15 @@ export const deserializeClipboard = (
   clip: SerializedClipboard,
   opts: DeserializeOptions = {},
 ): NodeId[] => {
-  const offset = opts.offset ?? { x: 20, y: 20 }
+  let offset: Vec2
+  if (opts.offset) {
+    offset = opts.offset
+  } else if (opts.at && clip.nodes.length > 0) {
+    const center = clipBboxCenter(clip.nodes)
+    offset = { x: opts.at.x - center.x, y: opts.at.y - center.y }
+  } else {
+    offset = { x: 20, y: 20 }
+  }
   const select = opts.select ?? true
 
   // Old → new id maps.
@@ -115,7 +164,13 @@ export const deserializeClipboard = (
     y: n.y + offset.y,
   }))
   const remapEnd = (end: EdgeEnd): EdgeEnd => {
-    if (!isAttached(end)) return end
+    if (!isAttached(end)) {
+      // Free-floating endpoint — keep it visually attached to the
+      // pasted neighbourhood by applying the same offset the nodes
+      // got. Without this, the edge end stays at the original world
+      // point and the connection visually stretches.
+      return { worldPoint: { x: end.worldPoint.x + offset.x, y: end.worldPoint.y + offset.y } }
+    }
     const newId = nodeMap.get(end.nodeId)
     return newId ? { nodeId: newId, localOffset: end.localOffset } : end
   }
