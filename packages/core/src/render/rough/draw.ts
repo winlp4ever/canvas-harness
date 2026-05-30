@@ -195,7 +195,13 @@ const paintAtomicRough = (
       strokeWidth,
       roughness,
       seed,
-      strokeLineDash: dash.length > 0 ? dash : undefined,
+      // Always pass an explicit array (empty = solid) so rough.js calls
+      // ctx.setLineDash() to a known state. Passing `undefined` makes
+      // rough skip that call, and the canvas inherits whatever the
+      // previous draw left behind — a transparent-stroke node's
+      // fill-derived outline would pick up the dash from an earlier
+      // dashed node in the same paint pass.
+      strokeLineDash: dash,
       curveStepCount: detail.curveStepCount,
       maxRandomnessOffset: detail.maxRandomnessOffset,
     })
@@ -274,7 +280,10 @@ export const drawRoughEdge = (
       strokeWidth,
       roughness,
       seed,
-      strokeLineDash: dash.length > 0 ? dash : undefined,
+      // See paintAtomicRough — pass an explicit array (empty = solid)
+      // so rough resets the canvas dash; `undefined` lets stale state
+      // from a previous draw leak through.
+      strokeLineDash: dash,
       curveStepCount: detail.curveStepCount,
       maxRandomnessOffset: detail.maxRandomnessOffset,
     })

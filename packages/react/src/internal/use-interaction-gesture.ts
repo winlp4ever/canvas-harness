@@ -278,6 +278,12 @@ export const useInteractionGesture = (
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return
+      // Edit mode: the textarea is mounted over the editing node. If we
+      // process this pointerdown and preventDefault, the textarea's
+      // click→caret default action is cancelled (the textarea got the
+      // event during the target phase, but a bubble-phase preventDefault
+      // still kills the default). Same guard as use-pan-zoom.
+      if (store.getInteractionState().mode === 'editing') return
       if (e.pointerType === 'pen') notePenActive(palm)
       else if (e.pointerType === 'touch' && shouldRejectTouch(palm, Date.now())) return
       pointerDownAt = screenFromEvent(e)
