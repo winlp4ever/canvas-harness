@@ -99,6 +99,9 @@ export const useArrowTool = (
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return
+      // Edit mode: don't preventDefault on a pointerdown that targets
+      // the textarea, otherwise the click→caret default is cancelled.
+      if (store.getInteractionState().mode === 'editing') return
       pointerDownAt = screenFromEvent(e)
       const world = worldFromEvent(e)
       const { end } = endFromWorldPoint(world)

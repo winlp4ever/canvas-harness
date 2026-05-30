@@ -68,6 +68,11 @@ export const createDefaultTextareaEditor: EditorAdapterFactory = ({
   wrap.style.borderRadius = '4px'
   wrap.style.background = style.backgroundColor ?? '#ffffff'
   wrap.style.zIndex = '20'
+  // EditorMount's host div is pointerEvents:'none' so clicks on the
+  // canvas behind still pan/select. The editor itself MUST opt back in,
+  // otherwise mouse clicks pass through and you can't position the
+  // caret by clicking — only arrow keys move it.
+  wrap.style.pointerEvents = 'auto'
 
   const ta = document.createElement('textarea')
   ta.value = node.content ?? ''
