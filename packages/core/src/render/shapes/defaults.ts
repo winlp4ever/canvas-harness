@@ -93,14 +93,17 @@ export const dashPatternFor = (
 ): number[] => {
   switch (strokeStyle) {
     case 'dashed':
-      // Roughly dim0's 5.5:4 ratio — gap close to dash so the line
-      // doesn't read as nearly-solid on long edges.
-      return [width * 5, width * 4]
+      // Gap longer than dash so the pattern still reads as dashed when
+      // rough.js's wobble + bowing eat into the gap on curved edges.
+      // Previous 5:4 ratio (dash > gap) looked nearly continuous in
+      // rough mode because the wobble closed the gaps.
+      return [width * 3, width * 5]
     case 'dotted':
       // Small visible dot + generous gap. Non-zero dash so the pattern
       // also renders under default `butt` linecap (node strokes don't
-      // override lineCap; the edge path sets `round` already).
-      return [width * 1.5, width * 3]
+      // override lineCap; the edge path sets `round` already). Gap is
+      // tuned for the same wobble-survives-curvature reason as dashed.
+      return [width * 1.5, width * 4]
     default:
       return []
   }
