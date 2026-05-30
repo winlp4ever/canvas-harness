@@ -416,12 +416,38 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     }
   }
 
+  /**
+   * Replaces `undefined` values with `null` in-place on the copied
+   * object. `null` survives `JSON.stringify` (`undefined` keys get
+   * dropped, breaking JSON-serialized sync adapters), and is
+   * indistinguishable from `undefined` to the render / hit-test / text
+   * code that reads node and edge fields. The TS cast is pragmatic —
+   * field types rarely include `null`, but the value never escapes the
+   * op/wire layer; downstream spreads it back into the record where
+   * "falsy" is the only thing that matters.
+   */
+  const normalizeUndefinedToNull = <T extends object>(obj: T): T => {
+    const out: Record<string, unknown> = {}
+    for (const key of Object.keys(obj)) {
+      const v = (obj as Record<string, unknown>)[key]
+      out[key] = v === undefined ? null : v
+    }
+    return out as T
+  }
+
+  /**
+   * Records the prev slice for an update op. Values that were
+   * previously `undefined` are stored as `null` so the resulting
+   * inverse op (which becomes the wire payload during undo) survives
+   * a JSON round-trip — otherwise peers silently no-op on clears of
+   * previously-unset fields.
+   */
   const slicePrev = <T>(current: T, patch: Partial<T>): Partial<T> => {
     const prev: Partial<T> = {}
     for (const key of Object.keys(patch) as (keyof T)[]) {
       prev[key] = current[key]
     }
-    return prev
+    return normalizeUndefinedToNull(prev)
   }
 
   // hoisted because applyOp/applyBatch and the public methods both need them
@@ -498,7 +524,10 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
       enqueueOp({
         type: 'node.update',
         id,
-        patch: resolvedPatch,
+        // Normalize both halves so explicit-clear patches (e.g.
+        // `updateNode(id, { content: undefined })`) and first-time-set
+        // prev slices both survive a JSON-serialized sync transport.
+        patch: normalizeUndefinedToNull(resolvedPatch),
         prev: slicePrev(current, resolvedPatch),
       })
     },
@@ -590,7 +619,14 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
     updateEdge(id, patch) {
       const current = edgeAtoms.get(id)?.value
       if (!current) return
-      enqueueOp({ type: 'edge.update', id, patch, prev: slicePrev(current, patch) })
+      // Normalize both halves so an explicit-undefined clear and a
+      // first-time-set prev both survive JSON-serialized transports.
+      enqueueOp({
+        type: 'edge.update',
+        id,
+        patch: normalizeUndefinedToNull(patch),
+        prev: slicePrev(current, patch),
+      })
     },
     removeEdge(id) {
       const edge = edgeAtoms.get(id)?.value

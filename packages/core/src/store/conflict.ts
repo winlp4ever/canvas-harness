@@ -57,6 +57,12 @@ export const detectConflicts = (
  */
 const sameValue = (a: unknown, b: unknown): boolean => {
   if (a === b) return true
+  // null and undefined are equivalent for our wire/diff purposes —
+  // they both mean "field unset" to the render and hit-test code.
+  // Without this clause, JSON round-trips that turn undefined into
+  // null (see normalizeUndefinedToNull in store.ts) would flag every
+  // forward edit of a previously-unset field as a conflict.
+  if (a == null && b == null) return true
   if (a == null || b == null) return false
   if (typeof a !== typeof b) return false
   if (typeof a === 'object') return JSON.stringify(a) === JSON.stringify(b)

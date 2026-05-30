@@ -1,8 +1,11 @@
 import { describe, expect, test, vi } from 'vitest'
 import {
+  type Edge,
   type Node,
+  type OpBatch,
   type SyncAdapter,
   asClientId,
+  asEdgeId,
   asNodeId,
   attachSync,
   createCanvasStore,
@@ -325,5 +328,144 @@ describe('attachSync', () => {
     } as Parameters<typeof store.applyBatch>[0])
     expect(store.getNode(asNodeId('n-1'))).toBeTruthy()
     expect(store.canUndo()).toBe(false)
+  })
+})
+
+/**
+ * Regression coverage for the undefined-vs-null wire serialization bug:
+ * a node/edge field that was previously `undefined`, set, then undone,
+ * used to silently no-op on JSON-serialized sync adapters because
+ * `JSON.stringify({ x: undefined })` drops the key. The store now
+ * normalizes both `patch` and `prev` undefineds to `null` so they
+ * survive a round-trip.
+ */
+describe('undefined → null wire normalization', () => {
+  test("detectConflicts treats null and undefined as equivalent for 'no value'", () => {
+    // Local edge has content === undefined (never set). Remote op
+    // claims prev: { content: null } (the wire form of a first-time
+    // set's prev slice). These must match — without the sameValue
+    // fix, every legitimate first-time-set forward edit would fire
+    // a spurious 'conflict' event on the peer.
+    const store = createCanvasStore({ clientId: asClientId('A') })
+    store.addNode(makeNode({ id: asNodeId('a') }))
+    store.addNode(makeNode({ id: asNodeId('b'), x: 400 }))
+    store.addEdge({
+      id: asEdgeId('e-1'),
+      source: { nodeId: asNodeId('a'), localOffset: { x: 100, y: 50 } },
+      target: { nodeId: asNodeId('b'), localOffset: { x: 0, y: 50 } },
+      pathStyle: 'bezier',
+      z: 0,
+      groups: [],
+    })
+    const conflicts = detectConflicts(
+      {
+        id: 'b' as unknown as ReturnType<typeof Symbol>,
+        clientId: asClientId('B'),
+        ts: 1,
+        origin: 'remote',
+        ops: [
+          {
+            type: 'edge.update',
+            id: asEdgeId('e-1'),
+            patch: { content: 'hello' },
+            prev: { content: null as unknown as undefined },
+          },
+        ],
+      } as Parameters<typeof detectConflicts>[0],
+      id => store.getNode(id),
+      id => store.getEdge(id),
+    )
+    expect(conflicts).toHaveLength(0)
+  })
+
+  test('undo of first-time edge.content set survives JSON round-trip', () => {
+    const storeA = createCanvasStore({ clientId: asClientId('A') })
+    storeA.addNode(makeNode({ id: asNodeId('a') }))
+    storeA.addNode(makeNode({ id: asNodeId('b'), x: 400 }))
+    const edgeId = asEdgeId('e-1')
+    storeA.addEdge({
+      id: edgeId,
+      source: { nodeId: asNodeId('a'), localOffset: { x: 100, y: 50 } },
+      target: { nodeId: asNodeId('b'), localOffset: { x: 0, y: 50 } },
+      pathStyle: 'bezier',
+      z: 0,
+      groups: [],
+    })
+
+    // Peer mirrors the state up to here.
+    const storeB = createCanvasStore({ clientId: asClientId('B') })
+    storeB.addNode(makeNode({ id: asNodeId('a') }))
+    storeB.addNode(makeNode({ id: asNodeId('b'), x: 400 }))
+    storeB.addEdge({
+      id: edgeId,
+      source: { nodeId: asNodeId('a'), localOffset: { x: 100, y: 50 } },
+      target: { nodeId: asNodeId('b'), localOffset: { x: 0, y: 50 } },
+      pathStyle: 'bezier',
+      z: 0,
+      groups: [],
+    })
+
+    // A sets the previously-undefined content, then undoes. Capture
+    // the inverse batch — that's what the peer would receive.
+    const batches: OpBatch[] = []
+    storeA.subscribe('change', b => batches.push(b))
+    storeA.updateEdge(edgeId, { content: 'hello' })
+    expect(storeA.getEdge(edgeId)?.content).toBe('hello')
+    storeA.undo()
+    expect(storeA.getEdge(edgeId)?.content).toBeFalsy()
+
+    const undoBatch = batches[batches.length - 1]!
+    // The crucial step: cross a JSON boundary the way any
+    // server-relay sync adapter would.
+    const wire = JSON.parse(JSON.stringify(undoBatch)) as OpBatch
+
+    // Peer's edge currently has 'hello' (it received the forward set).
+    storeB.updateEdge(edgeId, { content: 'hello' })
+    storeB.applyBatch({ ...wire, origin: 'remote' })
+
+    expect(storeB.getEdge(edgeId)?.content).toBeFalsy()
+  })
+
+  test('forward updateEdge(id, { content: undefined }) survives JSON round-trip', () => {
+    // Explicit-undefined clear. Most code uses `''` but the API
+    // accepts undefined, and it should reach peers as a clear, not
+    // get silently dropped over JSON.
+    const storeA = createCanvasStore({ clientId: asClientId('A') })
+    storeA.addNode(makeNode({ id: asNodeId('a') }))
+    storeA.addNode(makeNode({ id: asNodeId('b'), x: 400 }))
+    const edgeId = asEdgeId('e-1')
+    storeA.addEdge({
+      id: edgeId,
+      source: { nodeId: asNodeId('a'), localOffset: { x: 100, y: 50 } },
+      target: { nodeId: asNodeId('b'), localOffset: { x: 0, y: 50 } },
+      pathStyle: 'bezier',
+      z: 0,
+      groups: [],
+      content: 'hello',
+    } as Edge)
+
+    const batches: OpBatch[] = []
+    storeA.subscribe('change', b => batches.push(b))
+    storeA.updateEdge(edgeId, { content: undefined })
+    expect(storeA.getEdge(edgeId)?.content).toBeFalsy()
+
+    const forwardBatch = batches[batches.length - 1]!
+    const wire = JSON.parse(JSON.stringify(forwardBatch)) as OpBatch
+
+    const storeB = createCanvasStore({ clientId: asClientId('B') })
+    storeB.addNode(makeNode({ id: asNodeId('a') }))
+    storeB.addNode(makeNode({ id: asNodeId('b'), x: 400 }))
+    storeB.addEdge({
+      id: edgeId,
+      source: { nodeId: asNodeId('a'), localOffset: { x: 100, y: 50 } },
+      target: { nodeId: asNodeId('b'), localOffset: { x: 0, y: 50 } },
+      pathStyle: 'bezier',
+      z: 0,
+      groups: [],
+      content: 'hello',
+    } as Edge)
+    storeB.applyBatch({ ...wire, origin: 'remote' })
+
+    expect(storeB.getEdge(edgeId)?.content).toBeFalsy()
   })
 })
