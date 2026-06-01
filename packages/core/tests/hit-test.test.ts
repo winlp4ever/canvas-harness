@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'vitest'
+import { getPointAndTangentAtArcLength } from '../src/edges'
 import {
   RESIZE_HANDLE_SIZE_PX,
   ROTATE_HANDLE_OFFSET_PX,
+  hitTestAny,
   hitTestHandles,
   hitTestPoint,
   hitTestRotateHandle,
@@ -11,7 +13,7 @@ import {
   rotateHandleWorldPosition,
 } from '../src/hit-test'
 import { createCanvasStore } from '../src/store'
-import { type Node, asClientId, asNodeId } from '../src/types'
+import { type EdgeId, type Node, asClientId, asEdgeId, asNodeId } from '../src/types'
 
 const makeNode = (overrides: Partial<Node> = {}): Node => ({
   id: asNodeId('n-1'),
@@ -146,6 +148,63 @@ describe('marqueeNodes', () => {
     store.addNode(makeNode({ id: asNodeId('c'), x: 50, y: 50 }))
     const hits = marqueeNodes(store, { x: 0, y: 0, w: 200, h: 200 })
     expect(hits.sort()).toEqual(['a', 'c'])
+  })
+})
+
+describe('hitTestAny: edges over nodes', () => {
+  // Builds a scene with a big z=0 "background" rect, two small z=1
+  // endpoint nodes, and a z=2 straight edge between them. The edge
+  // visually crosses the background rect in the middle.
+  const makeOverlapScene = () => {
+    const store = createCanvasStore({ clientId: asClientId('u-t') })
+    store.addNode(makeNode({ id: asNodeId('bg'), x: 0, y: 0, w: 800, h: 600, z: 0 }))
+    store.addNode(makeNode({ id: asNodeId('a'), x: 100, y: 250, w: 80, h: 60, z: 1 }))
+    store.addNode(makeNode({ id: asNodeId('b'), x: 600, y: 250, w: 80, h: 60, z: 1 }))
+    store.addEdge({
+      id: asEdgeId('e'),
+      source: { nodeId: asNodeId('a'), localOffset: { x: 80, y: 30 } },
+      target: { nodeId: asNodeId('b'), localOffset: { x: 0, y: 30 } },
+      pathStyle: 'straight',
+      z: 2,
+      groups: [],
+    })
+    return store
+  }
+
+  test('edge polyline beats a background node body underneath', () => {
+    const store = makeOverlapScene()
+    const geom = store.getEdgeGeometry(asEdgeId('e'))!
+    const mid = getPointAndTangentAtArcLength(geom.samples, 0.5).point
+    const hit = hitTestAny(store, mid, 1)
+    expect(hit?.kind).toBe('body')
+    expect((hit as { edgeId?: EdgeId }).edgeId).toBe('e')
+  })
+
+  test('a node with higher z than the edge still beats the edge', () => {
+    const store = createCanvasStore({ clientId: asClientId('u-t') })
+    store.addNode(makeNode({ id: asNodeId('a'), x: 100, y: 100, w: 80, h: 60, z: 1 }))
+    store.addNode(makeNode({ id: asNodeId('b'), x: 400, y: 100, w: 80, h: 60, z: 1 }))
+    // "Decorative" node sitting on the edge's path with higher z.
+    store.addNode(makeNode({ id: asNodeId('top'), x: 220, y: 110, w: 60, h: 40, z: 5 }))
+    store.addEdge({
+      id: asEdgeId('e'),
+      source: { nodeId: asNodeId('a'), localOffset: { x: 80, y: 30 } },
+      target: { nodeId: asNodeId('b'), localOffset: { x: 0, y: 30 } },
+      pathStyle: 'straight',
+      z: 2,
+      groups: [],
+    })
+    const hit = hitTestAny(store, { x: 250, y: 130 }, 1)
+    expect(hit?.kind).toBe('body')
+    expect((hit as { nodeId?: string }).nodeId).toBe('top')
+  })
+
+  test('click on background node away from the edge stays a node hit', () => {
+    const store = makeOverlapScene()
+    // Bottom-left corner of the big rect — far from the polyline.
+    const hit = hitTestAny(store, { x: 50, y: 500 }, 1)
+    expect(hit?.kind).toBe('body')
+    expect((hit as { nodeId?: string }).nodeId).toBe('bg')
   })
 })
 
