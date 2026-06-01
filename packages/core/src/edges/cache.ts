@@ -14,14 +14,7 @@
 import { isAttached } from '../types'
 import type { Edge, EdgeId, Node, NodeId, Vec2, WorldRect } from '../types'
 import { edgeAABBFromSamples } from './aabb'
-import {
-  autoRouteControls,
-  computeAsymmetricRoute,
-  isLocalOffsetInsideBody,
-  rotateVecByAngle,
-  sideNormalLocal,
-  sideOf,
-} from './auto-route'
+import { autoRouteControls, rotateVecByAngle, sideNormalLocal, sideToward } from './auto-route'
 import { projectEndToWorld } from './project'
 import { samplesFor } from './samples'
 import { sampleSelfLoop } from './self-loop'
@@ -68,8 +61,8 @@ export const computeEdgeGeometry = (
     }
   }
 
-  let sourceWorld = projectEndToWorld(edge.source, getNode)
-  let targetWorld = projectEndToWorld(edge.target, getNode)
+  const sourceWorld = projectEndToWorld(edge.source, getNode)
+  const targetWorld = projectEndToWorld(edge.target, getNode)
   if (!sourceWorld || !targetWorld) return null
 
   let samples: Vec2[]
@@ -82,48 +75,17 @@ export const computeEdgeGeometry = (
       // the in-node portions on the renderer side.
       c1 = edge.control[0]!
       c2 = edge.control[1]!
-    } else if (
-      sourceNode &&
-      targetNode &&
-      isAttached(edge.source) &&
-      isAttached(edge.target) &&
-      isLocalOffsetInsideBody(edge.source.localOffset, sourceNode) &&
-      isLocalOffsetInsideBody(edge.target.localOffset, targetNode)
-    ) {
-      // Both endpoints are *inside* their node bodies (not on the
-      // boundary) — no user-picked anchor, treat as auto/programmatic.
-      // Asymmetric routing: radial exit on source, perpendicular entry
-      // on target. Overrides BOTH endpoints onto the rect boundaries
-      // and computes asymmetric controls. User-placed boundary anchors
-      // (the arrow tool's projectToNodeBoundary output) are
-      // intentionally excluded — those keep the existing perpendicular-
-      // at-each-end logic below.
-      const r = computeAsymmetricRoute(sourceNode, targetNode)
-      sourceWorld = r.source
-      targetWorld = r.target
-      c1 = r.c1
-      c2 = r.c2
     } else {
-      // At least one free-floating endpoint — fall back to the
-      // single-end normal-based autoRouteControls.
-      const sourceNormal =
-        sourceNode && isAttached(edge.source)
-          ? rotateVecByAngle(
-              sideNormalLocal(
-                sideOf(sourceNode, edge.source.localOffset.x, edge.source.localOffset.y),
-              ),
-              sourceNode.angle,
-            )
-          : null
-      const targetNormal =
-        targetNode && isAttached(edge.target)
-          ? rotateVecByAngle(
-              sideNormalLocal(
-                sideOf(targetNode, edge.target.localOffset.x, edge.target.localOffset.y),
-              ),
-              targetNode.angle,
-            )
-          : null
+      // Unified auto-route: each attached endpoint's control leaves
+      // along the outward normal of the side the source→target line
+      // exits through. Endpoints stay at the user-supplied localOffset
+      // — clipSamples handles hiding any inside-rect portion.
+      const sourceNormal = sourceNode
+        ? rotateVecByAngle(sideNormalLocal(sideToward(sourceNode, targetWorld)), sourceNode.angle)
+        : null
+      const targetNormal = targetNode
+        ? rotateVecByAngle(sideNormalLocal(sideToward(targetNode, sourceWorld)), targetNode.angle)
+        : null
       ;({ c1, c2 } = autoRouteControls(sourceWorld, targetWorld, sourceNormal, targetNormal))
     }
     samples = samplesFor('bezier', sourceWorld, targetWorld, [c1, c2])

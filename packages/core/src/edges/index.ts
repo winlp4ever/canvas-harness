@@ -4,6 +4,7 @@ export {
   rotateVecByAngle,
   sideNormalLocal,
   sideOf,
+  sideToward,
 } from './auto-route'
 export type { ClipResult } from './clip'
 export { clipSamples, fullVisibleClipResult } from './clip'
