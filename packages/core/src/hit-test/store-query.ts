@@ -62,10 +62,14 @@ export const hitTestPoint = (
 
 /**
  * Combined node + edge hit testing. Order: node handles > edge endpoint
- * handles > node bodies > edge bodies.
+ * handles > visually-topmost body (node or edge, compared by z).
  *
- * Node bodies take priority over edge bodies because clicking ON a node
- * shouldn't accidentally select the edge passing behind it.
+ * For bodies, the rule is paint-order: whichever of (node body, edge
+ * body) has the higher z wins, with ties going to edges (edges paint
+ * over nodes by convention). This lets users click an edge that runs
+ * visually over a large background-style node — the 8px polyline slop
+ * keeps the edge's hit zone narrow, so clicks far from the polyline
+ * still land on the node underneath.
  */
 export const hitTestAny = (
   store: CanvasStore,
@@ -99,12 +103,16 @@ export const hitTestAny = (
     }
   }
 
-  // 3. node bodies
+  // 3. bodies — visually topmost wins. Edge body / label both expose
+  // an `edgeId` field; either competes with the node body via z.
   const nodeHit = hitTestPoint(store, worldPoint, cameraZ, selectedNodes)
-  if (nodeHit) return nodeHit
-
-  // 4. edge bodies
-  return hitTestEdge(store, worldPoint, cameraZ)
+  const edgeHit = hitTestEdge(store, worldPoint, cameraZ)
+  if (nodeHit && edgeHit && 'edgeId' in edgeHit) {
+    const nodeZ = store.getNode(nodeHit.nodeId)?.z ?? 0
+    const edgeZ = store.getEdge(edgeHit.edgeId)?.z ?? 0
+    return edgeZ >= nodeZ ? edgeHit : nodeHit
+  }
+  return nodeHit ?? edgeHit
 }
 
 /**

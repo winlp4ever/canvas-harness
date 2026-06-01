@@ -368,13 +368,10 @@ function CanvasSurface({
       if (e.button !== 0) return
       if (!isShapeTool(toolRef.current)) return
       if (store.getInteractionState().mode === 'editing') return
-      // Only engage on empty surface — clicks on existing nodes should
-      // not initiate a create. Cheap broad-phase: hit-test the world point.
-      const camera = store.getCamera()
-      const world = screenToWorld(screenFromEvent(e), camera)
-      if (hitTestAny(store, world, camera.z)) return
-
-      startWorld = world
+      // Shape tool active = user wants to create. Don't gate on
+      // hit-test — landing the new node on top of (or inside) an
+      // existing one is a legitimate placement.
+      startWorld = worldFromEvent(e)
       startScreen = screenFromEvent(e)
       activePointerId = e.pointerId
       committed = false
