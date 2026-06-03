@@ -64,7 +64,12 @@ const decodePng = async (blob: Blob): Promise<Uint8ClampedArray> => {
   return ctx.getImageData(0, 0, bmp.width, bmp.height).data
 }
 
-const samplePixel = (pixels: Uint8ClampedArray, x: number, y: number, w: number): [number, number, number] => {
+const samplePixel = (
+  pixels: Uint8ClampedArray,
+  x: number,
+  y: number,
+  w: number,
+): [number, number, number] => {
   const idx = (y * w + x) * 4
   return [pixels[idx]!, pixels[idx + 1]!, pixels[idx + 2]!]
 }
