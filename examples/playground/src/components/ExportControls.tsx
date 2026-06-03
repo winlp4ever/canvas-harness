@@ -1,10 +1,25 @@
-import { type CanvasStore, exportSelection, exportSelectionSvg } from '@canvas-harness/core'
+import {
+  type CanvasStore,
+  type Renderer,
+  exportSelection,
+  exportSelectionSvg,
+} from '@canvas-harness/core'
 
 /**
  * Phase 10 deliverable: export the current selection to PNG (opaque or
  * transparent) or SVG. Files download via blob URLs.
+ *
+ * The renderer is forwarded here so PNG export can pull image + icon
+ * bitmaps from the same asset cache the live canvas uses — otherwise
+ * those node types render as empty space in the output.
  */
-export function ExportControls({ store }: { store: CanvasStore }) {
+export function ExportControls({
+  store,
+  renderer,
+}: {
+  store: CanvasStore
+  renderer: Renderer | null
+}) {
   const downloadBlob = (blob: Blob, name: string): void => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -15,7 +30,10 @@ export function ExportControls({ store }: { store: CanvasStore }) {
   }
 
   const onPng = async (transparent: boolean): Promise<void> => {
-    const blob = await exportSelection(store, { transparentBackground: transparent })
+    const blob = await exportSelection(store, {
+      transparentBackground: transparent,
+      assetCache: renderer?.getAssetCache(),
+    })
     downloadBlob(blob, transparent ? 'canvas-harness.transparent.png' : 'canvas-harness.png')
   }
 
