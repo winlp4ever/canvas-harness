@@ -163,8 +163,15 @@ export const drawAtomic = (
     // Dash pattern stays keyed to the natural strokeWidth — at low
     // zoom sub-pixel dashes collapse visually into a near-solid line,
     // matching what the user would perceive anyway.
-    ctx.setLineDash(dashPatternFor(style?.strokeStyle, strokeWidth))
+    const dash = dashPatternFor(style?.strokeStyle, strokeWidth)
+    ctx.setLineDash(dash)
     ctx.stroke()
+    // Reset to solid so subsequent strokers that don't manage their
+    // own dash (overlay drawers — selection box, resize/rotate
+    // handles, edge endpoint/midpoint handles) don't inherit this
+    // node's dash via ctx state. needsScope only fires when opacity
+    // !== 1, so we can't rely on the save/restore below.
+    if (dash.length > 0) ctx.setLineDash([])
   }
   if (needsScope) ctx.restore()
 }
