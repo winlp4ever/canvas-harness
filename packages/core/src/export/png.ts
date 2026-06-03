@@ -1,5 +1,7 @@
 import { computeEdgeGeometry } from '../edges'
 import { drawEdge } from '../edges/draw'
+import type { AssetCache } from '../render/assets'
+import { paintIconNode, paintImageNode } from '../render/assets'
 import { drawShape, isDrawablePrimitive } from '../render/shapes'
 import type { ThemeResolver } from '../render/shapes'
 import { drawWithNodeTransform } from '../render/transform'
@@ -29,6 +31,14 @@ export type ExportOptions = {
   backgroundColor?: string
   /** Theme resolver, same one passed to the live renderer. */
   theme?: ThemeResolver
+  /**
+   * Renderer-owned asset cache. When provided, `image` and `icon`
+   * nodes paint from the same decoded bitmaps the live canvas uses.
+   * When omitted, those node types are skipped (back-compat).
+   *
+   * Usage: `exportSelection(store, { assetCache: renderer.getAssetCache() })`.
+   */
+  assetCache?: AssetCache
 }
 
 const DEFAULT_SCALE = 2
@@ -163,9 +173,14 @@ const paintScene = (
   edges?: Edge[],
 ): void => {
   const theme = opts.theme
+  const assetCache = opts.assetCache
   for (const node of nodes) {
     drawWithNodeTransform(ctx, node, () => {
       if (isDrawablePrimitive(node.type)) drawShape(ctx, node, scale, theme)
+      if (assetCache) {
+        if (node.type === 'image') paintImageNode(ctx, node, assetCache, theme)
+        else if (node.type === 'icon') paintIconNode(ctx, node, assetCache, scale, theme)
+      }
       paintContent(ctx, node)
     })
   }

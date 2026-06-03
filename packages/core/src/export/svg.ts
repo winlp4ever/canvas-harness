@@ -1,14 +1,20 @@
+import { applySvgColor, extractSvgDimensions } from '../assets'
 import { computeEdgeGeometry } from '../edges'
 import { nodeAABB } from '../spatial'
 import type { CanvasStore } from '../store'
 import { FONT_FAMILY_MAP, FONT_SIZE_MAP } from '../text'
-import type { Edge, Node, NodeId } from '../types'
+import type { Edge, IconNodeData, ImageNodeData, Node, NodeId } from '../types'
 
 /**
  * SVG export — see ARCHITECTURE.md §13.
  *
- * **Scope**: matches PNG export for shape geometry + edge geometry, but
- * markdown content is emitted as **plain text** (no inline bold /
+ * **Scope**: matches PNG export for shape geometry + edge geometry.
+ * Image nodes are inlined as `<image href="…">` (data URI passes
+ * through verbatim). Icon nodes nest their sanitized SVG markup inside
+ * a `<g transform>`, preserving vector quality and the `iconColor`
+ * recolor knob.
+ *
+ * Markdown content is emitted as **plain text** (no inline bold /
  * italic / highlight). SVG `<text>` doesn't support our markdown
  * dialect without tspan positioning math; deferred to v2. PNG export
  * preserves all markdown styling via the bitmap pipeline.
@@ -95,10 +101,43 @@ const renderNodeSvg = (node: Node): string => {
       ? ` transform="rotate(${(node.angle * 180) / Math.PI} ${node.x + node.w / 2} ${node.y + node.h / 2})"`
       : ''
 
-  const shape = renderShapeSvg(node, fill, stroke, strokeWidth, opacity)
-
   const text = renderTextSvg(node)
+  if (node.type === 'image') {
+    return `<g${rotate}>${renderImageNodeSvg(node, opacity)}${text}</g>`
+  }
+  if (node.type === 'icon') {
+    return `<g${rotate}>${renderIconNodeSvg(node, opacity)}${text}</g>`
+  }
+
+  const shape = renderShapeSvg(node, fill, stroke, strokeWidth, opacity)
   return `<g${rotate}>${shape}${text}</g>`
+}
+
+const renderImageNodeSvg = (node: Node, opacity: number): string => {
+  const data = node.data as ImageNodeData | undefined
+  if (!data?.src) return ''
+  // `<image href>` accepts data URIs directly; `preserveAspectRatio="none"`
+  // mirrors the live renderer's drawImage(0, 0, w, h) which stretches
+  // the bitmap to the node rect (matches the no-default-aspect-lock
+  // policy for image/icon resize).
+  return `<image href="${escapeAttr(data.src)}" x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" preserveAspectRatio="none" opacity="${opacity}" />`
+}
+
+const renderIconNodeSvg = (node: Node, opacity: number): string => {
+  const data = node.data as IconNodeData | undefined
+  if (!data?.src) return ''
+  // Apply the same `currentColor` substitution the live renderer does
+  // via getIcon(src, color, …). The sanitized markup is already
+  // script-free (add-time guarantee).
+  const colored = node.style?.iconColor ? applySvgColor(data.src, node.style.iconColor) : data.src
+  // Nest the source <svg> inside a <g translate+scale>. The inner SVG
+  // keeps its viewBox so vector content scales cleanly to the node
+  // rect. extractSvgDimensions falls back to 24×24 if width/height/
+  // viewBox are missing — same fallback the addSvg path uses.
+  const dim = extractSvgDimensions(colored)
+  const sx = node.w / dim.w
+  const sy = node.h / dim.h
+  return `<g transform="translate(${node.x} ${node.y}) scale(${sx} ${sy})" opacity="${opacity}">${colored}</g>`
 }
 
 const renderShapeSvg = (

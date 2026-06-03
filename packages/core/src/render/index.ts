@@ -24,3 +24,5 @@ export {
   resolveStrokeWidth,
 } from './shapes'
 export { applyCameraTransform, drawWithNodeTransform, worldViewport } from './transform'
+export type { AssetCache, AssetCacheOptions } from './assets'
+export { createAssetCache, paintIconNode, paintImageNode } from './assets'

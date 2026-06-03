@@ -150,7 +150,7 @@ export function App() {
         <HistoryControls store={store} />
         <ThemeToggle mode={themeMode.mode} onToggle={handleThemeToggle} />
         <BackgroundPanel value={background} onChange={setBackground} />
-        <ExportControls store={store} />
+        <ExportControls store={store} renderer={renderer} />
         <AiContextButton store={store} />
         <StressMenu store={store} />
         <StylePanel store={store} />

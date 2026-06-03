@@ -25,7 +25,7 @@ import {
   subscribeMathEpoch,
 } from '../text'
 import type { CameraState, CanvasBackground, Edge, EdgeId, Node, NodeId, WorldRect } from '../types'
-import { createAssetCache, paintIconNode, paintImageNode } from './assets'
+import { type AssetCache, createAssetCache, paintIconNode, paintImageNode } from './assets'
 import { paintBackground } from './background'
 import { type CanvasSurface, clearSurface, setupSurface, sizeSurface } from './canvas-setup'
 import { type FrameLoop, type FrameStats, createFrameLoop } from './frame-loop'
@@ -152,6 +152,13 @@ export type Renderer = {
   lastDrawCount(): number
   /** Current overlay-mounted custom-node ids. */
   getOverlaySet(): NodeId[]
+  /**
+   * Renderer-owned asset cache (decoded image bitmaps + rasterized
+   * SVG icons). Pass to {@link exportSelection} / {@link exportViewport}
+   * so PNG export paints image + icon nodes from the same bitmaps the
+   * live canvas uses.
+   */
+  getAssetCache(): AssetCache
   /** Detach event listeners. The store is left untouched. */
   dispose(): void
 }
@@ -1241,6 +1248,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     stats: () => loop.stats(),
     lastDrawCount: () => lastDrawn,
     getOverlaySet: () => [...overlaySet],
+    getAssetCache: () => assetCache,
     dispose() {
       loop.stop()
       unsubChange()
