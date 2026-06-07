@@ -15,7 +15,7 @@ import { computeEdgeGeometry, drawEdge } from '../edges'
 import { getPointAndTangentAtArcLength } from '../edges/arc-length'
 import type { NodeTypeDef, RenderEnv } from '../node-types'
 import { inflateRect, nodeAABB } from '../spatial'
-import type { CanvasStore, InteractionState } from '../store'
+import { type CanvasStore, type InteractionState, isMoving as isMovingState } from '../store'
 import {
   DEFAULT_HIGHLIGHT_COLOR,
   DEFAULT_TEXT_COLOR,
@@ -302,12 +302,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
 
     // ---- nodes ----
     const visible = visibleNodes(camera, viewport)
-    const isMoving =
-      interaction.mode === 'panning' ||
-      interaction.mode === 'zooming' ||
-      interaction.mode === 'dragging' ||
-      interaction.mode === 'resizing' ||
-      interaction.mode === 'rotating'
+    const isMoving = isMovingState(interaction)
     const minOnScreen = MIN_ON_SCREEN_SIZE_PX
     const nextOverlaySet = new Set<NodeId>()
     let drawn = 0
