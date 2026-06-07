@@ -133,11 +133,24 @@ export const idleInteractionState = (): InteractionState => ({
 })
 
 /**
- * Convenience: any of panning/zooming/dragging/resizing/rotating is "moving".
+ * Convenience: any pointer-driven, per-frame-invalidating gesture is
+ * "moving". Drives LOD swaps in the renderer (custom-node React→canvas
+ * fallback, text bitmap downscale, edge-label bitmap downscale).
+ *
+ * `marqueeing` belongs here even though the scene doesn't translate:
+ * the marquee rect updates every pointermove → static cache invalidates
+ * → full repaint per frame. Without the swap, dense scenes paint
+ * full-LOD React overlays + full-res text bitmaps under the moving
+ * rect and the gesture janks.
  */
 export const isMoving = (state: InteractionState): boolean => {
   const m = state.mode
   return (
-    m === 'panning' || m === 'zooming' || m === 'dragging' || m === 'resizing' || m === 'rotating'
+    m === 'panning' ||
+    m === 'zooming' ||
+    m === 'dragging' ||
+    m === 'resizing' ||
+    m === 'rotating' ||
+    m === 'marqueeing'
   )
 }
