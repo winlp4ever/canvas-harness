@@ -71,12 +71,21 @@ export const fromSerialized = (raw: SerializedScene | unknown): Scene => {
 
 /**
  * Convenience: dump a store's current state to wire form.
+ *
+ * `getFrames()` already returns frame nodes in presentation order, so the
+ * id list it yields is the same value `setFrameOrder` maintains — including
+ * it here is what lets a saved scene round-trip slide order. Omitted when
+ * empty to keep the wire form clean (and match `toSerialized`).
  */
-export const storeToJSON = (store: CanvasStore): SerializedScene => ({
-  schemaVersion: SCHEMA_VERSION,
-  nodes: store.getAllNodes(),
-  edges: store.getAllEdges(),
-  groups: store.getAllGroups(),
-  camera: store.getCamera(),
-  selection: store.getSelection(),
-})
+export const storeToJSON = (store: CanvasStore): SerializedScene => {
+  const frameOrder = store.getFrames().map(f => f.id)
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    nodes: store.getAllNodes(),
+    edges: store.getAllEdges(),
+    groups: store.getAllGroups(),
+    camera: store.getCamera(),
+    selection: store.getSelection(),
+    ...(frameOrder.length > 0 ? { frameOrder } : {}),
+  }
+}

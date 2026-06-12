@@ -45,18 +45,25 @@ export const serializeSelection = (store: CanvasStore): SerializedClipboard => {
     const n = store.getNode(id)
     if (n) nodes.push(n)
   }
-  // Edges: include if either both endpoints are in the selection (or
-  // free-floating). Drop edges that cross the selection boundary.
-  const edges: Edge[] = []
+  // Edges captured by the copy, in one pass over the scene:
+  //   - an edge whose endpoints are both attached to selected nodes is
+  //     pulled in even if the edge isn't itself selected ("copy this
+  //     cluster" — matches tldraw/excalidraw).
+  //   - an edge with a free-floating endpoint counts only if the edge is
+  //     explicitly selected; otherwise an unselected arrow drawn between
+  //     two empty points anywhere in the scene would ride along with any
+  //     copy (a free-floating end satisfies `endInside` unconditionally).
+  // Edges crossing the selection boundary (one end attached to an
+  // unselected node) are always dropped.
+  const selectedEdgeIds = new Set<EdgeId>()
   for (const id of selectedIds) {
-    const e = store.getEdge(id as EdgeId)
-    if (e && bothEndsInsideSelection(e, selectedNodeIds)) edges.push(e)
+    if (store.getEdge(id as EdgeId)) selectedEdgeIds.add(id as EdgeId)
   }
-  // Also include any edges *between* selected nodes, even if not in the
-  // selection itself — matches user expectation: "copy this cluster".
+  const edges: Edge[] = []
   for (const e of store.getAllEdges()) {
-    if (edges.includes(e)) continue
-    if (bothEndsInsideSelection(e, selectedNodeIds)) edges.push(e)
+    if (!bothEndsInsideSelection(e, selectedNodeIds)) continue
+    if (hasFreeFloatingEnd(e) && !selectedEdgeIds.has(e.id)) continue
+    edges.push(e)
   }
   return {
     v: SCHEMA_VERSION,
@@ -74,6 +81,8 @@ const endInside = (end: EdgeEnd, ids: ReadonlySet<NodeId>): boolean => {
   if (!isAttached(end)) return true // free-floating endpoint paste-safe
   return ids.has(end.nodeId)
 }
+const hasFreeFloatingEnd = (edge: Edge): boolean =>
+  !isAttached(edge.source) || !isAttached(edge.target)
 
 export type DeserializeOptions = {
   /**

@@ -303,10 +303,16 @@ const darkenedStyle = (style: Style | undefined): Style => {
   if (hit) return hit
   const fill = style.backgroundColor
   const stroke = style.strokeColor
+  // Preserve transparency intent: a fully-transparent fill/stroke (e.g.
+  // "None" → '#00000000') must stay transparent on the back layer.
+  // darkenHex routes through parseHex, which drops the alpha byte, so
+  // darkening a transparent color yields an opaque one — that's what
+  // made the back sub-shape of layered-* shapes render a stray border
+  // (with the last-set strokeStyle/width) when the front had none.
   const next: Style = {
     ...style,
-    ...(fill ? { backgroundColor: darkenHex(fill) } : {}),
-    ...(stroke ? { strokeColor: darkenHex(stroke) } : {}),
+    ...(fill && !isFullyTransparent(fill) ? { backgroundColor: darkenHex(fill) } : {}),
+    ...(stroke && !isFullyTransparent(stroke) ? { strokeColor: darkenHex(stroke) } : {}),
   }
   darkenedStyleCache.set(style, next)
   return next

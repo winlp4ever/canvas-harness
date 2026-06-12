@@ -65,6 +65,28 @@ describe('codec', () => {
     expect(wire.selection).toEqual(['n-1'])
   })
 
+  test('storeToJSON omits frameOrder when there are no frames', () => {
+    const store = createCanvasStore({ clientId: asClientId('u-x') })
+    store.addNode(makeNode())
+    expect(storeToJSON(store).frameOrder).toBeUndefined()
+  })
+
+  test('storeToJSON → fromSerialized round-trips frame presentation order', () => {
+    const store = createCanvasStore({ clientId: asClientId('u-x') })
+    // Create frames in one order…
+    store.addNode(makeNode({ id: asNodeId('f-1'), type: 'frame' }))
+    store.addNode(makeNode({ id: asNodeId('f-2'), type: 'frame', x: 200 }))
+    store.addNode(makeNode({ id: asNodeId('f-3'), type: 'frame', x: 400 }))
+    // …then reorder them. Insertion order alone can no longer recover this.
+    store.setFrameOrder([asNodeId('f-3'), asNodeId('f-1'), asNodeId('f-2')])
+
+    const wire = storeToJSON(store)
+    expect(wire.frameOrder).toEqual(['f-3', 'f-1', 'f-2'])
+
+    const restored = createCanvasStore({ initial: fromSerialized(wire) })
+    expect(restored.getFrames().map(f => f.id)).toEqual(['f-3', 'f-1', 'f-2'])
+  })
+
   test('fromSerialized → new store has same content', () => {
     const a = createCanvasStore({ clientId: asClientId('u-a') })
     a.addNode(makeNode())
