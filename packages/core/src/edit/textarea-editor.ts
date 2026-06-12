@@ -95,7 +95,12 @@ export const createDefaultTextareaEditor: EditorAdapterFactory = ({
   ta.style.wordBreak = 'break-word'
 
   const autosize = (): void => {
-    ta.style.height = 'auto'
+    // Reset to 0 (not 'auto') before reading scrollHeight. 'auto' falls
+    // back to the textarea's intrinsic height — the default `rows=2` —
+    // and scrollHeight is clamped to be ≥ clientHeight, so a single line
+    // of content would report 2 rows and leave a trailing blank line
+    // (which also lifted the visible text in a vertically-centered box).
+    ta.style.height = '0px'
     ta.style.height = `${ta.scrollHeight}px`
   }
 
