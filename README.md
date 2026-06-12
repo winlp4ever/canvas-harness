@@ -4,6 +4,12 @@
 
 # canvas-harness
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/@canvas-harness/core"><img src="https://img.shields.io/npm/v/@canvas-harness/core?style=flat-square&color=1890c0" alt="npm version" /></a>
+  <a href="https://github.com/winlp4ever/canvas-harness/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/winlp4ever/canvas-harness/ci.yml?branch=main&style=flat-square&label=ci" alt="CI status" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/winlp4ever/canvas-harness?style=flat-square&color=1890c0" alt="License: MIT" /></a>
+</p>
+
 A canvas-rendered node-graph library — React Flow's API, Excalidraw's perf ceiling, TipTap's extensibility. Headless and styleless.
 
 <p align="center">
