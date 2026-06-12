@@ -7,7 +7,7 @@ import {
   type ThemeResolver,
   useCanvasStore,
 } from '@canvas-harness/react'
-import { type DragEvent, useCallback, useMemo, useRef, useState } from 'react'
+import { type DragEvent, useCallback, useRef, useState } from 'react'
 import { ChartCardView } from '../custom-nodes/chart-card'
 import { useStyleMemory } from '../hooks/useStyleMemory'
 
@@ -191,13 +191,20 @@ export function Canvas({
   // path style / arrowheads / stroke etc. We seed `roughness: 1` so
   // the very first arrow the user creates already has the hand-drawn
   // look; once they edit the edge style, sticky memory takes over.
-  const arrowDefaults = useMemo<ArrowToolDefaults>(
-    () => ({
-      pathStyle: styleMemory.getEdgePathStyle(),
-      style: { roughness: 1, ...styleMemory.getEdgeStyle() },
-    }),
-    [styleMemory],
-  )
+  //
+  // Deliberately NOT memoized: `styleMemory` is referentially stable for
+  // the whole session (its `api` is memoized with `[]`), so a
+  // `useMemo(..., [styleMemory])` would freeze this at its mount-time
+  // value and new arrows would never pick up edits made during the
+  // session. The accessors read live from the memory ref, and the
+  // library syncs `arrowDefaults` into a ref every render (reading it
+  // lazily at edge-commit), so recomputing a fresh object each render is
+  // free — it does not remount the arrow-tool listener. The node create
+  // paths avoid this trap by reading `getNodeStyle()` lazily at click time.
+  const arrowDefaults: ArrowToolDefaults = {
+    pathStyle: styleMemory.getEdgePathStyle(),
+    style: { roughness: 1, ...styleMemory.getEdgeStyle() },
+  }
 
   // ---- drag-and-drop of image / SVG files ---------------------------
   // PNG/JPEG → store.addImage. SVG (image/svg+xml or .svg) → text → store.addSvg.
