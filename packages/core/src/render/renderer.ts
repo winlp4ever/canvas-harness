@@ -19,6 +19,7 @@ import { type CanvasStore, type InteractionState, isMoving as isMovingState } fr
 import {
   DEFAULT_HIGHLIGHT_COLOR,
   DEFAULT_TEXT_COLOR,
+  FONT_FAMILY_MAP,
   FONT_SIZE_MAP,
   getOrRenderTextBitmap,
   subscribeFontEpoch,
@@ -796,7 +797,10 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     ctx.fillStyle = '#94a3b8'
     ctx.textBaseline = 'middle'
     ctx.textAlign = 'center'
-    ctx.font = `italic ${fontPx}px ${node.style?.fontFamily ?? 'sans-serif'}`
+    // Resolve the font *token* (e.g. 'handwriting') to its real CSS stack,
+    // same as content paint — and default to 'handwriting' to match
+    // paintNodeContent, so the placeholder uses the node's current font.
+    ctx.font = `italic ${fontPx}px ${FONT_FAMILY_MAP[node.style?.fontFamily ?? 'handwriting']}`
     ctx.fillText('Type to edit…', node.w / 2, node.h / 2)
     ctx.restore()
   }
