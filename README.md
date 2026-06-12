@@ -240,9 +240,12 @@ The library is sync end-to-end. `store.subscribe('change', cb)` fires once per c
 
 ```tsx
 import { useEffect, useState } from 'react'
-import type { CanvasStore, Edge, Group, Node } from '@canvas-harness/core'
+import type { CanvasStore, Edge, Group, Node, NodeId } from '@canvas-harness/core'
 
-type PersistedScene = { nodes: Node[]; edges: Edge[]; groups: Group[] }
+// `frameOrder` is the present-mode slide order. It's view-independent
+// document state — persist it or a `setFrameOrder` reorder is lost on reload
+// (the store otherwise falls back to node-insertion order).
+type PersistedScene = { nodes: Node[]; edges: Edge[]; groups: Group[]; frameOrder: NodeId[] }
 
 export function useDebouncedSave(
   store: CanvasStore,
@@ -260,6 +263,7 @@ export function useDebouncedSave(
         nodes: store.getAllNodes(),
         edges: store.getAllEdges(),
         groups: store.getAllGroups(),
+        frameOrder: store.getFrames().map(f => f.id),
       })
       setStatus('saved')
     }

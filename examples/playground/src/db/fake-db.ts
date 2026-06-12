@@ -6,12 +6,15 @@
  * Swap this with `fetch('/api/scene', { method: 'PUT', body: ... })`
  * — the hook contract (returning a Promise) doesn't change.
  */
-import type { Edge, Group, Node } from '@canvas-harness/core'
+import type { Edge, Group, Node, NodeId } from '@canvas-harness/core'
 
 export type PersistedScene = {
   nodes: Node[]
   edges: Edge[]
   groups: Group[]
+  // Present-mode slide order. View-independent document state — persist it
+  // or a `setFrameOrder` reorder is lost when the scene is reloaded.
+  frameOrder: NodeId[]
 }
 
 const NETWORK_LATENCY_MS = 150

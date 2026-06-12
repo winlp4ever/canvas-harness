@@ -76,6 +76,55 @@ describe('serializeSelection', () => {
     const clip = serializeSelection(store)
     expect(clip.edges.map(e => e.id).sort()).toEqual(['ab']) // 'bc' dropped (crosses selection)
   })
+
+  test('captures cluster edges even when only the nodes are selected', () => {
+    const store = createCanvasStore()
+    store.addNode(makeNode({ id: asNodeId('a') }))
+    store.addNode(makeNode({ id: asNodeId('b'), x: 200 }))
+    store.addEdge(
+      makeEdge({
+        id: asEdgeId('ab'),
+        source: { nodeId: asNodeId('a'), localOffset: { x: 0, y: 0 } },
+        target: { nodeId: asNodeId('b'), localOffset: { x: 0, y: 0 } },
+      }),
+    )
+    // Only the nodes are selected, not the edge itself.
+    store.setSelection([asNodeId('a'), asNodeId('b')])
+    const clip = serializeSelection(store)
+    expect(clip.edges.map(e => e.id)).toEqual(['ab'])
+  })
+
+  test('does not sweep in unselected free-floating edges elsewhere in the scene', () => {
+    const store = createCanvasStore()
+    store.addNode(makeNode({ id: asNodeId('a') }))
+    // A free-floating arrow (both ends are bare world points) drawn in a
+    // corner, unrelated to the selection.
+    store.addEdge(
+      makeEdge({
+        id: asEdgeId('floater'),
+        source: { worldPoint: { x: 900, y: 900 } },
+        target: { worldPoint: { x: 950, y: 950 } },
+      }),
+    )
+    store.setSelection([asNodeId('a')]) // only the node — not the floater
+    const clip = serializeSelection(store)
+    expect(clip.nodes.map(n => n.id)).toEqual(['a'])
+    expect(clip.edges).toEqual([]) // floater stays put
+  })
+
+  test('keeps a free-floating edge when it is explicitly selected', () => {
+    const store = createCanvasStore()
+    store.addEdge(
+      makeEdge({
+        id: asEdgeId('floater'),
+        source: { worldPoint: { x: 10, y: 10 } },
+        target: { worldPoint: { x: 60, y: 60 } },
+      }),
+    )
+    store.setSelection([asEdgeId('floater')])
+    const clip = serializeSelection(store)
+    expect(clip.edges.map(e => e.id)).toEqual(['floater'])
+  })
 })
 
 describe('deserializeClipboard', () => {

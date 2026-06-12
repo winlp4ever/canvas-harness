@@ -56,6 +56,7 @@ export const useDebouncedSave = ({
       nodes: store.getAllNodes(),
       edges: store.getAllEdges(),
       groups: store.getAllGroups(),
+      frameOrder: store.getFrames().map(f => f.id),
     })
 
     const flush = async () => {
