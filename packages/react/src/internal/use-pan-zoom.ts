@@ -359,11 +359,20 @@ export const usePanZoom = (
       if (e.code === 'Space') panActivatedBySpace = false
     }
 
+    // Safari-only `gesturestart`/`gesturechange`/`gestureend` fire for
+    // native trackpad pinches *before* (and sometimes instead of) the
+    // ctrlKey-wheel variant the harness already handles. Without
+    // suppressing them the browser's default page-zoom wins. No-op on
+    // Chromium/Firefox where these events never fire.
+    const onGesture = (e: Event) => e.preventDefault()
     el.addEventListener('wheel', onWheel, { passive: false })
     el.addEventListener('pointerdown', onPointerDown)
     el.addEventListener('pointermove', onPointerMove)
     el.addEventListener('pointerup', onPointerUp)
     el.addEventListener('pointercancel', onPointerCancel)
+    el.addEventListener('gesturestart', onGesture)
+    el.addEventListener('gesturechange', onGesture)
+    el.addEventListener('gestureend', onGesture)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     return () => {
@@ -372,6 +381,9 @@ export const usePanZoom = (
       el.removeEventListener('pointermove', onPointerMove)
       el.removeEventListener('pointerup', onPointerUp)
       el.removeEventListener('pointercancel', onPointerCancel)
+      el.removeEventListener('gesturestart', onGesture)
+      el.removeEventListener('gesturechange', onGesture)
+      el.removeEventListener('gestureend', onGesture)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       // motion-end rAF poll exits on its own when motionEndPolling

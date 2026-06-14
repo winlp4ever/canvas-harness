@@ -519,6 +519,13 @@ function CanvasSurface({
               ? 'default'
               : 'crosshair',
         touchAction: 'none',
+        // `touchAction` covers OS-level touch gestures. Its wheel/
+        // trackpad counterpart is `overscrollBehavior`: tells the
+        // browser the canvas owns its edge-of-content scroll, so a
+        // horizontal two-finger swipe at the canvas edge doesn't
+        // promote to the history-navigation gesture on macOS
+        // Safari/Chrome.
+        overscrollBehavior: 'contain',
       }}
     >
       <canvas ref={staticRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
