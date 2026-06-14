@@ -144,15 +144,11 @@ export const drawEdge = (
       ctx.fill(path)
       ctx.restore()
       if (drawSourceArrow) {
+        // directionTowardTip with +1 already returns the OUTWARD tangent
+        // at the source endpoint (interior → tip), which is what
+        // drawArrowhead's contract expects. No flip needed.
         const tipDir = directionTowardTip(samples, clip.startIndex, clip.startPoint, +1)
-        drawArrowhead(
-          ctx,
-          sourceArrowhead,
-          clip.startPoint,
-          negateVec(tipDir),
-          strokeColor,
-          strokeWidth,
-        )
+        drawArrowhead(ctx, sourceArrowhead, clip.startPoint, tipDir, strokeColor, strokeWidth)
       }
       if (drawTargetArrow) {
         const tipDir = directionTowardTip(samples, clip.endIndex, clip.endPoint, -1)
@@ -186,15 +182,11 @@ export const drawEdge = (
 
   // ---- arrowheads ----
   if (drawSourceArrow) {
+    // directionTowardTip with +1 already returns the OUTWARD tangent
+    // at the source endpoint (interior → tip), which is what
+    // drawArrowhead's contract expects. No flip needed.
     const tipDir = directionTowardTip(samples, clip.startIndex, clip.startPoint, +1)
-    drawArrowhead(
-      ctx,
-      sourceArrowhead,
-      clip.startPoint,
-      negateVec(tipDir),
-      strokeColor,
-      strokeWidth,
-    )
+    drawArrowhead(ctx, sourceArrowhead, clip.startPoint, tipDir, strokeColor, strokeWidth)
   }
   if (drawTargetArrow) {
     const tipDir = directionTowardTip(samples, clip.endIndex, clip.endPoint, -1)
@@ -463,5 +455,3 @@ const retreatFromPoint = (
     y: clipPoint.y - (dy / len) * dist * Math.min(1, t),
   }
 }
-
-const negateVec = (v: Vec2): Vec2 => ({ x: -v.x, y: -v.y })
