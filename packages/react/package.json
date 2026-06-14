@@ -1,6 +1,6 @@
 {
   "name": "@canvas-harness/react",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "description": "React bindings for canvas-harness — <Canvas> component, data + interaction + presence + history hooks.",
   "type": "module",
   "main": "./dist/index.cjs",
