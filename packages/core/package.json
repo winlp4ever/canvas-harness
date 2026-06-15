@@ -1,6 +1,6 @@
 {
   "name": "@canvas-harness/core",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "Canvas-rendered node-graph library — framework-agnostic core. Store, renderer, edges, hit-testing, ops, history.",
   "type": "module",
   "main": "./dist/index.cjs",
