@@ -274,7 +274,12 @@ describe('custom nodes during pan/zoom (live DOM policy)', () => {
     cleanup(staticCanvas, interactiveCanvas)
   })
 
-  test('drag still produces canvas snapshot (preserved behavior)', async () => {
+  test('drag of OTHER nodes keeps stationary custom nodes live', async () => {
+    // Dragging built-in nodes (or any node where our custom one isn't
+    // in `draggedIds`) used to snapshot ALL custom nodes wholesale.
+    // The fix differentiates: only the moving node is excluded
+    // (already handled by `excludedNodes` earlier in the loop); the
+    // rest stay live React DOM. This test pins that behavior.
     const { staticCanvas, interactiveCanvas } = makeCanvases()
     const store = createCanvasStore({ clientId: asClientId('u-test'), nodeTypes: [customDef] })
     const renderer = createRenderer({
@@ -291,14 +296,14 @@ describe('custom nodes during pan/zoom (live DOM policy)', () => {
     await waitFrame()
     expect(renderer.getOverlaySet()).toContain('cn-1')
 
-    // Enter drag mode. The full re-render fires (mode flip
-    // invalidates cache); custom node should now be snapshot, NOT in
-    // the overlay set.
-    store.setInteractionState({ mode: 'dragging' })
+    // Enter drag mode without putting cn-1 in draggedIds — i.e.,
+    // some OTHER node (or just an empty drag-mode test). cn-1 is
+    // stationary and should stay in the React overlay.
+    store.setInteractionState({ mode: 'dragging', draggedIds: [] })
     await waitFrame()
     await waitFrame()
-    expect(renderer.getOverlaySet()).not.toContain('cn-1')
-    expect(isMagenta(readPixel(staticCanvas, 150, 150))).toBe(true)
+    expect(renderer.getOverlaySet()).toContain('cn-1')
+    expect(isMagenta(readPixel(staticCanvas, 150, 150))).toBe(false)
     renderer.dispose()
     cleanup(staticCanvas, interactiveCanvas)
   })

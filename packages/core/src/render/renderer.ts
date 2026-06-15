@@ -334,6 +334,25 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // ---- nodes ----
     const visible = visibleNodes(camera, viewport)
     const isMoving = isMovingState(interaction)
+    // Per-frame flags for the custom-node dispatch below. Hoisted
+    // here because they're functions of `interaction.mode` +
+    // `fullRender` — both fixed for the whole render pass.
+    //   - viewMotion: camera-frame motion (pan/zoom/marquee). Scene
+    //     not mutating; React overlay keeps in-view nodes live.
+    //   - isStripRender: strip-only paint (tier 2 pan-extend or
+    //     tier 2.7 zoom-out extend). Doesn't update the overlay set,
+    //     so a newly-entering custom node has to be snapshotted or
+    //     it'll be invisible until tier 3 fires.
+    // Drag / resize / rotate don't appear here: the moving node is
+    // already excluded via `excludedNodes` BEFORE the dispatch, and
+    // the other (stationary) custom nodes don't need a snapshot —
+    // the OverlayItem subscribes to `'change'` events, not
+    // `'interaction'`, so it doesn't re-render per drag frame.
+    const viewMotion =
+      interaction.mode === 'panning' ||
+      interaction.mode === 'zooming' ||
+      interaction.mode === 'marqueeing'
+    const isStripRender = !fullRender
     const minOnScreen = MIN_ON_SCREEN_SIZE_PX
     const nextOverlaySet = new Set<NodeId>()
     let drawn = 0
@@ -478,34 +497,19 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       if (node.w * camera.z < minOnScreen && node.h * camera.z < minOnScreen) continue
       if (camera.z < def.lod.minZoomForPlaceholder) continue
 
-      // Custom-node rendering policy (see §5.3 LOD ladder):
+      // Custom-node rendering policy (see §5.3 LOD ladder + the
+      // viewMotion / isStripRender comment above the node loop where
+      // those flags are hoisted):
       //   1. Sub-zoom-threshold → canvas fallback (cheap path).
-      //   2. drag/resize/rotate → canvas fallback. Node geometry
-      //      mutates per frame; snapshotting is the predictable path.
-      //   3. pan/zoom/marquee + this is a strip render + node isn't
-      //      already React-mounted → canvas fallback. The strip-render
-      //      branch doesn't update the overlay set, so a newly-entering
-      //      node would be invisible until tier 3 fires at gesture end;
-      //      a one-time snapshot keeps it visible during the gesture.
-      //      (Marquee doesn't trigger strip renders today since camera
-      //      doesn't move, but it's in this group for consistency:
-      //      the scene isn't mutating, so any custom node stays live.)
-      // Anything else (including pan/zoom/marquee of an already-mounted
-      // node) falls through to React overlay — the overlay div's CSS
-      // transform moves the live DOM with the camera at native browser
-      // speed.
-      const viewMotion =
-        interaction.mode === 'panning' ||
-        interaction.mode === 'zooming' ||
-        interaction.mode === 'marqueeing'
-      const nodeMotion =
-        interaction.mode === 'dragging' ||
-        interaction.mode === 'resizing' ||
-        interaction.mode === 'rotating'
-      const isStripRender = !fullRender
+      //   2. viewMotion + strip render + node not already mounted →
+      //      one-time snapshot so a newly-entering node is visible
+      //      during the gesture; tier 3 at gesture end promotes it
+      //      to the React overlay.
+      // Anything else falls through to the React overlay path —
+      // including drag / resize / rotate of OTHER nodes (the moving
+      // one was filtered above via `excludedNodes`).
       const preferCanvas =
         camera.z < def.lod.minZoomForReact ||
-        nodeMotion ||
         (viewMotion && isStripRender && !overlaySet.has(node.id))
       if (preferCanvas) {
         if (paintCustomCanvasFallback(surface.ctx, node, def, scale, renderEnv)) {
