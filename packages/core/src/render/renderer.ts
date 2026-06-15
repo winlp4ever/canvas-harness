@@ -48,6 +48,13 @@ import {
 } from './rough/constants'
 import { getRoughCanvasCtor, onRoughReady } from './rough/loader'
 import {
+  type CacheCamera,
+  type ViewCamera,
+  cacheCoversViewport,
+  computeCacheSourceRect,
+  scaleRatioInBounds,
+} from './scene-cache-math'
+import {
   type ThemeResolver,
   contentBounds,
   drawShape,
@@ -128,6 +135,17 @@ export type RendererOptions = {
   onOverlayChange?: (mountedIds: NodeId[]) => void
 }
 
+/**
+ * Path the last static-layer paint took through the cache tiers.
+ * Returned by {@link Renderer.getLastDrawPath} for test instrumentation.
+ *   - `'idle'`   no static paint has happened yet
+ *   - `'present'` cache hit, 1:1 blit (cheapest path)
+ *   - `'extend'`  same-zoom pan past margin, shift + strip blit
+ *   - `'scaled'`  mid-zoom scaled blit (no re-rasterization)
+ *   - `'full'`    full re-render (cache invalidated)
+ */
+export type StaticDrawPath = 'idle' | 'present' | 'extend' | 'scaled' | 'full'
+
 export type Renderer = {
   /** Begin the rAF loop. Idempotent. */
   start(): void
@@ -151,6 +169,13 @@ export type Renderer = {
   stats(): FrameStats
   /** Number of items the most recent paint actually drew. */
   lastDrawCount(): number
+  /**
+   * Path the last static-layer paint took. Test instrumentation —
+   * lets browser tests assert which cache tier fired. `'present'` =
+   * 1:1 blit, `'extend'` = strip-extend + blit, `'scaled'` = mid-zoom
+   * scaled blit, `'full'` = full re-render.
+   */
+  getLastDrawPath(): StaticDrawPath
   /** Current overlay-mounted custom-node ids. */
   getOverlaySet(): NodeId[]
   /**
@@ -180,6 +205,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   /** Custom nodes whose React view is currently mounted in the overlay. */
   let overlaySet: ReadonlySet<NodeId> = new Set()
   let lastDrawn = 0
+  let lastDrawPath: StaticDrawPath = 'idle'
 
   // Offscreen scene cache (viewport + margin). Rendered by
   // `renderFullCache`, blitted to the on-screen static surface by
@@ -671,27 +697,102 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   }
 
   /**
-   * Static-layer paint entry point. Three tiers, cheapest first:
-   *   1. cache valid + viewport inside the margin → blit only (Phase 2)
-   *   2. cache valid + panned past the margin but still overlapping →
-   *      shift + repaint the exposed strip, then blit (Phase 3)
-   *   3. otherwise (stale content, zoom, big jump) → full re-render
+   * Snapshot of the cache's reference frame for the pure scene-cache-math
+   * helpers. Read-only — the helpers don't mutate.
+   */
+  const snapshotCacheCamera = (cache: CanvasSurface): CacheCamera => ({
+    camX: cacheCamX,
+    camY: cacheCamY,
+    camZ: cacheCamZ,
+    widthDevicePx: cache.canvas.width,
+    heightDevicePx: cache.canvas.height,
+    dpr: cache.dpr,
+    marginCssPx: SCENE_CACHE_MARGIN_PX,
+  })
+
+  const snapshotView = (camera: CameraState): ViewCamera => ({
+    camX: camera.x,
+    camY: camera.y,
+    camZ: camera.z,
+    widthCssPx: staticSurface.cssWidth,
+    heightCssPx: staticSurface.cssHeight,
+  })
+
+  /**
+   * Blits the cache to the live viewport with a scale factor — used
+   * mid-zoom-gesture to keep the existing rasterization on-screen
+   * (transiently blurry) instead of paying a full re-render every
+   * wheel tick. The browser's bilinear filter handles the resampling.
+   * `presentStatic` is the equivalent for the 1:1 same-zoom case.
+   */
+  const presentStaticScaled = (camera: CameraState): void => {
+    const cache = ensureCacheSurface()
+    const w = staticSurface.canvas.width
+    const h = staticSurface.canvas.height
+    const { srcX, srcY, srcW, srcH } = computeCacheSourceRect(
+      snapshotCacheCamera(cache),
+      snapshotView(camera),
+    )
+    staticSurface.ctx.setTransform(1, 0, 0, 1, 0, 0)
+    staticSurface.ctx.clearRect(0, 0, w, h)
+    staticSurface.ctx.drawImage(cache.canvas, srcX, srcY, srcW, srcH, 0, 0, w, h)
+  }
+
+  /**
+   * Max zoom ratio (either direction) for the scaled-blit tier. Beyond
+   * this the blur is visible enough that re-rasterizing is preferable;
+   * caller falls through to the full re-render tier.
+   */
+  const SCALED_BLIT_MAX_RATIO = 4
+
+  /**
+   * Static-layer paint entry point. Tiers, cheapest first:
+   *   1.   cache valid + viewport inside the margin → blit only
+   *   2.   cache valid + panned past the margin but still overlapping →
+   *        shift + repaint the exposed strip, then blit
+   *   2.5. cache valid + zoom changed (mid-gesture) + cache still
+   *        covers + within ratio cap → blit scaled, no re-rasterize
+   *   3.   otherwise (stale content, big zoom jump, big pan jump) →
+   *        full re-render
    */
   const paintStatic = (): void => {
     const camera = store.getCamera()
     if (!cacheStale && camera.z === cacheCamZ) {
       if (viewportFitsInCache(camera)) {
         presentStatic(camera)
+        lastDrawPath = 'present'
         return
       }
       if (canExtend(camera)) {
         extendCache(camera)
         presentStatic(camera)
+        lastDrawPath = 'extend'
+        return
+      }
+    }
+    // Tier 2.5 — mid-zoom scaled blit. Only fires while the user is
+    // actively zooming and the existing cache can serve the new view
+    // with bounded blur. Falls through to tier 3 otherwise.
+    if (
+      !cacheStale &&
+      camera.z !== cacheCamZ &&
+      store.getInteractionState().mode === 'zooming' &&
+      cacheSurface
+    ) {
+      const cacheCam = snapshotCacheCamera(cacheSurface)
+      const view = snapshotView(camera)
+      if (
+        scaleRatioInBounds(cacheCam.camZ, view.camZ, SCALED_BLIT_MAX_RATIO) &&
+        cacheCoversViewport(cacheCam, view)
+      ) {
+        presentStaticScaled(camera)
+        lastDrawPath = 'scaled'
         return
       }
     }
     renderFullCache(camera)
     presentStatic(camera)
+    lastDrawPath = 'full'
   }
 
   /**
@@ -1168,7 +1269,6 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       state.mode === 'resizing' ||
       state.mode === 'rotating' ||
       state.mode === 'panning' ||
-      state.mode === 'zooming' ||
       state.mode === 'idle'
     ) {
       staticDirty = true
@@ -1177,6 +1277,14 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       // first frame of a pan does a full render — which is what swaps
       // custom-node React overlays to their canvas fallback.
       cacheStale = true
+    } else if (state.mode === 'zooming') {
+      // Zoom is special: the scaled-blit tier (paintStatic tier 2.5)
+      // can reuse whatever cache exists at the prior zoom. Invalidating
+      // here would force a redundant re-render every time the user
+      // releases + re-engages a zoom gesture, which is exactly the lag
+      // the scaled-blit was added to avoid. Just request a frame; the
+      // paint dispatch decides whether tier 2.5 fires or tier 3.
+      staticDirty = true
     }
     loop.requestFrame()
   }
@@ -1247,6 +1355,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     },
     stats: () => loop.stats(),
     lastDrawCount: () => lastDrawn,
+    getLastDrawPath: () => lastDrawPath,
     getOverlaySet: () => [...overlaySet],
     getAssetCache: () => assetCache,
     dispose() {
