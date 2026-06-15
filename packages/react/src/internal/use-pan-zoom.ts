@@ -76,7 +76,7 @@ export const usePanZoom = (
     // timer-heap bookkeeping, which at 120Hz trackpad scroll added
     // ~1ms/frame measurable cost. rAF-poll runs at display rate
     // regardless of input rate — same correctness, ~zero overhead.)
-    const MOTION_RESET_MS = 150
+    const MOTION_RESET_MS = 400
     let motionEndDeadline = 0
     let motionEndPolling = false
     const setMotion = (mode: 'panning' | 'zooming' | null): void => {
