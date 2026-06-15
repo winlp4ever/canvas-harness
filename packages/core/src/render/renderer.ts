@@ -478,9 +478,35 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       if (node.w * camera.z < minOnScreen && node.h * camera.z < minOnScreen) continue
       if (camera.z < def.lod.minZoomForPlaceholder) continue
 
-      // Below the React threshold OR currently moving: prefer cheap canvas
-      // paths. Order: getSnapshot → drawPlaceholder → renderCanvas → skip.
-      const preferCanvas = camera.z < def.lod.minZoomForReact || isMoving
+      // Custom-node rendering policy (see §5.3 LOD ladder):
+      //   1. Sub-zoom-threshold → canvas fallback (cheap path).
+      //   2. drag/resize/rotate → canvas fallback. Node geometry
+      //      mutates per frame; snapshotting is the predictable path.
+      //   3. pan/zoom/marquee + this is a strip render + node isn't
+      //      already React-mounted → canvas fallback. The strip-render
+      //      branch doesn't update the overlay set, so a newly-entering
+      //      node would be invisible until tier 3 fires at gesture end;
+      //      a one-time snapshot keeps it visible during the gesture.
+      //      (Marquee doesn't trigger strip renders today since camera
+      //      doesn't move, but it's in this group for consistency:
+      //      the scene isn't mutating, so any custom node stays live.)
+      // Anything else (including pan/zoom/marquee of an already-mounted
+      // node) falls through to React overlay — the overlay div's CSS
+      // transform moves the live DOM with the camera at native browser
+      // speed.
+      const viewMotion =
+        interaction.mode === 'panning' ||
+        interaction.mode === 'zooming' ||
+        interaction.mode === 'marqueeing'
+      const nodeMotion =
+        interaction.mode === 'dragging' ||
+        interaction.mode === 'resizing' ||
+        interaction.mode === 'rotating'
+      const isStripRender = !fullRender
+      const preferCanvas =
+        camera.z < def.lod.minZoomForReact ||
+        nodeMotion ||
+        (viewMotion && isStripRender && !overlaySet.has(node.id))
       if (preferCanvas) {
         if (paintCustomCanvasFallback(surface.ctx, node, def, scale, renderEnv)) {
           drawn++
