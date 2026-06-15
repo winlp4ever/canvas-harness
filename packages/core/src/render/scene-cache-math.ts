@@ -134,14 +134,20 @@ export const cacheReuseLayout = (cache: CacheCamera, view: ViewCamera): CacheReu
   const cacheW = cache.widthDevicePx
   const cacheH = cache.heightDevicePx
   const marginDev = cache.marginCssPx * cache.dpr
-  const destW = cacheW * ratio
-  const destH = cacheH * ratio
-  // Map old cache top-left (in old world frame) into new cache device
-  // coords: shift by the camera pan delta, then offset by the margin
-  // shrink due to the new (lower) zoom. Derivation in the
-  // computeCacheSourceRect comment — same transform applied in reverse.
-  const destX = (cache.camX - view.camX) * view.camZ * cache.dpr + marginDev * (1 - ratio)
-  const destY = (cache.camY - view.camY) * view.camZ * cache.dpr + marginDev * (1 - ratio)
+  // Compute the dest rect's four corners as raw floats, then round to
+  // integer device pixels. Deriving `destW`/`destH` from the rounded
+  // right/bottom corners (rather than rounding `destW` separately)
+  // guarantees `destX + destW` matches the right strip's `x`, and
+  // `destY + destH` matches the bottom strip's `y`. Sub-pixel
+  // boundaries would otherwise antialias the dest-rect edge and the
+  // adjacent strip-rasterization edge at slightly different offsets,
+  // showing a faint visible seam in dark themes during zoom-out.
+  const rawDestX = (cache.camX - view.camX) * view.camZ * cache.dpr + marginDev * (1 - ratio)
+  const rawDestY = (cache.camY - view.camY) * view.camZ * cache.dpr + marginDev * (1 - ratio)
+  const destX = Math.round(rawDestX)
+  const destY = Math.round(rawDestY)
+  const destW = Math.round(rawDestX + cacheW * ratio) - destX
+  const destH = Math.round(rawDestY + cacheH * ratio) - destY
   const dest: DeviceRect = { x: destX, y: destY, w: destW, h: destH }
   const strips = {
     top: { x: 0, y: 0, w: cacheW, h: Math.max(0, destY) },

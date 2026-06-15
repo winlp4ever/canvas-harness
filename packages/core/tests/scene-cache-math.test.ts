@@ -198,12 +198,17 @@ describe('cacheReuseLayout', () => {
     expect(r.strips.bottom).toEqual({ x: 0, y: 492, w: 1056, h: 364 })
   })
 
-  test('mild zoom-out (ratio = 0.8): dest mostly fills cache', () => {
+  test('mild zoom-out (ratio = 0.8): dest mostly fills cache, all corners rounded', () => {
     const r = cacheReuseLayout(makeCache(), makeView({ camZ: 0.8 }))
     expect(r.valid).toBe(true)
-    // destW = 1056 * 0.8 = 844.8, destX = (1 - 0.8) * 128 = 25.6.
-    expect(r.dest.w).toBeCloseTo(844.8)
-    expect(r.dest.x).toBeCloseTo(25.6)
+    // Pixel-align fix: dest corners round to integers so the perimeter
+    // strips abut at exact pixel boundaries (no half-pixel seam).
+    //   raw destX = (1 - 0.8) * 128 = 25.6        → round → 26
+    //   raw destR = 25.6 + 1056 * 0.8 = 870.4      → round → 870
+    //   destW = 870 - 26 = 844
+    expect(r.dest.x).toBe(26)
+    expect(r.dest.w).toBe(844)
+    expect(r.dest.x + r.dest.w).toBe(870) // matches the right strip's `x`
   })
 
   test('zoom-out with pan offsets dest by the pan delta', () => {
@@ -244,6 +249,30 @@ describe('cacheReuseLayout', () => {
     // destX = (cache.camX - view.camX) * view.camZ * dpr + marginDev * (1 - ratio)
     //       = 0 + 128 * 2 * 0.5 = 128.
     expect(r.dest.x).toBe(128)
+  })
+
+  test('perimeter strips abut the dest rect at exact integer pixel boundaries', () => {
+    // Regression: at non-integer destX/Y/W/H values, the dest rect's
+    // antialiased blit edge and the perimeter strip's antialiased
+    // rasterization edge land at slightly different subpixel offsets,
+    // creating a visible 1-pixel seam (most notable on dark themes).
+    // The fix rounds the corners; this test pins both halves of the
+    // invariant — corners are integers AND strips meet the dest rect
+    // at those exact integers.
+    const r = cacheReuseLayout(makeCache(), makeView({ camZ: 0.73 }))
+    expect(r.valid).toBe(true)
+    expect(Number.isInteger(r.dest.x)).toBe(true)
+    expect(Number.isInteger(r.dest.y)).toBe(true)
+    expect(Number.isInteger(r.dest.w)).toBe(true)
+    expect(Number.isInteger(r.dest.h)).toBe(true)
+    // Right-strip starts where dest ends (no gap, no overlap).
+    expect(r.strips.right.x).toBe(r.dest.x + r.dest.w)
+    // Bottom-strip starts where dest ends on y.
+    expect(r.strips.bottom.y).toBe(r.dest.y + r.dest.h)
+    // Left-strip ends exactly at dest.x.
+    expect(r.strips.left.x + r.strips.left.w).toBe(r.dest.x)
+    // Top-strip ends exactly at dest.y.
+    expect(r.strips.top.y + r.strips.top.h).toBe(r.dest.y)
   })
 
   test('non-1 cache zoom: pan delta still maps correctly', () => {
