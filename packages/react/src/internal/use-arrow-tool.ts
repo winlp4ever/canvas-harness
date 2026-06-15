@@ -32,10 +32,29 @@ const CLICK_MAX_PIXELS = 4
  * consumer (e.g. a style-memory hook) inject the user's last-used
  * pathStyle / arrowheads / style without forcing every edge through
  * a custom factory.
+ *
+ * `style` and `data` accept either a plain object reused for every
+ * edge, or a factory invoked once at gesture commit. The factory
+ * form matters when the stamp depends on dynamic state at creation
+ * time — current theme, current scope, sticky style memory,
+ * `createdAt` timestamps — because stamping these inside the same
+ * `addEdge` op makes single-Cmd+Z undo the create cleanly. The
+ * alternative (subscribing to `'change'` and calling `updateEdge`
+ * synchronously) pushes a second batch onto the undo stack, so the
+ * user would have to undo twice.
  */
 export type ArrowToolDefaults = {
   pathStyle?: import('@canvas-harness/core').PathStyle
-  style?: import('@canvas-harness/core').EdgeStyle
+  style?:
+    | import('@canvas-harness/core').EdgeStyle
+    | (() => import('@canvas-harness/core').EdgeStyle | undefined)
+  /**
+   * Initial `data` payload on every arrow-drawn edge. Use the factory
+   * form for fields that depend on dynamic state (theme, scope,
+   * timestamp) — see the type-level doc above for why this matters
+   * for clean undo semantics.
+   */
+  data?: Record<string, unknown> | (() => Record<string, unknown> | undefined)
 }
 
 export const useArrowTool = (
@@ -136,24 +155,36 @@ export const useArrowTool = (
       if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
       const wasActive = active
 
-      if (wasActive && sourceEnd) {
-        const world = worldFromEvent(e)
-        const { end: target } = endFromWorldPoint(world)
-        const d = defaultsRef.current
-        store.addEdge({
-          id: asEdgeId(store.generateId()),
-          source: sourceEnd,
-          target,
-          pathStyle: d?.pathStyle ?? 'bezier',
-          groups: [],
-          ...(d?.style ? { style: d.style } : {}),
-        })
+      // The factories below are consumer code (createdAt, theme reads,
+      // etc.) — if one of them throws, the cleanup still has to run or
+      // the canvas is stuck in `creating-edge` mode with a draft edge
+      // on screen. try/finally guarantees the state machine resets.
+      try {
+        if (wasActive && sourceEnd) {
+          const world = worldFromEvent(e)
+          const { end: target } = endFromWorldPoint(world)
+          const d = defaultsRef.current
+          // Resolve factories at commit time so closures see the current
+          // theme / scope / timestamp. Spread the resolved values into
+          // the same `addEdge` op — one batch, one Cmd+Z to undo.
+          const resolvedStyle = typeof d?.style === 'function' ? d.style() : d?.style
+          const resolvedData = typeof d?.data === 'function' ? d.data() : d?.data
+          store.addEdge({
+            id: asEdgeId(store.generateId()),
+            source: sourceEnd,
+            target,
+            pathStyle: d?.pathStyle ?? 'bezier',
+            groups: [],
+            ...(resolvedStyle ? { style: resolvedStyle } : {}),
+            ...(resolvedData ? { data: resolvedData } : {}),
+          })
+        }
+      } finally {
+        store.resetInteractionState()
+        pointerDownAt = null
+        active = false
+        sourceEnd = null
       }
-
-      store.resetInteractionState()
-      pointerDownAt = null
-      active = false
-      sourceEnd = null
     }
 
     const onPointerCancel = (e: PointerEvent) => {
