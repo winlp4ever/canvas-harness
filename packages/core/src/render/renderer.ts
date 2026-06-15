@@ -321,8 +321,6 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       interaction.editingTarget?.kind === 'node' ? interaction.editingTarget.id : null
 
     // Rough-stroke gate — paint the wobbly outline only when ALL hold:
-    //   - pan/zoom is NOT in progress (whole viewport in motion would
-    //     blow the frame budget),
     //   - any drag/resize/rotate affects <= ROUGH_MAX_MOVING_NODES (so a
     //     single-node drag keeps the rough look on its neighbours; a
     //     big marquee move falls back to plain),
@@ -330,10 +328,14 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     //   - visible node count is below the cap.
     // Per-node `style.roughness > 0` is the final per-shape gate inside
     // `drawRoughShape`. When the gate is false, plain strokes only.
-    const cameraIsMoving = interaction.mode === 'panning' || interaction.mode === 'zooming'
+    //
+    // Pan/zoom are intentionally NOT in this gate: steady-state pan
+    // reuses the scene cache (no per-frame rough fill), and zoom needs
+    // a separate scaled-blit story (in progress) to stay smooth with
+    // rough on — without it, this experiment will show zoom janking on
+    // dense scenes, which is the signal we'd want to see.
     const movingNodeCount = excludedNodes?.size ?? 0
     const roughEnabled =
-      !cameraIsMoving &&
       movingNodeCount <= ROUGH_MAX_MOVING_NODES &&
       camera.z >= ROUGH_MIN_ZOOM &&
       visible.length <= ROUGH_MAX_NODES
@@ -481,7 +483,6 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // Edges share the same gate as nodes — extra cap protects against
     // mass-labeled scenes where edge counts dominate the budget.
     const edgeRoughEnabled =
-      !cameraIsMoving &&
       movingNodeCount <= ROUGH_MAX_MOVING_NODES &&
       camera.z >= ROUGH_MIN_ZOOM &&
       visEdges.length <= ROUGH_MAX_NODES
