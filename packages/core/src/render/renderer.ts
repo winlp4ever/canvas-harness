@@ -852,10 +852,21 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
 
   /**
    * Min zoom-out ratio for the scaled-extend tier (tier 2.7). Below
-   * this, perimeter strips dominate the cache → tier 3 is cheaper
-   * than the hybrid extend.
+   * this, the bilinear blur over the dest rect is pronounced enough
+   * that the visible seam between the blurred center and the crisp
+   * perimeter strip becomes noticeable (especially in dark themes —
+   * a bilinear average between a bright node-edge pixel and the dark
+   * background pixel creates a medium-gray pixel right at the dest
+   * rect's edge, reading as a faint bright line against the dark
+   * surround). Above this ratio, the scale factor is mild enough
+   * (≤ 1.25×) that the blur is imperceptible. The trade-off vs the
+   * perf win:
+   *   ratio 0.9: ~19% of cache is perimeter → ~5× faster than tier 3
+   *   ratio 0.8: ~36% → ~3× faster      (kept as the cap)
+   *   ratio 0.7: ~51% → ~2× faster      (now falls through to tier 3)
+   *   ratio 0.5: ~75% → barely faster   (always falls through)
    */
-  const SCALED_EXTEND_MIN_RATIO = 0.5
+  const SCALED_EXTEND_MIN_RATIO = 0.8
 
   /**
    * Static-layer paint entry point. Tiers, cheapest first:
