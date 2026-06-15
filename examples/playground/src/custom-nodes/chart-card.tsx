@@ -74,8 +74,12 @@ export const chartCardDef = defineNode({
   view: ChartCardView,
 
   lod: {
-    minZoomForReact: 0.7,
-    minZoomForPlaceholder: 0.15,
+    // Aggressive thresholds so the React view stays mounted across
+    // almost the full zoom range — exercises the live-DOM-during-
+    // pan/zoom policy. Consumers with heavier custom nodes can raise
+    // these to favour the canvas placeholder sooner.
+    minZoomForReact: 0.1,
+    minZoomForPlaceholder: 0.05,
   },
 
   drawPlaceholder: (ctx, node) => {
