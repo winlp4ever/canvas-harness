@@ -94,3 +94,87 @@ export const scaleRatioInBounds = (
   const ratio = viewCamZ >= cacheCamZ ? viewCamZ / cacheCamZ : cacheCamZ / viewCamZ
   return ratio <= maxRatio
 }
+
+/** Rect in cache device pixels. */
+type DeviceRect = { x: number; y: number; w: number; h: number }
+
+/**
+ * Layout for the scaled-extend (tier 2.7) cache reuse, mirroring the
+ * existing pan-extend but for the zoom-out spatial-grow case.
+ *
+ * `dest` is where the existing cache pixels should be scale-blitted in
+ * the NEW cache canvas (which keeps the same dimensions but represents
+ * a larger world-area at the lower zoom). The four perimeter strips
+ * are the regions outside `dest` — never previously rasterized at the
+ * old cache, must be drawn fresh at the new zoom.
+ */
+export type CacheReuseLayout = {
+  /** Destination rect inside the new cache canvas (device px). */
+  dest: DeviceRect
+  /** Perimeter strips that need fresh rasterization (device px). Any
+   *  strip may have zero width or height when there's no exposure on
+   *  that side (e.g. dest sits flush against an edge). */
+  strips: { top: DeviceRect; bottom: DeviceRect; left: DeviceRect; right: DeviceRect }
+  /** True when `dest` lies entirely inside the cache canvas — required
+   *  to use this layout. False ⇒ combined zoom-out + large pan pushed
+   *  the reuse rect off-canvas; caller should fall through to tier 3. */
+  valid: boolean
+}
+
+/**
+ * Computes the scaled-extend layout: where to scale-blit the existing
+ * cache pixels and which perimeter strips to redraw at the new zoom.
+ *
+ * Pure (no canvas refs). The new cache implicitly recenters on the
+ * live view's camera; the caller is responsible for updating
+ * `cacheCamX/Y/Z` after applying the layout.
+ */
+export const cacheReuseLayout = (cache: CacheCamera, view: ViewCamera): CacheReuseLayout => {
+  const ratio = view.camZ / cache.camZ
+  const cacheW = cache.widthDevicePx
+  const cacheH = cache.heightDevicePx
+  const marginDev = cache.marginCssPx * cache.dpr
+  const destW = cacheW * ratio
+  const destH = cacheH * ratio
+  // Map old cache top-left (in old world frame) into new cache device
+  // coords: shift by the camera pan delta, then offset by the margin
+  // shrink due to the new (lower) zoom. Derivation in the
+  // computeCacheSourceRect comment — same transform applied in reverse.
+  const destX = (cache.camX - view.camX) * view.camZ * cache.dpr + marginDev * (1 - ratio)
+  const destY = (cache.camY - view.camY) * view.camZ * cache.dpr + marginDev * (1 - ratio)
+  const dest: DeviceRect = { x: destX, y: destY, w: destW, h: destH }
+  const strips = {
+    top: { x: 0, y: 0, w: cacheW, h: Math.max(0, destY) },
+    bottom: {
+      x: 0,
+      y: destY + destH,
+      w: cacheW,
+      h: Math.max(0, cacheH - destY - destH),
+    },
+    left: { x: 0, y: destY, w: Math.max(0, destX), h: destH },
+    right: {
+      x: destX + destW,
+      y: destY,
+      w: Math.max(0, cacheW - destX - destW),
+      h: destH,
+    },
+  }
+  const valid = destX >= 0 && destY >= 0 && destX + destW <= cacheW && destY + destH <= cacheH
+  return { dest, strips, valid }
+}
+
+/**
+ * True when the zoom-out ratio fits the scaled-extend window: strictly
+ * a zoom-out (ratio < 1) but not too extreme (ratio ≥ `minRatio`).
+ * Below `minRatio` the perimeter is so large that a full re-render is
+ * cheaper than the hybrid; the caller should fall through to tier 3.
+ */
+export const zoomExtendRatioInBounds = (
+  cacheCamZ: number,
+  viewCamZ: number,
+  minRatio: number,
+): boolean => {
+  if (viewCamZ <= 0 || cacheCamZ <= 0 || minRatio <= 0 || minRatio >= 1) return false
+  const ratio = viewCamZ / cacheCamZ
+  return ratio >= minRatio && ratio < 1
+}

@@ -228,6 +228,91 @@ describe('scene-cache tier dispatch', () => {
     cleanup(staticCanvas, interactiveCanvas)
   })
 
+  test('zoom-out past margin fires the scaled-extend tier', async () => {
+    // Cache covers viewport + 256px margin at the initial zoom. A
+    // zoom-out to half-zoom requires twice the world area → cache no
+    // longer fully covers → tier 2.7 (scaled-extend) should fire
+    // instead of tier 2.5 (scaled) or tier 3 (full re-render).
+    const { staticCanvas, interactiveCanvas } = makeCanvases()
+    const store = createCanvasStore({ clientId: asClientId('u-test') })
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 800,
+      height: 600,
+    })
+    store.addNode(rectNode('n-1'))
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+    store.setInteractionState({ mode: 'zooming' })
+    const cam = store.getCamera()
+    store.setCamera({ ...cam, z: cam.z * 0.5 })
+    await waitFrame()
+    await waitFrame()
+    expect(renderer.getLastDrawPath()).toBe('scaled-extend')
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
+
+  test('zoom-out beyond the scaled-extend minimum ratio falls to full re-render', async () => {
+    // Tier 2.7's lower bound is ratio = 0.5 (max 2× zoom-out). At 4×
+    // zoom-out (ratio = 0.25) the perimeter dominates → tier 3 wins.
+    const { staticCanvas, interactiveCanvas } = makeCanvases()
+    const store = createCanvasStore({ clientId: asClientId('u-test') })
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 800,
+      height: 600,
+    })
+    store.addNode(rectNode('n-1'))
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+    store.setInteractionState({ mode: 'zooming' })
+    const cam = store.getCamera()
+    store.setCamera({ ...cam, z: cam.z * 0.25 })
+    await waitFrame()
+    await waitFrame()
+    expect(renderer.getLastDrawPath()).toBe('full')
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
+
+  test('exiting zoom mode after a scaled-extend snaps back to crisp', async () => {
+    // Verifies the post-gesture cleanup path: scaled-extend leaves the
+    // center transiently blurry; motion-end must re-rasterize the full
+    // cache so the next frame is crisp.
+    const { staticCanvas, interactiveCanvas } = makeCanvases()
+    const store = createCanvasStore({ clientId: asClientId('u-test') })
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 800,
+      height: 600,
+    })
+    store.addNode(rectNode('n-1'))
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+    store.setInteractionState({ mode: 'zooming' })
+    const cam = store.getCamera()
+    store.setCamera({ ...cam, z: cam.z * 0.5 })
+    await waitFrame()
+    await waitFrame()
+    expect(renderer.getLastDrawPath()).toBe('scaled-extend')
+    store.setInteractionState({ mode: 'idle' })
+    await waitFrame()
+    await waitFrame()
+    expect(renderer.getLastDrawPath()).toBe('full')
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
+
   test('exiting zoom mode triggers a full re-render to snap crisp', async () => {
     const { staticCanvas, interactiveCanvas } = makeCanvases()
     const store = createCanvasStore({ clientId: asClientId('u-test') })

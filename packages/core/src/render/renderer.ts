@@ -49,10 +49,13 @@ import {
 import { getRoughCanvasCtor, onRoughReady } from './rough/loader'
 import {
   type CacheCamera,
+  type CacheReuseLayout,
   type ViewCamera,
   cacheCoversViewport,
+  cacheReuseLayout,
   computeCacheSourceRect,
   scaleRatioInBounds,
+  zoomExtendRatioInBounds,
 } from './scene-cache-math'
 import {
   type ThemeResolver,
@@ -138,13 +141,14 @@ export type RendererOptions = {
 /**
  * Path the last static-layer paint took through the cache tiers.
  * Returned by {@link Renderer.getLastDrawPath} for test instrumentation.
- *   - `'idle'`   no static paint has happened yet
- *   - `'present'` cache hit, 1:1 blit (cheapest path)
- *   - `'extend'`  same-zoom pan past margin, shift + strip blit
- *   - `'scaled'`  mid-zoom scaled blit (no re-rasterization)
- *   - `'full'`    full re-render (cache invalidated)
+ *   - `'idle'`          no static paint has happened yet
+ *   - `'present'`       cache hit, 1:1 blit (cheapest path)
+ *   - `'extend'`        same-zoom pan past margin, shift + strip blit
+ *   - `'scaled'`        mid-zoom scaled blit (no re-rasterization)
+ *   - `'scaled-extend'` mid-zoom-out, scale-blit center + redraw perimeter
+ *   - `'full'`          full re-render (cache invalidated)
  */
-export type StaticDrawPath = 'idle' | 'present' | 'extend' | 'scaled' | 'full'
+export type StaticDrawPath = 'idle' | 'present' | 'extend' | 'scaled' | 'scaled-extend' | 'full'
 
 export type Renderer = {
   /** Begin the rAF loop. Idempotent. */
@@ -653,6 +657,77 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   }
 
   /**
+   * Scratch canvas used by `extendCacheScaled` to snapshot the old
+   * cache before the scale-blit-into-self. Allocated lazily, reused
+   * across calls to avoid repeated allocations during a zoom gesture.
+   */
+  let scaledExtendScratch: HTMLCanvasElement | null = null
+
+  /**
+   * Zoom-out analog of {@link extendCache}: keeps the existing cache
+   * pixels by scale-blitting them into a smaller central rect of the
+   * cache canvas (at the new lower zoom), then rasterizes only the
+   * exposed perimeter strips. Mirrors the pan-extend pattern but for
+   * the radial-grow case.
+   *
+   * Center pixels become transiently blurry by the zoom ratio; the
+   * perimeter is crisp. The motion-end full re-render fires after the
+   * gesture and restores crispness everywhere. Pre: `layout.valid`.
+   */
+  const extendCacheScaled = (camera: CameraState, layout: CacheReuseLayout): void => {
+    const cache = ensureCacheSurface()
+    const cacheW = cache.canvas.width
+    const cacheH = cache.canvas.height
+    // Snapshot old cache into a scratch canvas. Scale-blit-into-self
+    // is spec-permitted but ambiguous on overlapping read+write; using
+    // a scratch removes the ambiguity. Reused across calls to avoid
+    // re-allocating mid-gesture.
+    if (
+      !scaledExtendScratch ||
+      scaledExtendScratch.width !== cacheW ||
+      scaledExtendScratch.height !== cacheH
+    ) {
+      scaledExtendScratch = document.createElement('canvas')
+      scaledExtendScratch.width = cacheW
+      scaledExtendScratch.height = cacheH
+    }
+    const sctx = scaledExtendScratch.getContext('2d')!
+    sctx.setTransform(1, 0, 0, 1, 0, 0)
+    sctx.clearRect(0, 0, cacheW, cacheH)
+    sctx.drawImage(cache.canvas, 0, 0)
+
+    // Clear cache, scale-blit snapshot into the dest rect.
+    cache.ctx.setTransform(1, 0, 0, 1, 0, 0)
+    cache.ctx.clearRect(0, 0, cacheW, cacheH)
+    cache.ctx.drawImage(
+      scaledExtendScratch,
+      layout.dest.x,
+      layout.dest.y,
+      layout.dest.w,
+      layout.dest.h,
+    )
+
+    // Recenter the cache reference frame on the new view.
+    cacheCamX = camera.x
+    cacheCamY = camera.y
+    cacheCamZ = camera.z
+
+    // Rasterize the four perimeter strips at the new zoom. Skip any
+    // zero-area strip (a side with no exposure).
+    const strips = [
+      layout.strips.top,
+      layout.strips.bottom,
+      layout.strips.left,
+      layout.strips.right,
+    ]
+    for (const s of strips) {
+      if (s.w > 0 && s.h > 0) {
+        renderCacheStrip(cache, camera.x, camera.y, camera.z, s.x, s.y, s.w, s.h)
+      }
+    }
+  }
+
+  /**
    * The viewport's top-left offset inside the cache, in cache device
    * pixels, given the pan since `cacheCam*`. Rounded so the present blit
    * and the fits-in-cache test agree on the same integer rect.
@@ -746,6 +821,13 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   const SCALED_BLIT_MAX_RATIO = 4
 
   /**
+   * Min zoom-out ratio for the scaled-extend tier (tier 2.7). Below
+   * this, perimeter strips dominate the cache → tier 3 is cheaper
+   * than the hybrid extend.
+   */
+  const SCALED_EXTEND_MIN_RATIO = 0.5
+
+  /**
    * Static-layer paint entry point. Tiers, cheapest first:
    *   1.   cache valid + viewport inside the margin → blit only
    *   2.   cache valid + panned past the margin but still overlapping →
@@ -770,9 +852,11 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         return
       }
     }
-    // Tier 2.5 — mid-zoom scaled blit. Only fires while the user is
-    // actively zooming and the existing cache can serve the new view
-    // with bounded blur. Falls through to tier 3 otherwise.
+    // Tier 2.5 / 2.7 — mid-zoom cache reuse. Both fire only while the
+    // user is actively zooming; 2.5 when the existing cache fully
+    // covers the new viewport (zoom-in or mild zoom-out within margin),
+    // 2.7 when zoom-out exposes uncached perimeter but the existing
+    // center pixels are still usable via scale-blit.
     if (
       !cacheStale &&
       camera.z !== cacheCamZ &&
@@ -788,6 +872,15 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         presentStaticScaled(camera)
         lastDrawPath = 'scaled'
         return
+      }
+      if (zoomExtendRatioInBounds(cacheCam.camZ, view.camZ, SCALED_EXTEND_MIN_RATIO)) {
+        const layout = cacheReuseLayout(cacheCam, view)
+        if (layout.valid) {
+          extendCacheScaled(camera, layout)
+          presentStatic(camera)
+          lastDrawPath = 'scaled-extend'
+          return
+        }
       }
     }
     renderFullCache(camera)

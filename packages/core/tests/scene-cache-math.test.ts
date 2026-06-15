@@ -3,8 +3,10 @@ import {
   type CacheCamera,
   type ViewCamera,
   cacheCoversViewport,
+  cacheReuseLayout,
   computeCacheSourceRect,
   scaleRatioInBounds,
+  zoomExtendRatioInBounds,
 } from '../src/render/scene-cache-math'
 
 /**
@@ -157,5 +159,131 @@ describe('scaleRatioInBounds', () => {
     expect(scaleRatioInBounds(1, 0, 4)).toBe(false)
     expect(scaleRatioInBounds(1, 1, 0)).toBe(false)
     expect(scaleRatioInBounds(-1, 1, 4)).toBe(false)
+  })
+})
+
+describe('cacheReuseLayout', () => {
+  // The fixture: cache canvas 1056×856 device px = (800 + 256) × (600 + 256)
+  // at DPR=1. Cache rasterized at zoom 1.0 centered on world (0, 0).
+  test('identity (ratio = 1, no pan): dest fills cache, strips empty', () => {
+    const r = cacheReuseLayout(makeCache(), makeView())
+    expect(r.valid).toBe(true)
+    expect(r.dest.x).toBe(0)
+    expect(r.dest.y).toBe(0)
+    expect(r.dest.w).toBe(1056)
+    expect(r.dest.h).toBe(856)
+    // All perimeter strips are zero-area.
+    expect(r.strips.top.h).toBe(0)
+    expect(r.strips.bottom.h).toBe(0)
+    expect(r.strips.left.w).toBe(0)
+    expect(r.strips.right.w).toBe(0)
+  })
+
+  test('pure zoom-out (ratio = 0.5, no pan): dest shrinks, strips appear', () => {
+    // Cache at z=1, view at z=0.5 → ratio = 0.5 → dest is 50% of cache.
+    const r = cacheReuseLayout(makeCache(), makeView({ camZ: 0.5 }))
+    expect(r.valid).toBe(true)
+    // destW = 1056 * 0.5 = 528, destH = 856 * 0.5 = 428.
+    expect(r.dest.w).toBe(528)
+    expect(r.dest.h).toBe(428)
+    // destX = marginCssPx * dpr * (1 - ratio) = 128 * 1 * 0.5 = 64.
+    expect(r.dest.x).toBe(64)
+    expect(r.dest.y).toBe(64)
+    // Strips: top = full-width × 64 tall; left = 64 wide × destH tall.
+    expect(r.strips.top).toEqual({ x: 0, y: 0, w: 1056, h: 64 })
+    expect(r.strips.left).toEqual({ x: 0, y: 64, w: 64, h: 428 })
+    // Right strip starts at destX + destW = 592; width = 1056 - 592 = 464.
+    expect(r.strips.right).toEqual({ x: 592, y: 64, w: 464, h: 428 })
+    // Bottom strip starts at destY + destH = 492; height = 856 - 492 = 364.
+    expect(r.strips.bottom).toEqual({ x: 0, y: 492, w: 1056, h: 364 })
+  })
+
+  test('mild zoom-out (ratio = 0.8): dest mostly fills cache', () => {
+    const r = cacheReuseLayout(makeCache(), makeView({ camZ: 0.8 }))
+    expect(r.valid).toBe(true)
+    // destW = 1056 * 0.8 = 844.8, destX = (1 - 0.8) * 128 = 25.6.
+    expect(r.dest.w).toBeCloseTo(844.8)
+    expect(r.dest.x).toBeCloseTo(25.6)
+  })
+
+  test('zoom-out with pan offsets dest by the pan delta', () => {
+    // View panned 50 world units right at new zoom 0.5: pan delta in
+    // device px = (cache.camX - view.camX) * view.camZ * dpr =
+    // (0 - 50) * 0.5 * 1 = -25. Pure-zoom-out base destX is 64,
+    // so destX = 64 - 25 = 39.
+    const r = cacheReuseLayout(makeCache(), makeView({ camX: 50, camZ: 0.5 }))
+    expect(r.valid).toBe(true)
+    expect(r.dest.x).toBeCloseTo(39)
+    expect(r.dest.y).toBe(64) // unchanged on Y (no pan on Y)
+  })
+
+  test('zoom-out with large pan can push dest off-cache → valid=false', () => {
+    // Pan 1000 world units right at z=0.5 → destX = 128 - 500 = -372.
+    // dest's left edge falls outside cache → valid=false.
+    const r = cacheReuseLayout(makeCache(), makeView({ camX: 1000, camZ: 0.5 }))
+    expect(r.valid).toBe(false)
+  })
+
+  test('zoom-in (ratio > 1): dest overflows cache → valid=false', () => {
+    const r = cacheReuseLayout(makeCache(), makeView({ camZ: 2 }))
+    expect(r.valid).toBe(false)
+    // dest would be 2× cache size — definitely doesn't fit.
+    expect(r.dest.w).toBe(2112)
+    expect(r.dest.h).toBe(1712)
+  })
+
+  test('DPR=2: dest scales with device pixels', () => {
+    const r = cacheReuseLayout(
+      makeCache({ dpr: 2, widthDevicePx: 2112, heightDevicePx: 1712 }),
+      makeView({ camZ: 0.5 }),
+    )
+    expect(r.valid).toBe(true)
+    expect(r.dest.w).toBe(1056)
+    expect(r.dest.h).toBe(856)
+    // marginCssPx=128, dpr=2 → marginDev=256, factor (1-0.5)=0.5 → destX=128 wait no
+    // destX = (cache.camX - view.camX) * view.camZ * dpr + marginDev * (1 - ratio)
+    //       = 0 + 128 * 2 * 0.5 = 128.
+    expect(r.dest.x).toBe(128)
+  })
+
+  test('non-1 cache zoom: pan delta still maps correctly', () => {
+    // Cache at z=2 (rendered at higher zoom), view zoom-out to z=1.
+    const r = cacheReuseLayout(makeCache({ camZ: 2 }), makeView({ camZ: 1, camX: 10 }))
+    expect(r.valid).toBe(true)
+    // ratio = 1 / 2 = 0.5.
+    expect(r.dest.w).toBe(528)
+    // Pan delta: (0 - 10) * 1 * 1 = -10. Margin shrink: 128 * (1 - 0.5) = 64.
+    // destX = -10 + 64 = 54.
+    expect(r.dest.x).toBe(54)
+  })
+})
+
+describe('zoomExtendRatioInBounds', () => {
+  test('moderate zoom-out is in bounds', () => {
+    expect(zoomExtendRatioInBounds(1, 0.8, 0.5)).toBe(true)
+    expect(zoomExtendRatioInBounds(1, 0.5, 0.5)).toBe(true) // boundary
+    expect(zoomExtendRatioInBounds(2, 1.2, 0.5)).toBe(true) // ratio 0.6
+  })
+
+  test('extreme zoom-out below the minimum ratio is out of bounds', () => {
+    expect(zoomExtendRatioInBounds(1, 0.4, 0.5)).toBe(false)
+    expect(zoomExtendRatioInBounds(1, 0.1, 0.5)).toBe(false)
+  })
+
+  test('identity (ratio = 1) is OUT of bounds — tier 2 / 2.5 handles it', () => {
+    expect(zoomExtendRatioInBounds(1, 1, 0.5)).toBe(false)
+  })
+
+  test('zoom-in (ratio > 1) is out of bounds — tier 2.5 handles it', () => {
+    expect(zoomExtendRatioInBounds(1, 1.5, 0.5)).toBe(false)
+    expect(zoomExtendRatioInBounds(1, 4, 0.5)).toBe(false)
+  })
+
+  test('rejects nonpositive inputs', () => {
+    expect(zoomExtendRatioInBounds(0, 1, 0.5)).toBe(false)
+    expect(zoomExtendRatioInBounds(1, 0, 0.5)).toBe(false)
+    expect(zoomExtendRatioInBounds(1, 1, 0)).toBe(false)
+    expect(zoomExtendRatioInBounds(1, 1, 1)).toBe(false)
+    expect(zoomExtendRatioInBounds(-1, 1, 0.5)).toBe(false)
   })
 })
