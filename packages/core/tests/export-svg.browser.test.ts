@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'vitest'
 import { exportSelectionSvg } from '../src/export'
 import { createCanvasStore } from '../src/store'
-import { type Node, asClientId, asNodeId } from '../src/types'
+import { type Edge, type Node, asClientId, asEdgeId, asNodeId } from '../src/types'
 
 const TINY_PNG_DATA_URI =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
@@ -114,5 +114,86 @@ describe('exportSelectionSvg: icon nodes', () => {
     const svg = exportSelectionSvg(store)
     expect(svg).toContain('#ff0000')
     expect(svg).not.toContain('currentColor')
+  })
+})
+
+describe('exportSelectionSvg: paint order', () => {
+  /**
+   * Returns the indices of each fill color in the SVG string, in
+   * the order they appear. Lets a test assert "color A comes
+   * before color B in the output" — which directly corresponds to
+   * "A paints first, B paints on top" in SVG.
+   */
+  const fillOrder = (svg: string, colors: string[]): number[] =>
+    colors.map(c => svg.indexOf(`fill="${c}"`))
+
+  test('nodes are painted in (z asc, id asc) order regardless of insertion order', () => {
+    // Add nodes in a NON-z order. Each gets a distinct background
+    // color so we can identify them in the SVG output. With the
+    // fix, the SVG should emit them in z-order: z=1 first (bottom
+    // of the paint stack), z=5 last (top).
+    const store = createCanvasStore({ clientId: asClientId('u-t') })
+    store.addNode(makeNode({ id: 'high', z: 5, style: { backgroundColor: '#aaaaaa' } }))
+    store.addNode(makeNode({ id: 'low', z: 1, style: { backgroundColor: '#bbbbbb' } }))
+    store.addNode(makeNode({ id: 'mid', z: 3, style: { backgroundColor: '#cccccc' } }))
+    store.setSelection(['high', 'low', 'mid'].map(asNodeId))
+    const svg = exportSelectionSvg(store)
+    const [iLow, iMid, iHigh] = fillOrder(svg, ['#bbbbbb', '#cccccc', '#aaaaaa'])
+    expect(iLow).toBeGreaterThan(-1)
+    expect(iMid).toBeGreaterThan(iLow!)
+    expect(iHigh).toBeGreaterThan(iMid!)
+  })
+
+  test('frames paint behind non-frames even when the frame has higher z', () => {
+    // Frame with high z (10) added FIRST; non-frame with low z (1)
+    // added SECOND. By pure z-sort the frame would paint last (on
+    // top), but frames are treated as background chrome and must
+    // paint behind everything regardless of z.
+    // Frame nodes serialize to SVG as a dashed placeholder rect
+    // (`stroke-dasharray="4 4"`) — that's our anchor for "frame
+    // appeared here." Non-frame rect has a distinctive fill.
+    const store = createCanvasStore({ clientId: asClientId('u-t') })
+    store.addNode(makeNode({ id: 'fr', type: 'frame', z: 10 }))
+    store.addNode(makeNode({ id: 'rect', z: 1, style: { backgroundColor: '#bbbbbb' } }))
+    store.setSelection(['fr', 'rect'].map(asNodeId))
+    const svg = exportSelectionSvg(store)
+    const iFrame = svg.indexOf('stroke-dasharray="4 4"')
+    const iRect = svg.indexOf('fill="#bbbbbb"')
+    expect(iFrame).toBeGreaterThan(-1)
+    expect(iRect).toBeGreaterThan(iFrame)
+  })
+
+  test('edges are painted in (z asc, id asc) order', () => {
+    const store = createCanvasStore({ clientId: asClientId('u-t') })
+    store.addNode(makeNode({ id: 'a', x: 0, y: 0 }))
+    store.addNode(makeNode({ id: 'b', x: 300, y: 0 }))
+    // Edge with HIGHER z added FIRST; edge with LOWER z added SECOND.
+    // Sort should emit low-z edge first in the SVG.
+    const highEdge: Edge = {
+      id: asEdgeId('e-high'),
+      source: { nodeId: asNodeId('a'), localOffset: { x: 100, y: 50 } },
+      target: { nodeId: asNodeId('b'), localOffset: { x: 0, y: 50 } },
+      pathStyle: 'straight',
+      z: 5,
+      groups: [],
+      style: { strokeColor: '#dd0000' },
+    }
+    const lowEdge: Edge = {
+      id: asEdgeId('e-low'),
+      source: { nodeId: asNodeId('a'), localOffset: { x: 100, y: 50 } },
+      target: { nodeId: asNodeId('b'), localOffset: { x: 0, y: 50 } },
+      pathStyle: 'straight',
+      z: 1,
+      groups: [],
+      style: { strokeColor: '#00dd00' },
+    }
+    store.addEdge(highEdge)
+    store.addEdge(lowEdge)
+    store.setSelection(['a', 'b'].map(asNodeId))
+    const svg = exportSelectionSvg(store)
+    const iLowStroke = svg.indexOf('stroke="#00dd00"')
+    const iHighStroke = svg.indexOf('stroke="#dd0000"')
+    expect(iLowStroke).toBeGreaterThan(-1)
+    expect(iHighStroke).toBeGreaterThan(iLowStroke)
   })
 })

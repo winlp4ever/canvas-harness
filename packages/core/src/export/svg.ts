@@ -78,13 +78,26 @@ const exportNodeSetSvg = (
     if (bothEndsInside(e, nodeIds)) edges.push(e)
   }
 
+  // Paint order matches the live renderer (renderer.ts paintSceneBody):
+  // frames first as background; then non-frame nodes (z asc, id asc);
+  // then edges (z asc, id asc) on top. Without these sorts the export
+  // iterates in caller-Set insertion order, so a high-z node added to
+  // the store before a low-z node ends up emitted earlier in the SVG
+  // — visually underneath in the rendered output, reversed from the
+  // canvas reality.
+  nodes.sort(byZThenId)
+  edges.sort(byZThenId)
+  const frames = nodes.filter(n => n.type === 'frame')
+  const nonFrames = nodes.filter(n => n.type !== 'frame')
+
   const parts: string[] = []
   parts.push(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`,
   )
   parts.push(bgRect)
   parts.push(`<g transform="translate(${tx} ${ty})">`)
-  for (const node of nodes) parts.push(renderNodeSvg(node))
+  for (const node of frames) parts.push(renderNodeSvg(node))
+  for (const node of nonFrames) parts.push(renderNodeSvg(node))
   for (const edge of edges) parts.push(renderEdgeSvg(edge, store))
   parts.push('</g>')
   parts.push('</svg>')
@@ -252,3 +265,11 @@ const bothEndsInside = (e: Edge, ids: ReadonlySet<NodeId>): boolean => {
   const inEnd = (end: typeof e.source): boolean => 'nodeId' in end && ids.has(end.nodeId)
   return inEnd(e.source) && inEnd(e.target)
 }
+
+/**
+ * Paint-order comparator matching the live renderer's
+ * `getSortedNodeIds`. Lower z paints first (= underneath); ties
+ * broken by id so order is stable across calls.
+ */
+const byZThenId = (a: { z: number; id: string }, b: { z: number; id: string }): number =>
+  a.z - b.z || (a.id < b.id ? -1 : 1)

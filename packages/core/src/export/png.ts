@@ -163,6 +163,18 @@ const makeContext = (
 /**
  * Walks the node + edge set and paints them. Uses the same primitives
  * as the live renderer so output matches the canvas.
+ *
+ * Paint order mirrors the live renderer (renderer.ts paintSceneBody):
+ *   1. Frames first (paint behind everything else — slide chrome
+ *      reads as a background region).
+ *   2. Non-frame nodes in (z asc, id asc) order so later-painted
+ *      nodes appear on top — same sort key as the renderer's
+ *      `getSortedNodeIds` for visual parity.
+ *   3. Edges in the same (z asc, id asc) order, on top of nodes.
+ * Without these sorts, the export iterates in caller-Set insertion
+ * order (whatever the consumer's selection happened to be), so a
+ * high-z node added to the store before a low-z node ends up painted
+ * underneath in the export — reversed from the canvas reality.
  */
 const paintScene = (
   ctx: CanvasRenderingContext2D,
@@ -174,7 +186,10 @@ const paintScene = (
 ): void => {
   const theme = opts.theme
   const assetCache = opts.assetCache
-  for (const node of nodes) {
+  const sorted = nodes.slice().sort(byZThenId)
+  const frames = sorted.filter(n => n.type === 'frame')
+  const nonFrames = sorted.filter(n => n.type !== 'frame')
+  const paintOne = (node: Node) => {
     drawWithNodeTransform(ctx, node, () => {
       if (isDrawablePrimitive(node.type)) drawShape(ctx, node, scale, theme)
       if (assetCache) {
@@ -184,7 +199,9 @@ const paintScene = (
       paintContent(ctx, node)
     })
   }
-  const edgeList = edges ?? store.getAllEdges()
+  for (const node of frames) paintOne(node)
+  for (const node of nonFrames) paintOne(node)
+  const edgeList = (edges ?? store.getAllEdges()).slice().sort(byZThenId)
   const getNode = (id: NodeId): Node | undefined => store.getNode(id)
   for (const edge of edgeList) {
     const geom = computeEdgeGeometry(edge, getNode)
@@ -249,3 +266,11 @@ const bothEndsInside = (e: Edge, ids: ReadonlySet<NodeId>): boolean => {
   const inEnd = (end: typeof e.source): boolean => 'nodeId' in end && ids.has(end.nodeId)
   return inEnd(e.source) && inEnd(e.target)
 }
+
+/**
+ * Paint-order comparator matching the live renderer's
+ * `getSortedNodeIds`. Lower z paints first (= underneath); ties
+ * broken by id so order is stable across calls.
+ */
+const byZThenId = (a: { z: number; id: string }, b: { z: number; id: string }): number =>
+  a.z - b.z || (a.id < b.id ? -1 : 1)
