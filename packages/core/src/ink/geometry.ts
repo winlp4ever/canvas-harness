@@ -132,6 +132,8 @@ export const readInkData = (node: Node): InkStrokeData | null => {
 
 const outlineCache = new WeakMap<InkStrokeData, Array<[number, number]>>()
 
+/** The perfect-freehand outline polygon for a committed stroke, memoized per
+ *  `InkStrokeData` (WeakMap) so it's built once and reused across repaints. */
 export const outlineFromInk = (ink: InkStrokeData): Array<[number, number]> => {
   const cached = outlineCache.get(ink)
   if (cached) return cached
@@ -210,6 +212,7 @@ const draftOutlineFromSamples = (
   return outline
 }
 
+/** Shortest distance from `point` to the line segment `a`–`b`. */
 export const distanceToSegment = (point: Vec2, a: Vec2, b: Vec2): number => {
   const dx = b.x - a.x
   const dy = b.y - a.y
@@ -234,6 +237,7 @@ const segmentsIntersect = (a: Vec2, b: Vec2, c: Vec2, d: Vec2): boolean => {
   return abC > 0 !== abD > 0 && cdA > 0 !== cdB > 0
 }
 
+/** Shortest distance between segments `a`–`b` and `c`–`d`; 0 when they cross. */
 export const distanceBetweenSegments = (a: Vec2, b: Vec2, c: Vec2, d: Vec2): number => {
   if (segmentsIntersect(a, b, c, d)) return 0
   return Math.min(
