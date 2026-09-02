@@ -18,6 +18,8 @@ const TOOLS: ToolDef[] = [
   { id: 'arrow', label: 'Arrow', enabled: true },
   { id: 'text', label: 'Text', enabled: true },
   { id: 'frame', label: 'Frame', enabled: true },
+  { id: 'ink', label: 'Ink', enabled: true },
+  { id: 'eraser', label: 'Eraser', enabled: true },
 ]
 
 export function Toolbar({

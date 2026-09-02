@@ -24,7 +24,7 @@ type ShapeTool =
   | 'soft-diamond'
   | 'frame'
 
-export type Tool = 'select' | 'pan' | ShapeTool | 'arrow' | 'text'
+export type Tool = 'select' | 'pan' | ShapeTool | 'arrow' | 'text' | 'ink' | 'eraser'
 
 const SHAPE_TOOLS = new Set<Tool>([
   'rect',
