@@ -25,6 +25,7 @@ import { DEFAULT_CAMERA } from '../camera'
 import { type EdgeGeometry, EdgeGeometryCache } from '../edges/cache'
 import { shouldAutoFit, withAutoFitHeight } from '../edit/auto-fit'
 import { type IdGenerator, makeIdGenerator, randomClientId } from '../ids'
+import { inkNodeDef } from '../ink'
 import { UniformGrid, nodeAABB } from '../spatial'
 import { SCHEMA_VERSION, asBatchId, asNodeId, isAttached } from '../types'
 import type {
@@ -146,7 +147,9 @@ export const createCanvasStore = (opts: StoreOptions = {}): CanvasStore => {
   const edgeGeoCache = new EdgeGeometryCache()
 
   // Custom node type registry — keyed by NodeTypeDef.type.
-  const nodeTypeRegistry = new Map<string, import('../node-types').NodeTypeDef>()
+  const nodeTypeRegistry = new Map<string, import('../node-types').NodeTypeDef>([
+    [inkNodeDef.type, inkNodeDef],
+  ])
   for (const def of opts.nodeTypes ?? []) {
     nodeTypeRegistry.set(def.type, def)
   }

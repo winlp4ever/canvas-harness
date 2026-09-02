@@ -52,8 +52,9 @@ describe('store node-type registry', () => {
     expect(store.getNodeTypeDef('rect')).toBeUndefined()
   })
 
-  test('no nodeTypes option → registry empty', () => {
+  test('the built-in ink node is registered by default', () => {
     const store = createCanvasStore({ clientId: asClientId('u-t') })
     expect(store.getNodeTypeDef('chart-card')).toBeUndefined()
+    expect(store.getNodeTypeDef('ink')?.kind).toBe('canvas-only')
   })
 })

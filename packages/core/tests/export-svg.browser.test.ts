@@ -5,6 +5,7 @@
  */
 import { describe, expect, test } from 'vitest'
 import { exportSelectionSvg } from '../src/export'
+import { createInkGeometry } from '../src/ink'
 import { createCanvasStore } from '../src/store'
 import { type Edge, type Node, asClientId, asEdgeId, asNodeId } from '../src/types'
 
@@ -114,6 +115,41 @@ describe('exportSelectionSvg: icon nodes', () => {
     const svg = exportSelectionSvg(store)
     expect(svg).toContain('#ff0000')
     expect(svg).not.toContain('currentColor')
+  })
+})
+
+describe('exportSelectionSvg: ink nodes', () => {
+  test('emits the pressure outline as a filled vector path', () => {
+    const store = createCanvasStore({ clientId: asClientId('ink-svg-export') })
+    const geometry = createInkGeometry(
+      [
+        { x: 10, y: 20, pressure: 0.25 },
+        { x: 80, y: 40, pressure: 0.8 },
+      ],
+      7,
+    )!
+    const id = asNodeId('ink')
+    store.addNode(
+      makeNode({
+        id: 'ink',
+        type: 'ink',
+        x: geometry.x,
+        y: geometry.y,
+        w: geometry.w,
+        h: geometry.h,
+        style: { strokeColor: '#2563eb', opacity: 75 },
+        data: { ink: geometry.ink },
+      }),
+    )
+    store.setSelection([id])
+
+    const svg = exportSelectionSvg(store, { padding: 0 })
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml')
+    const path = doc.querySelector('path[fill="#2563eb"]')
+    expect(path).not.toBeNull()
+    expect(path!.getAttribute('d')).toContain('Q')
+    expect(path!.getAttribute('opacity')).toBe('0.75')
+    expect(svg).not.toContain('stroke-dasharray="4 4"')
   })
 })
 

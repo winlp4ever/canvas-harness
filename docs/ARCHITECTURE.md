@@ -1787,10 +1787,10 @@ canvas.addEventListener("pointercancel", handler)
 
 - **`mouse`**: click/drag standard. Right-button = context menu. Shift/Cmd modify behavior (multi-select, etc.).
 - **`touch`**: single-finger drag pans the canvas (NOT moves a node) — finger pan is the most ergonomic touch gesture; node-drag requires long-press. Two-finger pinch-zooms and rotates. Two-finger pan also works.
-- **`pen`**: behaves like mouse for selection/move. If `event.buttons & 32` (eraser tip) — special erase mode. `pressure` propagates to custom-node `on.drag` handlers so freehand-drawing nodes can use it.
+- **`pen`**: behaves like mouse for selection/move. With the built-in `ink` tool it creates pressure-aware strokes; `event.buttons & 32` temporarily switches that gesture to whole-stroke erase.
 
 **Palm rejection (touch):**
-- When a pen is hovering (`pointerType === "pen"` + a recent `pointermove`), ignore concurrent `pointerType === "touch"` events for ~100ms.
+- While a pen is down, and for 300ms after pen-up, ignore concurrent `pointerType === "touch"` events.
 - Heuristic-only; not perfect. Authors of pen-heavy tools should expose a "palm rejection: aggressive | default | off" setting.
 
 **Gesture recognition:**
@@ -1799,6 +1799,7 @@ canvas.addEventListener("pointercancel", handler)
 - `tap`: pointerdown → pointerup within ~250ms and <8px movement → click.
 - `long-press` (touch only): ~500ms hold → start node-drag.
 - `drag`: pointerdown + sustained movement.
+- `ink`: one coalesced `pointermove` stream updates an interaction draft; pointerup commits one built-in ink node.
 
 Gestures are recognized by the library's input layer and dispatched as semantic events:
 
@@ -1815,7 +1816,6 @@ Gestures are recognized by the library's input layer and dispatched as semantic 
 **For custom nodes**: pointer events bubble through the library's hit-test then dispatch to the node's `on.*` handlers. The `env` passed includes the raw `PointerEvent` so authors can read `pressure` / `tiltX` / etc.
 
 **What v1 does NOT ship:**
-- A freehand-drawing tool (use case: stylus sketching). Provide hooks so consumers can build one as a custom node + tool, but the tool itself is out of scope.
 - Pen pressure-curve calibration UI.
 - Wacom-style stylus-specific APIs beyond what PointerEvent exposes.
 
@@ -2503,10 +2503,11 @@ A first-party adapter ships at `@canvas-harness/sync-broadcast` for single-machi
 
 ### 16.5 Interaction state (§10.11)
 
-Modes shipped: `'idle' | 'panning' | 'zooming' | 'dragging' | 'resizing' | 'rotating' | 'marqueeing' | 'creating-shape' | 'creating-edge' | 'reconnecting-edge' | 'editing'`. The doc's plan + two new modes:
+Modes shipped: `'idle' | 'panning' | 'zooming' | 'dragging' | 'resizing' | 'rotating' | 'marqueeing' | 'creating-shape' | 'creating-edge' | 'reconnecting-edge' | 'creating-ink' | 'erasing-ink' | 'editing'`. The doc's plan plus dedicated draft modes:
 
 - `'rotating'` — pointer over the rotation handle (Phase 4.5).
 - `'creating-shape'` — drag-to-create gesture (Phase 11.5). Carries `createDraftRect: WorldRect` + `createTool: string`. The renderer paints the draft rect on the interactive canvas; `<Canvas onCreateDrag>` consumes the rect on commit.
+- `'creating-ink'` / `'erasing-ink'` — pressure-rich stroke and whole-stroke eraser drafts. They remain local interaction state and commit one document batch on pointer-up.
 
 `interaction.pointer` is updated on every pointermove with `pointerType` + `pressure` (Phase 11) so `useCursor()` returns those fields. Per-frame coalescing is on the camera path (rAF); pointer info isn't coalesced (it's one atom write per move and consumers gate their own rendering).
 

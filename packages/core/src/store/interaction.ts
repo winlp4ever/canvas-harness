@@ -1,4 +1,5 @@
 import type { ResizeHandle } from '../hit-test/handle'
+import type { InkDraft, InkEraserDraft } from '../ink/types'
 /**
  * InteractionState — see ARCHITECTURE.md §10.11.
  *
@@ -22,6 +23,8 @@ export type InteractionMode =
   | 'creating-shape'
   | 'creating-edge'
   | 'reconnecting-edge'
+  | 'creating-ink'
+  | 'erasing-ink'
   | 'editing'
 
 export type PointerInfo = {
@@ -107,6 +110,10 @@ export type InteractionState = {
   // commit.
   createDraftRect: WorldRect | null
   createTool: string | null
+
+  // Freehand state — document mutations happen only once on pointer-up.
+  draftInk: InkDraft | null
+  draftEraser: InkEraserDraft | null
 }
 
 /** Identifies what's currently being edited — a node (text content) or
@@ -130,6 +137,8 @@ export const idleInteractionState = (): InteractionState => ({
   editingTarget: null,
   createDraftRect: null,
   createTool: null,
+  draftInk: null,
+  draftEraser: null,
 })
 
 /**

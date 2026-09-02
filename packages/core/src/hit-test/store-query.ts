@@ -1,3 +1,4 @@
+import { worldToNodeLocal } from '../edges'
 /**
  * Higher-level hit queries that combine the spatial index with per-shape
  * narrow-phase tests. Returns the topmost hit by z, or all hits inside a
@@ -53,6 +54,8 @@ export const hitTestPoint = (
     const n = store.getNode(id)
     if (!n) continue
     if (!pointInNode(worldPoint, n)) continue
+    const def = store.getNodeTypeDef(n.type)
+    if (def?.hitTest && !def.hitTest(n, worldToNodeLocal(worldPoint, n))) continue
     if (!best || n.z > best.z || (n.z === best.z && n.id > best.id)) {
       best = n
     }

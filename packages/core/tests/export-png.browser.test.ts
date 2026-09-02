@@ -5,6 +5,7 @@
  */
 import { beforeAll, describe, expect, test } from 'vitest'
 import { exportSelection } from '../src/export'
+import { createInkGeometry } from '../src/ink'
 import type { AssetCache } from '../src/render/assets'
 import { createCanvasStore } from '../src/store'
 import { type Node, asClientId, asNodeId } from '../src/types'
@@ -143,5 +144,40 @@ describe('exportSelection (PNG): image nodes', () => {
     expect(r).toBe(255)
     expect(g).toBe(255)
     expect(b).toBe(255)
+  })
+})
+
+describe('exportSelection (PNG): custom canvas nodes', () => {
+  test('routes built-in ink through its registered renderCanvas path', async () => {
+    const store = createCanvasStore({ clientId: asClientId('ink-export') })
+    const geometry = createInkGeometry(
+      [
+        { x: 10, y: 20, pressure: 0.5 },
+        { x: 90, y: 20, pressure: 0.5 },
+      ],
+      8,
+    )!
+    const id = asNodeId('ink')
+    store.addNode(
+      makeNode({
+        id: 'ink',
+        type: 'ink',
+        x: geometry.x,
+        y: geometry.y,
+        w: geometry.w,
+        h: geometry.h,
+        style: { strokeColor: '#ff0000' },
+        data: { ink: geometry.ink },
+      }),
+    )
+    store.setSelection([id])
+
+    const blob = await exportSelection(store, { scale: 1, padding: 0 })
+    const pixels = await decodePng(blob)
+    let redPixels = 0
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index]! > 200 && pixels[index + 1]! < 80 && pixels[index + 2]! < 80) redPixels++
+    }
+    expect(redPixels).toBeGreaterThan(0)
   })
 })

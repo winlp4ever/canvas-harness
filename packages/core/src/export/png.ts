@@ -1,5 +1,6 @@
 import { computeEdgeGeometry } from '../edges'
 import { drawEdge } from '../edges/draw'
+import type { RenderEnv } from '../node-types'
 import type { AssetCache } from '../render/assets'
 import { paintIconNode, paintImageNode } from '../render/assets'
 import { drawShape, isDrawablePrimitive } from '../render/shapes'
@@ -189,12 +190,28 @@ const paintScene = (
   const sorted = nodes.slice().sort(byZThenId)
   const frames = sorted.filter(n => n.type === 'frame')
   const nonFrames = sorted.filter(n => n.type !== 'frame')
+  const renderEnv: RenderEnv = {
+    zoom: 1,
+    isMoving: false,
+    isSelected: false,
+    isHovered: false,
+    isEditing: false,
+    theme: token => (theme ? theme(token) : undefined),
+  }
   const paintOne = (node: Node) => {
     drawWithNodeTransform(ctx, node, () => {
       if (isDrawablePrimitive(node.type)) drawShape(ctx, node, scale, theme)
-      if (assetCache) {
-        if (node.type === 'image') paintImageNode(ctx, node, assetCache, theme)
-        else if (node.type === 'icon') paintIconNode(ctx, node, assetCache, scale, theme)
+      else if (assetCache && node.type === 'image') {
+        paintImageNode(ctx, node, assetCache, theme)
+      } else if (assetCache && node.type === 'icon') {
+        paintIconNode(ctx, node, assetCache, scale, theme)
+      } else {
+        const def = store.getNodeTypeDef(node.type)
+        if (def?.renderCanvas) {
+          ctx.save()
+          def.renderCanvas(ctx, node, renderEnv)
+          ctx.restore()
+        }
       }
       paintContent(ctx, node)
     })

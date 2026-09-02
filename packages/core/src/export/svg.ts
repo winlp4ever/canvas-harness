@@ -1,5 +1,6 @@
 import { applySvgColor, extractSvgDimensions } from '../assets'
 import { computeEdgeGeometry } from '../edges'
+import { outlineFromInk, readInkData } from '../ink'
 import { nodeAABB } from '../spatial'
 import type { CanvasStore } from '../store'
 import { getFontSizePx, getFontStack } from '../text'
@@ -121,9 +122,52 @@ const renderNodeSvg = (node: Node): string => {
   if (node.type === 'icon') {
     return `<g${rotate}>${renderIconNodeSvg(node, opacity)}${text}</g>`
   }
+  if (node.type === 'ink') {
+    return `<g${rotate}>${renderInkNodeSvg(node)}${text}</g>`
+  }
 
   const shape = renderShapeSvg(node, fill, stroke, strokeWidth, opacity)
   return `<g${rotate}>${shape}${text}</g>`
+}
+
+const renderInkNodeSvg = (node: Node): string => {
+  const ink = readInkData(node)
+  if (!ink) return ''
+  const outline = outlineFromInk(ink)
+  const first = outline[0]
+  if (!first) return ''
+  const scaleX = node.w / Math.max(1, ink.intrinsicWidth)
+  const scaleY = node.h / Math.max(1, ink.intrinsicHeight)
+  const point = (value: readonly [number, number]): [number, number] => [
+    node.x + value[0] * scaleX,
+    node.y + value[1] * scaleY,
+  ]
+  const commands: string[] = []
+  if (outline.length < 3) {
+    const [x, y] = point(first)
+    commands.push(`M${x} ${y}`)
+    for (let index = 1; index < outline.length; index++) {
+      const current = outline[index]
+      if (!current) continue
+      const [nextX, nextY] = point(current)
+      commands.push(`L${nextX} ${nextY}`)
+    }
+  } else {
+    const second = outline[1]!
+    const [startX, startY] = point([(first[0] + second[0]) / 2, (first[1] + second[1]) / 2])
+    commands.push(`M${startX} ${startY}`)
+    for (let index = 1; index <= outline.length; index++) {
+      const control = outline[index % outline.length]!
+      const next = outline[(index + 1) % outline.length]!
+      const [controlX, controlY] = point(control)
+      const [nextX, nextY] = point([(control[0] + next[0]) / 2, (control[1] + next[1]) / 2])
+      commands.push(`Q${controlX} ${controlY} ${nextX} ${nextY}`)
+    }
+    commands.push('Z')
+  }
+  const color = node.style?.strokeColor ?? '#1f2937'
+  const opacity = Math.max(0, Math.min(1, (node.style?.opacity ?? 100) / 100))
+  return `<path d="${commands.join(' ')}" fill="${escapeAttr(color)}" opacity="${opacity}" />`
 }
 
 const renderImageNodeSvg = (node: Node, opacity: number): string => {

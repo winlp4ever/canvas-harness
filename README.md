@@ -31,6 +31,7 @@ A canvas-rendered node-graph library — React Flow's API, Excalidraw's perf cei
 - **Canvas-rendered**: built-in shapes paint directly into a canvas with a cached static surface + live interactive surface. No React reconciliation on the per-frame critical path. **10k visible nodes pan at ~80fps** on a MacBook M1 — where React Flow gets sluggish around 1-2k and Excalidraw struggles past 5k.
 - **DOM overlays for custom nodes**: when a node needs iframes, charts, videos, or arbitrary React, register a custom node type and the renderer mounts your React component in an overlay synced to the camera transform. LOD ladder swaps in a canvas placeholder at low zoom.
 - **Hand-drawn aesthetic, opt-in**: per-shape `style.roughness` enables rough.js outlines and freehand brushy edges (perfect-freehand). Auto-disables during pan/zoom and at high node counts so the wobble never costs perf.
+- **Pressure-aware ink**: built-in `ink` nodes and `ink` / `eraser` tools use coalesced Pointer Events, Apple Pencil pressure, palm rejection, live canvas previews, and single-operation undo.
 - **Inline LaTeX math**: `$$E = mc^2$$` inside any text node — typeset via MathJax (loaded lazily from CDN, never bundled). See [Math](#math) below.
 - **Headless**: the library owns geometry, hit-testing, transforms, caching. Every color, font, corner radius is a theme token your app resolves.
 - **Collab-ready**: typed `Op` log, presence slice, `SyncAdapter` interface. Ships no transport — bring your own (Yjs, WebSocket, BroadcastChannel).
@@ -415,7 +416,7 @@ A working version with keyboard nav, slide counter, and resize-aware refit ships
 
 **Components**
 - `<CanvasProvider store={...}>` — context wrapper
-- `<Canvas tool="..." onClick={...} onCreateDrag={...} arrowDefaults={...} background={...} theme={...} selectionColor={...} renderCustomNodeView={...} />` — mounts canvas + interactive surface + DOM overlay + editor adapter. `tool` accepts `'select' | 'pan' | 'rect' | 'ellipse' | … | 'arrow' | 'text' | 'frame'`; the Pan (Hand) tool turns left-button drag into camera pan for single-button-mouse users. `selectionColor` (default `#3b82f6`) drives all selection chrome: outline, resize/rotate handles, edge handles, marquee, drag-create preview.
+- `<Canvas tool="..." onClick={...} onCreateDrag={...} arrowDefaults={...} inkDefaults={...} background={...} theme={...} selectionColor={...} renderCustomNodeView={...} />` — mounts canvas + interactive surface + DOM overlay + editor adapter. `tool` accepts `'select' | 'pan' | 'rect' | 'ellipse' | … | 'arrow' | 'ink' | 'eraser' | 'text' | 'frame'`; the Pan (Hand) tool turns left-button drag into camera pan for single-button-mouse users. `inkDefaults` supplies color, size, style/data factories, and an optional product node factory. `selectionColor` (default `#3b82f6`) drives all selection chrome: outline, resize/rotate handles, edge handles, marquee, drag-create preview.
 - `<Minimap viewportColor={...} backgroundColor={...} borderColor={...} />` — overview overlay. Pass the same color as `<Canvas selectionColor>` for `viewportColor` to keep the two visually paired.
 
 **Data hooks**

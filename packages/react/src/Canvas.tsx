@@ -17,6 +17,7 @@ import { CanvasProvider, useCanvasStore } from './context'
 import { useInteractionMode } from './hooks/use-interaction'
 import { EditorMount } from './internal/editor-mount'
 import { type ArrowToolDefaults, useArrowTool } from './internal/use-arrow-tool'
+import { type InkToolDefaults, useInkTool } from './internal/use-ink-tool'
 import { type InteractionTool, useInteractionGesture } from './internal/use-interaction-gesture'
 import { useOverlayHost } from './internal/use-overlay-host'
 import { usePanZoom } from './internal/use-pan-zoom'
@@ -60,7 +61,7 @@ export type CanvasProps = {
    */
   store?: CanvasStore
   /**
-   * Current tool. The library handles `'select'` and `'arrow'`
+   * Current tool. The library handles `'select'`, `'arrow'`, `'ink'`, and `'eraser'`
    * internally; any other string passes through to `onClick` /
    * `onCreateDrag` so consumers can wire their own shape-create /
    * text-tool / lasso / ... logic.
@@ -97,6 +98,8 @@ export type CanvasProps = {
    * `onCreateDrag` so consumer controls those defaults directly.
    */
   arrowDefaults?: ArrowToolDefaults
+  /** Defaults applied to built-in pressure-aware ink and eraser gestures. */
+  inkDefaults?: InkToolDefaults
   /**
    * Page background + optional infinite dot/grid pattern. Local-only
    * (not part of the synced scene). Update by changing the prop —
@@ -205,6 +208,7 @@ function CanvasSurface({
   onDoubleClick,
   onCreateDrag,
   arrowDefaults,
+  inkDefaults,
   background,
   selectionColor,
   maxDpr,
@@ -225,6 +229,7 @@ function CanvasSurface({
   useInteractionGesture(wrapRef, store, tool as InteractionTool)
   const interactionMode = useInteractionMode()
   useArrowTool(wrapRef, store, tool === 'arrow', arrowDefaults)
+  useInkTool(wrapRef, store, tool, inkDefaults)
 
   const { mountedIds, setMountedIds } = useOverlayHost()
 
@@ -363,7 +368,8 @@ function CanvasSurface({
     const worldFromEvent = (e: PointerEvent): { x: number; y: number } =>
       screenToWorld(screenFromEvent(e), store.getCamera())
 
-    const isShapeTool = (t: string): boolean => t !== 'select' && t !== 'arrow' && t !== 'text'
+    const isShapeTool = (t: string): boolean =>
+      t !== 'select' && t !== 'arrow' && t !== 'text' && t !== 'ink' && t !== 'eraser'
 
     const onPointerDown = (e: PointerEvent): void => {
       if (e.button !== 0) return

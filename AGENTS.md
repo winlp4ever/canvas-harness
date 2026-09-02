@@ -59,7 +59,7 @@ Workspaces = `packages/*` + `examples/*` (`pnpm-workspace.yaml`). All 3 packages
 
 ### `@canvas-harness/react` public surface
 
-`<Canvas tool=...>` (`'select'` / `'arrow'` handled internally; any other string falls through to
+`<Canvas tool=...>` (`'select'` / `'arrow'` / `'ink'` / `'eraser'` handled internally; any other string falls through to
 `onClick`/`onCreateDrag`), `<CanvasProvider store>`, `<Minimap>`, `useCanvasStore`, and selector
 hooks: `useNode(s)`, `useEdge(s)`, `useSelection`, `useCamera`, `useInteractionState`/`Mode`/`useCursor`/
 `useIsMoving`/`useDraggedIds`, `useLocalPresence`/`usePresence`, `useCanUndo`/`useCanRedo`. Hooks

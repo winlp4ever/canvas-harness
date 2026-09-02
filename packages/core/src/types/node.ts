@@ -20,6 +20,7 @@ export type BuiltInNodeType =
   | 'image'
   | 'icon'
   | 'frame'
+  | 'ink'
 
 export type NodeType = BuiltInNodeType | (string & { readonly __nodeType?: never })
 

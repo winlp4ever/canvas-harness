@@ -13,6 +13,7 @@ import { computeEdgeGeometry, drawEdge } from '../edges'
  *               Redrawn every rAF tick while interaction.mode !== 'idle'.
  */
 import { getPointAndTangentAtArcLength } from '../edges/arc-length'
+import { drawInkDraft, drawInkNodeWithOpacity } from '../ink'
 import type { NodeTypeDef, RenderEnv } from '../node-types'
 import { inflateRect, nodeAABB } from '../spatial'
 import { type CanvasStore, type InteractionState, isMoving as isMovingState } from '../store'
@@ -309,19 +310,21 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // are owned by full renders. Same contract as the blit-only path,
     // which doesn't run this body at all.
     fullRender = true,
+    previewExcludedNodes: ReadonlySet<NodeId> | null = null,
   ): void => {
     const scale = camera.z * surface.dpr
     const interaction = store.getInteractionState()
     // Per ARCHITECTURE.md §4.2: nodes currently being dragged or resized,
     // AND edges incident to them, are excluded from static and drawn on
     // the interactive canvas at their uncommitted positions instead.
-    const excludedNodes =
+    const movingExcludedNodes =
       interaction.mode === 'dragging' || interaction.mode === 'resizing'
         ? new Set(interaction.draggedIds)
         : null
+    const excludedNodes = movingExcludedNodes ?? previewExcludedNodes
     // An edge being mid-point-dragged is excluded too — the interactive
     // layer paints it with the in-progress control from `midpointDraft`.
-    const baseExcludedEdges = excludedNodes ? incidentEdgeIds(excludedNodes) : null
+    const baseExcludedEdges = movingExcludedNodes ? incidentEdgeIds(movingExcludedNodes) : null
     const midpointEdgeId = interaction.midpointDraft?.edgeId ?? null
     const excludedEdges: ReadonlySet<EdgeId> | null =
       midpointEdgeId !== null
@@ -383,7 +386,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // a separate scaled-blit story (in progress) to stay smooth with
     // rough on — without it, this experiment will show zoom janking on
     // dense scenes, which is the signal we'd want to see.
-    const movingNodeCount = excludedNodes?.size ?? 0
+    const movingNodeCount = movingExcludedNodes?.size ?? 0
     const roughEnabled =
       movingNodeCount <= ROUGH_MAX_MOVING_NODES &&
       camera.z >= ROUGH_MIN_ZOOM &&
@@ -802,6 +805,61 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   }
 
   /**
+   * Repaints only the screen-space union of pending whole-stroke erasures.
+   * The offscreen scene cache remains complete and reusable; the live static
+   * surface gets a clipped scene pass with those ink ids omitted, while the
+   * interactive surface draws the same strokes at preview opacity.
+   */
+  const paintEraserPreviewPatch = (camera: CameraState): void => {
+    const interaction = store.getInteractionState()
+    if (interaction.mode !== 'erasing-ink' || !interaction.draftEraser) return
+    const excludedNodes = new Set(interaction.draftEraser.erasedIds)
+    if (excludedNodes.size === 0) return
+
+    let patch: WorldRect | null = null
+    for (const id of excludedNodes) {
+      const node = store.getNode(id)
+      if (node?.type !== 'ink') continue
+      const bounds = inflateRect(nodeAABB(node), 2 / Math.max(0.01, camera.z))
+      if (!patch) {
+        patch = bounds
+        continue
+      }
+      const right = Math.max(patch.x + patch.w, bounds.x + bounds.w)
+      const bottom = Math.max(patch.y + patch.h, bounds.y + bounds.h)
+      patch.x = Math.min(patch.x, bounds.x)
+      patch.y = Math.min(patch.y, bounds.y)
+      patch.w = right - patch.x
+      patch.h = bottom - patch.y
+    }
+    if (!patch) return
+
+    const viewport = worldViewport(staticSurface, camera)
+    const x = Math.max(patch.x, viewport.x)
+    const y = Math.max(patch.y, viewport.y)
+    const right = Math.min(patch.x + patch.w, viewport.x + viewport.w)
+    const bottom = Math.min(patch.y + patch.h, viewport.y + viewport.h)
+    if (right <= x || bottom <= y) return
+    const clipped = { x, y, w: right - x, h: bottom - y }
+
+    const ctx = staticSurface.ctx
+    const scale = camera.z * staticSurface.dpr
+    const px = Math.floor((clipped.x - camera.x) * scale)
+    const py = Math.floor((clipped.y - camera.y) * scale)
+    const pr = Math.ceil((clipped.x + clipped.w - camera.x) * scale)
+    const pb = Math.ceil((clipped.y + clipped.h - camera.y) * scale)
+    ctx.save()
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.beginPath()
+    ctx.rect(px, py, pr - px, pb - py)
+    ctx.clip()
+    ctx.clearRect(px, py, pr - px, pb - py)
+    applyCameraTransform(staticSurface, camera)
+    paintSceneBody(staticSurface, camera, clipped, false, excludedNodes)
+    ctx.restore()
+  }
+
+  /**
    * Snapshot of the cache's reference frame for the pure scene-cache-math
    * helpers. Read-only — the helpers don't mutate.
    */
@@ -883,12 +941,14 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     if (!cacheStale && camera.z === cacheCamZ) {
       if (viewportFitsInCache(camera)) {
         presentStatic(camera)
+        paintEraserPreviewPatch(camera)
         lastDrawPath = 'present'
         return
       }
       if (canExtend(camera)) {
         extendCache(camera)
         presentStatic(camera)
+        paintEraserPreviewPatch(camera)
         lastDrawPath = 'extend'
         return
       }
@@ -911,6 +971,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         cacheCoversViewport(cacheCam, view)
       ) {
         presentStaticScaled(camera)
+        paintEraserPreviewPatch(camera)
         lastDrawPath = 'scaled'
         return
       }
@@ -919,6 +980,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         if (layout.valid) {
           extendCacheScaled(camera, layout)
           presentStatic(camera)
+          paintEraserPreviewPatch(camera)
           lastDrawPath = 'scaled-extend'
           return
         }
@@ -926,6 +988,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     }
     renderFullCache(camera)
     presentStatic(camera)
+    paintEraserPreviewPatch(camera)
     lastDrawPath = 'full'
   }
 
@@ -1134,12 +1197,14 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       const dragRoughEnabled =
         inDragMap.size <= ROUGH_MAX_MOVING_NODES && camera.z >= ROUGH_MIN_ZOOM
       for (const node of inDragMap.values()) {
+        const nodeTypeDef = store.getNodeTypeDef(node.type)
         if (
           !isDrawablePrimitive(node.type) &&
           node.type !== 'text' &&
           node.type !== 'image' &&
           node.type !== 'icon' &&
-          node.type !== 'frame'
+          node.type !== 'frame' &&
+          !nodeTypeDef?.renderCanvas
         )
           continue
         drawWithNodeTransform(ctx, node, () => {
@@ -1153,6 +1218,12 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
           }
           if (node.type === 'icon') {
             paintIconNode(ctx, node, assetCache, scale, theme)
+            return
+          }
+          if (nodeTypeDef?.renderCanvas) {
+            ctx.save()
+            nodeTypeDef.renderCanvas(ctx, node, dragEnv)
+            ctx.restore()
             return
           }
           if (isDrawablePrimitive(node.type)) {
@@ -1302,6 +1373,30 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         })
       }
     }
+
+    // 5. Pressure-aware ink and eraser previews live on the engine's
+    //    interactive surface, never in the document/op log.
+    if (interaction.mode === 'creating-ink' && interaction.draftInk) {
+      const { segments, size, color, opacity } = interaction.draftInk
+      for (const samples of segments) drawInkDraft(ctx, samples, size, color, opacity)
+    }
+    if (interaction.mode === 'erasing-ink' && interaction.draftEraser) {
+      const { point, radius, erasedIds } = interaction.draftEraser
+      for (const id of erasedIds) {
+        const node = store.getNode(id)
+        if (node?.type !== 'ink') continue
+        drawWithNodeTransform(ctx, node, () => drawInkNodeWithOpacity(ctx, node, 0.25))
+      }
+      ctx.save()
+      ctx.beginPath()
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2)
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.12)'
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)'
+      ctx.lineWidth = 1.5 / Math.max(0.01, camera.z)
+      ctx.fill()
+      ctx.stroke()
+      ctx.restore()
+    }
   }
 
   const mapDragPositions = (interaction: InteractionState): Map<NodeId, Node> => {
@@ -1389,6 +1484,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     interactiveDirty = true
     loop.requestFrame()
   }
+  let eraserPreviewKey = ''
   const onInteractionChange = (state: InteractionState): void => {
     interactiveDirty = true
     // Mode transitions that affect what the static surface paints:
@@ -1398,6 +1494,12 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // Any of these need a static repaint at the transition boundary
     // so the LOD changes (motion fast-path, rough auto-disable, text
     // bitmap downscale) take effect on the very next frame.
+    const nextEraserPreviewKey =
+      state.mode === 'erasing-ink' && state.draftEraser
+        ? state.draftEraser.erasedIds.join('\u0000')
+        : ''
+    const eraserPreviewChanged = nextEraserPreviewKey !== eraserPreviewKey
+    eraserPreviewKey = nextEraserPreviewKey
     if (
       state.mode === 'dragging' ||
       state.mode === 'resizing' ||
@@ -1411,6 +1513,8 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       // first frame of a pan does a full render — which is what swaps
       // custom-node React overlays to their canvas fallback.
       cacheStale = true
+    } else if (state.mode === 'erasing-ink' && eraserPreviewChanged) {
+      staticDirty = true
     } else if (state.mode === 'zooming') {
       // Zoom is special: the scaled-blit tier (paintStatic tier 2.5)
       // can reuse whatever cache exists at the prior zoom. Invalidating
