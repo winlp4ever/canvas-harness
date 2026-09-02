@@ -168,7 +168,11 @@ export const useInkTool = (
         const next = { ...world, pressure }
         if (segment.length >= MAX_INK_POINTS_PER_NODE && previous) {
           Object.freeze(segment) // sealed: no more appends; frozen + published read-only
-          sampleSegments.push([...segment.slice(-INK_SEGMENT_OVERLAP_POINTS), next])
+          // Clone the overlap tail so the new (mutable) segment shares no
+          // sample object with the frozen one — keeps immutability complete
+          // at the element level, not just the array.
+          const overlap = segment.slice(-INK_SEGMENT_OVERLAP_POINTS).map(s => ({ ...s }))
+          sampleSegments.push([...overlap, next])
         } else {
           segment.push(next)
         }
