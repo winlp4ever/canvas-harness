@@ -15,7 +15,7 @@ import { computeEdgeGeometry, drawEdge } from '../edges'
 import { getPointAndTangentAtArcLength } from '../edges/arc-length'
 import { drawInkDraft, drawInkNodeWithOpacity } from '../ink'
 import type { NodeTypeDef, RenderEnv } from '../node-types'
-import { inflateRect, nodeAABB } from '../spatial'
+import { inflateRect, nodeAABB, unionRects } from '../spatial'
 import { type CanvasStore, type InteractionState, isMoving as isMovingState } from '../store'
 import {
   DEFAULT_HIGHLIGHT_COLOR,
@@ -816,22 +816,13 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     const excludedNodes = new Set(interaction.draftEraser.erasedIds)
     if (excludedNodes.size === 0) return
 
-    let patch: WorldRect | null = null
+    const margin = 2 / Math.max(0.01, camera.z)
+    const bounds: WorldRect[] = []
     for (const id of excludedNodes) {
       const node = store.getNode(id)
-      if (node?.type !== 'ink') continue
-      const bounds = inflateRect(nodeAABB(node), 2 / Math.max(0.01, camera.z))
-      if (!patch) {
-        patch = bounds
-        continue
-      }
-      const right = Math.max(patch.x + patch.w, bounds.x + bounds.w)
-      const bottom = Math.max(patch.y + patch.h, bounds.y + bounds.h)
-      patch.x = Math.min(patch.x, bounds.x)
-      patch.y = Math.min(patch.y, bounds.y)
-      patch.w = right - patch.x
-      patch.h = bottom - patch.y
+      if (node?.type === 'ink') bounds.push(inflateRect(nodeAABB(node), margin))
     }
+    const patch = unionRects(bounds)
     if (!patch) return
 
     const viewport = worldViewport(staticSurface, camera)
@@ -848,6 +839,15 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     const py = Math.floor((clipped.y - camera.y) * scale)
     const pr = Math.ceil((clipped.x + clipped.w - camera.x) * scale)
     const pb = Math.ceil((clipped.y + clipped.h - camera.y) * scale)
+    // Repaint the SAME device-aligned rect we clear, expressed back in world
+    // units, so floor/ceil rounding never leaves a cleared-but-unpainted 1px
+    // ring at the patch border.
+    const painted = {
+      x: px / scale + camera.x,
+      y: py / scale + camera.y,
+      w: (pr - px) / scale,
+      h: (pb - py) / scale,
+    }
     ctx.save()
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.beginPath()
@@ -855,7 +855,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     ctx.clip()
     ctx.clearRect(px, py, pr - px, pb - py)
     applyCameraTransform(staticSurface, camera)
-    paintSceneBody(staticSurface, camera, clipped, false, excludedNodes)
+    paintSceneBody(staticSurface, camera, painted, false, excludedNodes)
     ctx.restore()
   }
 

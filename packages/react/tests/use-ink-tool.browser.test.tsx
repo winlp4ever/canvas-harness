@@ -193,7 +193,10 @@ describe('built-in ink tool', () => {
     await act(async () => firePointer(mounted.wrap, 'pointermove', { x: 1202, y: 40 }))
     await act(async () => new Promise(resolve => requestAnimationFrame(resolve)))
     const secondDraft = store.getInteractionState().draftInk!
-    expect(secondDraft.segments[0]).not.toBe(firstDraft.segments[0])
+    // Sealed (already-split) segments are frozen and published by reference,
+    // so draft snapshots stay immutable without re-copying them every frame.
+    expect(Object.isFrozen(firstDraft.segments[0])).toBe(true)
+    expect(secondDraft.segments[0]).toBe(firstDraft.segments[0])
 
     await act(async () => {
       for (let index = 602; index <= 605; index++) {

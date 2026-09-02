@@ -35,9 +35,13 @@ export type InkNodeData = Record<string, unknown> & {
   ink: InkStrokeData
 }
 
-/** Ephemeral preview kept outside the document/op log while drawing. */
+/**
+ * Ephemeral preview kept outside the document/op log while drawing.
+ * `segments` is read-only: sealed (already-split) segments are frozen and
+ * published by reference, so consumers must treat them as immutable.
+ */
 export type InkDraft = {
-  segments: InkSample[][]
+  segments: ReadonlyArray<ReadonlyArray<InkSample>>
   size: number
   color: string
   opacity: number
