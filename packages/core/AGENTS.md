@@ -47,7 +47,8 @@ Siblings: `interaction.ts`, `presence.ts`, `conflict.ts`, `inverse-op.ts`, `sync
 ## Invariants — read before editing render/ or store/
 
 - **Sorted-(z,id) paint cache** (`renderer.ts:262`) invalidates ONLY on `'change'` (:1374), never on
-  camera/selection/interaction (:1370). Paint order = `a.z - b.z || id asc` (:1340, :1092) — keep the
+  camera/selection/interaction (:1370) — same rule as the scene bitmap, see ADR `R-RENDER-001` +
+  `docs/rendering-scene-cache.md`. Paint order = `a.z - b.z || id asc` (:1340, :1092) — keep the
   tie-break stable or z-order flickers.
 - **Save/restore elision.** Built-in drawers must set every ctx state they depend on and assume no
   defaults (`define-node.ts:44`) — NO per-node save/restore. Only *custom* `renderCanvas`/

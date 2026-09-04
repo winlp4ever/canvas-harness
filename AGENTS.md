@@ -87,9 +87,11 @@ These are behavioral traps not obvious from the code. Rendering/store internals 
   `justCommittedRef` reset on prop-driven remounts if scoped to the effect.
 - **Image/icon resize does NOT lock aspect by default.** Free resize; shift constrains (standard
   editor behavior). Don't add a default aspect lock for image/icon node types.
-- **The renderer's sorted-(z,id) paint cache invalidates only on document `'change'`** — never on
-  camera/selection/interaction. If you add a field that affects paint order, it must flow through a
-  document op or the cache goes stale. (Details in `packages/core/AGENTS.md`.)
+- **The renderer's paint caches (scene bitmap + sorted-(z,id) order) invalidate only on document
+  `'change'`** — never on camera/selection/interaction. Anything affecting the static scene or paint
+  order must flow through a document op, or the cache goes stale. Decision + rationale:
+  [ADR `R-RENDER-001`](docs/adr/R-RENDER-001-scene-cache-invalidation.md); mechanism:
+  `docs/rendering-scene-cache.md`.
 
 ## PRs & commits
 
