@@ -112,7 +112,11 @@ export const useInkTool = (
         store.setInteractionState({
           mode: 'creating-ink',
           draftInk: {
-            segments: sampleSegments.map(segment => [...segment]),
+            // Only the active (last) segment can still change; sealed segments
+            // are frozen, so publish them by reference and copy just the active.
+            segments: sampleSegments.map((segment, index) =>
+              index === sampleSegments.length - 1 ? [...segment] : segment,
+            ),
             size: activeSize,
             color: activeStyle.strokeColor ?? DEFAULT_INK_COLOR,
             opacity: activeStyle.opacity ?? 100,
@@ -163,7 +167,12 @@ export const useInkTool = (
           sample.pointerType === 'pen' ? Math.max(0.05, Math.min(1, sample.pressure || 0.5)) : 0.5
         const next = { ...world, pressure }
         if (segment.length >= MAX_INK_POINTS_PER_NODE && previous) {
-          sampleSegments.push([...segment.slice(-INK_SEGMENT_OVERLAP_POINTS), next])
+          Object.freeze(segment) // sealed: no more appends; frozen + published read-only
+          // Clone the overlap tail so the new (mutable) segment shares no
+          // sample object with the frozen one — keeps immutability complete
+          // at the element level, not just the array.
+          const overlap = segment.slice(-INK_SEGMENT_OVERLAP_POINTS).map(s => ({ ...s }))
+          sampleSegments.push([...overlap, next])
         } else {
           segment.push(next)
         }
