@@ -131,6 +131,8 @@ export function App() {
       if (e.key === 'v' || e.key === 'V') setTool('select')
       else if (e.key === 'h' || e.key === 'H') setTool('pan')
       else if (e.key === 'f' || e.key === 'F') setTool('frame')
+      else if (e.key === 'b' || e.key === 'B') setTool('ink')
+      else if (e.key === 'e' || e.key === 'E') setTool('eraser')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
