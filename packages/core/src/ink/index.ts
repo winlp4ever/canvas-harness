@@ -1,5 +1,6 @@
 export type { InkBitmapEntry, InkBitmapRequest, InkRenderDecision } from './bitmap-cache'
 export {
+  INK_BITMAP_CACHE_MAX,
   clearInkBitmapCache,
   getInkBitmapCacheSize,
   getInkRenderStats,

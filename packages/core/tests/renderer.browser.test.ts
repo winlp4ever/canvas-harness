@@ -667,4 +667,60 @@ describe('Renderer (browser)', () => {
     renderer.dispose()
     cleanup(staticCanvas, interactiveCanvas)
   })
+
+  test('ink node is culled (no bitmap or vector work) when sub-pixel on screen', async () => {
+    const { staticCanvas, interactiveCanvas } = makeCanvases(800, 600)
+    const store = createCanvasStore({ clientId: asClientId('ink-cull') })
+    // A tiny stroke (~12x7 world px) so a modest zoom-out takes both
+    // dimensions below the 1.5px sub-pixel threshold.
+    const geometry = createInkGeometry(
+      [
+        { x: 0, y: 0, pressure: 0.5 },
+        { x: 8, y: 3, pressure: 0.5 },
+      ],
+      4,
+    )!
+    store.addNode({
+      id: asNodeId('ink-tiny'),
+      type: 'ink',
+      x: geometry.x,
+      y: geometry.y,
+      w: geometry.w,
+      h: geometry.h,
+      angle: 0,
+      groups: [],
+      style: { strokeColor: '#000000' },
+      data: { ink: geometry.ink },
+    })
+
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 800,
+      height: 600,
+    })
+
+    // Zoomed out so the node is in-viewport but sub-pixel → the ink branch
+    // hits the cull gate before resolveInkRender, so neither counter moves.
+    clearInkBitmapCache()
+    resetInkRenderStats()
+    store.setCamera({ x: 0, y: 0, z: 0.06 })
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+    expect(getInkRenderStats().bitmap + getInkRenderStats().vector).toBe(0)
+    expect(getInkBitmapCacheSize()).toBe(0)
+
+    // Zoom in — now it clears the threshold and paints.
+    resetInkRenderStats()
+    store.setCamera({ x: 0, y: 0, z: 1 })
+    renderer.invalidate()
+    await waitFrame()
+    await waitFrame()
+    expect(getInkRenderStats().bitmap + getInkRenderStats().vector).toBeGreaterThanOrEqual(1)
+
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
 })

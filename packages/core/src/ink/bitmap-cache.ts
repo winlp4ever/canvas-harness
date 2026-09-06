@@ -28,8 +28,9 @@ import type { InkStrokeData } from './types'
 
 // Higher than text's 1000 — many strokes can be visible at once on a
 // dense low-zoom board, where the cache is most valuable. Tune with the
-// perf gate in `renderer.browser.test.ts`.
-const MAX_CACHE_SIZE = 4000
+// perf gate in `renderer.browser.test.ts`. Exported so tests can drive
+// eviction at the real cap without hardcoding the number.
+export const INK_BITMAP_CACHE_MAX = 4000
 
 // An idle stroke uses a bitmap only when the bitmap is at least this dense
 // relative to the screen — i.e. a genuine downscale, never an upscale that
@@ -198,7 +199,7 @@ const drawIntoNewCanvas = (
 
 /** LRU eviction: drop the oldest (front-of-Map) entries until at cap. O(1) each. */
 const evictIfNeeded = (): void => {
-  while (renderCache.size > MAX_CACHE_SIZE) {
+  while (renderCache.size > INK_BITMAP_CACHE_MAX) {
     const oldest = renderCache.keys().next().value
     if (oldest === undefined) break
     renderCache.delete(oldest)
