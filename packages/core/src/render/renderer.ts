@@ -13,7 +13,15 @@ import { computeEdgeGeometry, drawEdge } from '../edges'
  *               Redrawn every rAF tick while interaction.mode !== 'idle'.
  */
 import { getPointAndTangentAtArcLength } from '../edges/arc-length'
-import { drawInkDraft, drawInkNodeWithOpacity } from '../ink'
+import {
+  DEFAULT_INK_COLOR,
+  beginInkFrame,
+  drawInkDraft,
+  drawInkNode,
+  drawInkNodeWithOpacity,
+  readInkData,
+  resolveInkRender,
+} from '../ink'
 import type { NodeTypeDef, RenderEnv } from '../node-types'
 import { inflateRect, nodeAABB, unionRects } from '../spatial'
 import { type CanvasStore, type InteractionState, isMoving as isMovingState } from '../store'
@@ -92,6 +100,14 @@ const MIN_ON_SCREEN_SIZE_PX = 1.5
  * of content-bearing nodes visible.
  */
 const MIN_READABLE_FONT_PX = 3
+
+/**
+ * Fallback zoom floor for the ink branch if the `ink` def is somehow
+ * unregistered. Normally the branch reads the live value from
+ * `inkNodeDef.lod.minZoomForPlaceholder` (see `paintSceneBody`) so it culls
+ * identically to the custom-node dispatch it short-circuits.
+ */
+const INK_MIN_ZOOM = 0.02
 
 export type RendererOptions = {
   store: CanvasStore
@@ -357,6 +373,13 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       interaction.mode === 'marqueeing'
     const isStripRender = !fullRender
     const minOnScreen = MIN_ON_SCREEN_SIZE_PX
+    // Zoom floor for the ink branch, read from the live `ink` def so it stays
+    // in lockstep with the custom-node dispatch it short-circuits (rather than
+    // a hardcoded copy). Falls back to the constant if the def is missing.
+    const inkMinZoom = store.getNodeTypeDef('ink')?.lod.minZoomForPlaceholder ?? INK_MIN_ZOOM
+    // Refresh the ink bitmap-cache per-pass build budget (see
+    // INK_BITMAP_MISS_CEILING) so no single pass can thrash on rasterization.
+    beginInkFrame()
     const nextOverlaySet = new Set<NodeId>()
     let drawn = 0
 
@@ -487,6 +510,41 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
             paintNodeContent(surface.ctx, node, renderEnv)
           } else {
             paintEmptyTextPlaceholder(surface.ctx, node, camera.z)
+          }
+        })
+        drawn++
+        continue
+      }
+
+      // Ink node: blit a per-node bitmap when zoomed-out or moving (the
+      // LOD win), else fill the crisp vector outline. `ink` is a built-in
+      // registered node type, so it would otherwise fall through to the
+      // custom-node dispatch below; this branch replicates that dispatch's
+      // two cull gates (sub-pixel skip + the placeholder zoom floor from
+      // `inkNodeDef.lod`) so behavior is unchanged. See
+      // `docs/ink-lod-design.md` + `packages/core/src/ink/bitmap-cache.ts`.
+      if (node.type === 'ink') {
+        if (node.w * camera.z < minOnScreen && node.h * camera.z < minOnScreen) continue
+        if (camera.z < inkMinZoom) continue
+        const ink = readInkData(node)
+        if (!ink) continue
+        const decision = resolveInkRender({
+          id: node.id,
+          width: node.w,
+          height: node.h,
+          zoom: camera.z,
+          dpr: surface.dpr,
+          isMoving,
+          screenScale: scale,
+          ink,
+          strokeColor: node.style?.strokeColor ?? DEFAULT_INK_COLOR,
+          opacity: node.style?.opacity ?? 100,
+        })
+        drawWithNodeTransform(surface.ctx, node, () => {
+          if (decision.kind === 'bitmap') {
+            surface.ctx.drawImage(decision.entry.canvas, 0, 0, node.w, node.h)
+          } else {
+            drawInkNode(surface.ctx, node)
           }
         })
         drawn++
