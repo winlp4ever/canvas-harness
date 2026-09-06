@@ -99,6 +99,26 @@ constraint on extreme-density boards.
 > **4000** (vs text's sort-based 1000 — many strokes visible at low zoom). `getInkRenderStats()` exposes
 > the bitmap-vs-vector split for the perf/correctness tests.
 
+#### Thrash guard: the per-pass build budget
+
+A cache **miss** costs *more* than the old vector fill — `createElement('canvas')` + trace + fill +
+store, then blit. So a scene with more distinct live keys (`id × zoomBucket × dpr × color × opacity`)
+than the cache holds would evict-then-rebuild every stroke every pass: strictly slower than never
+caching. The cache only pays off when a built bitmap is *reused* across passes.
+
+`INK_BITMAP_MISS_CEILING` (512) caps how many bitmaps a single paint pass may **build**. The renderer
+calls `beginInkFrame()` at the top of every `paintSceneBody` pass to refresh the budget; once spent,
+any further miss returns `{kind:'vector'}` — drawn the old way, no alloc, no eviction — instead of
+rasterizing. Consequences:
+
+- **Never worse than baseline.** Anything past the budget costs at most the old fill, so a cold or
+  over-cap board degrades *to* the pre-LOD cost, never below it. No rebuild-every-frame spiral.
+- **Warms gradually.** A huge board caches ≤512 new strokes per pass and fills in over a few passes
+  instead of one janky frame — same idea as tldraw's debounced-zoom warm-up.
+- **Ordinary boards are unaffected** — fewer than 512 newly-visible strokes per pass all cache at once.
+- The budget rate-limits builds but still *allows* them, so stale entries from a previous zoom bucket
+  keep cycling out (a plain "stop caching when full" guard would strand you on vector after a zoom).
+
 ### 3.3 Alternative-B render logic (`ink/geometry.ts`)
 
 ```
@@ -201,17 +221,21 @@ This is ~25–40 lines localized to `paintEraserPreviewPatch`; no new concepts.
 ## 6. File touch list
 
 _Phase 1 (shipped):_
-- `packages/core/src/ink/bitmap-cache.ts` — **new.** `resolveInkRender` + the crispness gate + LRU
-  cache (mirror `text/bitmap-cache.ts`); `clearInkBitmapCache`/`getInkBitmapCacheSize`/
-  `getInkRenderStats` test aids.
+- `packages/core/src/ink/bitmap-cache.ts` — **new.** `resolveInkRender` + the crispness gate + the
+  per-pass build budget (`INK_BITMAP_MISS_CEILING` / `beginInkFrame`) + insertion-order LRU cache
+  (mirror `text/bitmap-cache.ts`); `clearInkBitmapCache`/`getInkBitmapCacheSize`/`getInkRenderStats`
+  test aids.
 - `packages/core/src/ink/index.ts` — export the new API.
 - `packages/core/src/render/renderer.ts` — `node.type === 'ink'` branch in `paintSceneBody` (blit vs
-  `drawInkNode`), replicating the sub-pixel + `minZoomForPlaceholder` cull gates.
+  `drawInkNode`), replicating the sub-pixel + `minZoomForPlaceholder` cull gates; `beginInkFrame()` at
+  the top of each pass to refresh the build budget.
 - Reused unchanged: `packages/core/src/ink/geometry.ts` (`outlineFromInk`, `traceSmoothInkOutline`),
   `packages/core/src/text/render-scale.ts` (`quantizeZoom`/`quantizeDpr`/`resolveRenderScale`/
   `clampEffectiveScale`).
-- Tests: `renderer.browser.test.ts` — zoomed-out-bitmap / zoomed-in-vector correctness gate + a
-  dense-ink (2000 strokes) low-zoom repaint perf gate.
+- Tests: `ink-bitmap-cache.browser.test.ts` — color/opacity key + baking, motion-forces-bitmap,
+  large-stroke → vector, LRU eviction/recency at the real cap, and the per-pass build-budget fallback.
+  `renderer.browser.test.ts` — zoomed-out-bitmap / zoomed-in-vector correctness gate, sub-pixel cull,
+  and a dense-ink (2000 strokes) low-zoom repaint perf gate.
 
 _Phase 2 (follow-up):_
 - `packages/core/src/render/renderer.ts` — per-stroke rects in `paintEraserPreviewPatch`.

@@ -32,12 +32,30 @@ import type { InkStrokeData } from './types'
 // eviction at the real cap without hardcoding the number.
 export const INK_BITMAP_CACHE_MAX = 4000
 
+// Byte ceiling on total backing-store memory, evicted alongside the count
+// cap. The count cap alone can't bound memory — a bitmap ranges from a few
+// hundred bytes (tiny stroke, low zoom) to the ~9.6MB `clampEffectiveScale`
+// limit (2000×1200×4) — so a dense board of mid-size bitmaps could sit on
+// far more than intended. Whichever cap trips first drives eviction. A
+// single bitmap can never exceed this, so no entry thrashes on insert.
+const INK_BITMAP_CACHE_MAX_BYTES = 256 * 1024 * 1024
+
 // An idle stroke uses a bitmap only when the bitmap is at least this dense
 // relative to the screen — i.e. a genuine downscale, never an upscale that
 // would blit softer than the analytic vector fill this used to be. 1.0
 // keeps idle ink exactly as crisp as before (bitmap when it can downsample,
 // vector otherwise); motion still forces a bitmap regardless (see the gate).
 const BITMAP_CRISP_FACTOR = 1.0
+
+// Max bitmaps rasterized per paint pass. A miss costs MORE than the old
+// vector fill (canvas alloc + trace + fill), so an uncached scene with more
+// distinct strokes than the cache can hold would otherwise rebuild-and-evict
+// every frame — slower than never caching at all. Capping builds per pass
+// makes any miss past the budget fall back to vector (the old cost), so a
+// cold or over-cap board degrades TO the baseline, never below it, and warms
+// over a few frames. High enough that ordinary boards (< this many newly
+// visible strokes) still fully cache in one pass. Exported for tests.
+export const INK_BITMAP_MISS_CEILING = 512
 
 const MIN_INTRINSIC = 1
 
@@ -78,6 +96,8 @@ type StoredEntry = {
   canvas: HTMLCanvasElement
   width: number
   height: number
+  /** Backing-store bytes (canvas.width × canvas.height × 4) — for the byte cap. */
+  bytes: number
 }
 
 // Insertion-order LRU: a `Map` preserves insertion order, so re-`set`ting a
@@ -90,9 +110,25 @@ type StoredEntry = {
 // they drift to the front and evict first.
 const renderCache = new Map<string, StoredEntry>()
 
+// Running sum of `StoredEntry.bytes` — kept in step with the Map so the byte
+// cap doesn't rescan every entry on each insert.
+let cacheBytes = 0
+
 // Debug/test counter — how each visible ink node resolved this session.
 // Tests reset it, render, then assert the path taken.
 const stats = { bitmap: 0, vector: 0 }
+
+// Bitmaps built in the current paint pass, reset by `beginInkFrame`. Gates
+// the per-pass build budget (see INK_BITMAP_MISS_CEILING).
+let missesThisFrame = 0
+
+/**
+ * Reset the per-pass build budget. The renderer calls this at the top of
+ * every `paintSceneBody` pass so each pass gets a fresh ceiling.
+ */
+export const beginInkFrame = (): void => {
+  missesThisFrame = 0
+}
 
 /**
  * The one ink-render decision. Computes the zoom + motion scale once,
@@ -124,7 +160,7 @@ export const resolveInkRender = (req: InkBitmapRequest): InkRenderDecision => {
     return { kind: 'vector' }
   }
 
-  const key = makeKey(req, quantZoom, quantDpr, renderScale)
+  const key = makeKey(req, quantDpr, renderScale)
   const cached = renderCache.get(key)
   if (cached) {
     // Move to the most-recent end of the LRU.
@@ -137,6 +173,14 @@ export const resolveInkRender = (req: InkBitmapRequest): InkRenderDecision => {
     }
   }
 
+  // Per-pass build budget spent → don't rasterize (which would thrash on an
+  // over-cap board); draw this stroke as vector instead. It'll build on a
+  // later pass once the budget refreshes, warming the cache gradually.
+  if (missesThisFrame >= INK_BITMAP_MISS_CEILING) {
+    stats.vector++
+    return { kind: 'vector' }
+  }
+
   const entry = drawIntoNewCanvas(req, quantDpr, renderScale)
   if (!entry) {
     // No document (SSR) — fall back to the vector path so paint still works.
@@ -144,18 +188,25 @@ export const resolveInkRender = (req: InkBitmapRequest): InkRenderDecision => {
     return { kind: 'vector' }
   }
 
-  renderCache.set(key, entry)
+  const bytes = entry.canvas.width * entry.canvas.height * 4
+  renderCache.set(key, { ...entry, bytes })
+  cacheBytes += bytes
   evictIfNeeded()
+  missesThisFrame++
   stats.bitmap++
   return { kind: 'bitmap', entry }
 }
 
-const makeKey = (req: InkBitmapRequest, zoom: number, dpr: number, scale: number): string =>
+const makeKey = (req: InkBitmapRequest, dpr: number, scale: number): string =>
   // `id`+`width`+`height` are the geometry identity: a resize yields a new
   // key, a genuinely new stroke yields a new node id. `points.length:size`
   // is cheap insurance in case `data.ink` is swapped under a stable id.
   // `strokeColor`+`opacity` must be here or a recolor blits stale pixels.
-  `${req.id}:${req.width}:${req.height}:${zoom}:${dpr}:${scale}:${req.strokeColor}:${req.opacity}:${req.ink.points.length}:${req.ink.size}`
+  // `scale` is the resolved renderScale, which already encodes the zoom-LOD
+  // level AND the moving/idle split — so raw zoom is deliberately NOT keyed:
+  // two zoom buckets on the same LOD plateau (e.g. any zoom ≤ 0.4 idle)
+  // produce a byte-identical bitmap and correctly share one entry.
+  `${req.id}:${req.width}:${req.height}:${dpr}:${scale}:${req.strokeColor}:${req.opacity}:${req.ink.points.length}:${req.ink.size}`
 
 /**
  * Draws the stroke into a fresh detached canvas at the resolved scale, in
@@ -197,11 +248,16 @@ const drawIntoNewCanvas = (
   return { canvas, width: req.width, height: req.height }
 }
 
-/** LRU eviction: drop the oldest (front-of-Map) entries until at cap. O(1) each. */
+/**
+ * LRU eviction: drop the oldest (front-of-Map) entries until BOTH the count
+ * and byte caps are satisfied. O(1) per eviction.
+ */
 const evictIfNeeded = (): void => {
-  while (renderCache.size > INK_BITMAP_CACHE_MAX) {
+  while (renderCache.size > INK_BITMAP_CACHE_MAX || cacheBytes > INK_BITMAP_CACHE_MAX_BYTES) {
     const oldest = renderCache.keys().next().value
     if (oldest === undefined) break
+    const victim = renderCache.get(oldest)
+    if (victim) cacheBytes -= victim.bytes
     renderCache.delete(oldest)
   }
 }
@@ -209,10 +265,14 @@ const evictIfNeeded = (): void => {
 /** Test / debug aid. */
 export const clearInkBitmapCache = (): void => {
   renderCache.clear()
+  cacheBytes = 0
 }
 
 /** Test / debug aid. */
 export const getInkBitmapCacheSize = (): number => renderCache.size
+
+/** Test / debug aid — total backing-store bytes currently cached. */
+export const getInkBitmapCacheBytes = (): number => cacheBytes
 
 /** Test / debug aid — how visible ink nodes resolved since the last reset. */
 export const getInkRenderStats = (): { bitmap: number; vector: number } => ({ ...stats })

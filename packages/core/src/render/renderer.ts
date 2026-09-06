@@ -15,6 +15,7 @@ import { computeEdgeGeometry, drawEdge } from '../edges'
 import { getPointAndTangentAtArcLength } from '../edges/arc-length'
 import {
   DEFAULT_INK_COLOR,
+  beginInkFrame,
   drawInkDraft,
   drawInkNode,
   drawInkNodeWithOpacity,
@@ -101,10 +102,10 @@ const MIN_ON_SCREEN_SIZE_PX = 1.5
 const MIN_READABLE_FONT_PX = 3
 
 /**
- * Zoom floor below which a committed ink node is skipped — mirrors
- * `inkNodeDef.lod.minZoomForPlaceholder` so the dedicated ink branch in
- * `paintSceneBody` culls identically to the custom-node dispatch it
- * short-circuits.
+ * Fallback zoom floor for the ink branch if the `ink` def is somehow
+ * unregistered. Normally the branch reads the live value from
+ * `inkNodeDef.lod.minZoomForPlaceholder` (see `paintSceneBody`) so it culls
+ * identically to the custom-node dispatch it short-circuits.
  */
 const INK_MIN_ZOOM = 0.02
 
@@ -372,6 +373,13 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       interaction.mode === 'marqueeing'
     const isStripRender = !fullRender
     const minOnScreen = MIN_ON_SCREEN_SIZE_PX
+    // Zoom floor for the ink branch, read from the live `ink` def so it stays
+    // in lockstep with the custom-node dispatch it short-circuits (rather than
+    // a hardcoded copy). Falls back to the constant if the def is missing.
+    const inkMinZoom = store.getNodeTypeDef('ink')?.lod.minZoomForPlaceholder ?? INK_MIN_ZOOM
+    // Refresh the ink bitmap-cache per-pass build budget (see
+    // INK_BITMAP_MISS_CEILING) so no single pass can thrash on rasterization.
+    beginInkFrame()
     const nextOverlaySet = new Set<NodeId>()
     let drawn = 0
 
@@ -517,7 +525,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       // `docs/ink-lod-design.md` + `packages/core/src/ink/bitmap-cache.ts`.
       if (node.type === 'ink') {
         if (node.w * camera.z < minOnScreen && node.h * camera.z < minOnScreen) continue
-        if (camera.z < INK_MIN_ZOOM) continue
+        if (camera.z < inkMinZoom) continue
         const ink = readInkData(node)
         if (!ink) continue
         const decision = resolveInkRender({

@@ -8,9 +8,12 @@
 import { describe, expect, test } from 'vitest'
 import {
   INK_BITMAP_CACHE_MAX,
+  INK_BITMAP_MISS_CEILING,
   type InkBitmapRequest,
+  beginInkFrame,
   clearInkBitmapCache,
   createInkGeometry,
+  getInkBitmapCacheBytes,
   getInkBitmapCacheSize,
   resolveInkRender,
 } from '../src/ink'
@@ -66,6 +69,7 @@ const hasColorPixel = (
 describe('ink bitmap-cache (browser)', () => {
   test('bakes strokeColor into the bitmap and keys on it (recolor never blits stale)', () => {
     clearInkBitmapCache()
+    beginInkFrame()
     const geo = smallInk()
     const red = resolveInkRender(req(geo, { strokeColor: '#ff0000' }))
     const blue = resolveInkRender(req(geo, { strokeColor: '#0000ff' }))
@@ -84,6 +88,7 @@ describe('ink bitmap-cache (browser)', () => {
 
   test('bakes opacity into the bitmap and keys on it', () => {
     clearInkBitmapCache()
+    beginInkFrame()
     const geo = smallInk()
     const full = resolveInkRender(req(geo, { opacity: 100 }))
     const faint = resolveInkRender(req(geo, { opacity: 40 }))
@@ -101,6 +106,7 @@ describe('ink bitmap-cache (browser)', () => {
 
   test('motion forces a bitmap even zoomed-in, where idle would stay vector', () => {
     clearInkBitmapCache()
+    beginInkFrame()
     const geo = smallInk()
     const idle = resolveInkRender(req(geo, { zoom: 8, screenScale: 8, isMoving: false }))
     const moving = resolveInkRender(req(geo, { zoom: 8, screenScale: 8, isMoving: true }))
@@ -111,6 +117,7 @@ describe('ink bitmap-cache (browser)', () => {
 
   test('a large stroke falls back to vector where a small one blits (size cap)', () => {
     clearInkBitmapCache()
+    beginInkFrame()
     const small = smallInk()
     const big = createInkGeometry(
       [
@@ -141,30 +148,63 @@ describe('ink bitmap-cache (browser)', () => {
 
   test('evicts at the cap and keeps recently-touched entries (insertion-order LRU)', () => {
     clearInkBitmapCache()
+    expect(getInkBitmapCacheBytes()).toBe(0) // clear resets the byte tally
     // One shared outline (memoized in a WeakMap) → each insert only pays a
     // canvas alloc + fill, so filling the real cap stays cheap.
     const geo = smallInk()
     const cap = INK_BITMAP_CACHE_MAX
+    // Reset the per-pass build budget before each call so this test exercises
+    // the LRU at the real cap without the miss-ceiling interfering (that guard
+    // has its own test); each call stands in for its own paint pass.
+    const build = (id: string) => {
+      beginInkFrame()
+      return resolveInkRender(req(geo, { id }))
+    }
 
-    const first = resolveInkRender(req(geo, { id: 'k-0' }))
-    const second = resolveInkRender(req(geo, { id: 'k-1' }))
-    for (let i = 2; i < cap; i++) resolveInkRender(req(geo, { id: `k-${i}` }))
+    const first = build('k-0')
+    const second = build('k-1')
+    for (let i = 2; i < cap; i++) build(`k-${i}`)
     expect(getInkBitmapCacheSize()).toBe(cap)
+    expect(getInkBitmapCacheBytes()).toBeGreaterThan(0) // byte tally tracks inserts
 
     const firstCanvas = first.kind === 'bitmap' ? first.entry.canvas : null
     const secondCanvas = second.kind === 'bitmap' ? second.entry.canvas : null
 
     // Touch k-0 → moves it to most-recent, so k-1 is now the oldest.
-    resolveInkRender(req(geo, { id: 'k-0' }))
+    build('k-0')
     // One new key → evicts exactly the oldest (k-1), stays at cap.
-    resolveInkRender(req(geo, { id: 'k-new' }))
+    build('k-new')
     expect(getInkBitmapCacheSize()).toBe(cap)
 
     // k-0 survived → a hit returns the SAME canvas object.
-    const k0 = resolveInkRender(req(geo, { id: 'k-0' }))
+    const k0 = build('k-0')
     expect(k0.kind === 'bitmap' && k0.entry.canvas === firstCanvas).toBe(true)
     // k-1 was evicted → resolving it rebuilds a NEW canvas.
-    const k1 = resolveInkRender(req(geo, { id: 'k-1' }))
+    const k1 = build('k-1')
     expect(k1.kind === 'bitmap' && k1.entry.canvas !== secondCanvas).toBe(true)
+  })
+
+  test('caps bitmap builds per pass, falling back to vector past the ceiling', () => {
+    clearInkBitmapCache()
+    beginInkFrame()
+    const geo = smallInk()
+    const ceiling = INK_BITMAP_MISS_CEILING
+
+    // Each distinct id is a fresh miss → builds, up to the per-pass budget.
+    for (let i = 0; i < ceiling; i++) {
+      expect(resolveInkRender(req(geo, { id: `m-${i}` })).kind).toBe('bitmap')
+    }
+    // Budget spent → the next miss draws vector instead of rasterizing.
+    const sizeAtBudget = getInkBitmapCacheSize()
+    expect(resolveInkRender(req(geo, { id: 'm-over' })).kind).toBe('vector')
+    expect(getInkBitmapCacheSize()).toBe(sizeAtBudget) // nothing built
+
+    // A cache HIT still blits past the ceiling — no build needed.
+    expect(resolveInkRender(req(geo, { id: 'm-0' })).kind).toBe('bitmap')
+
+    // Next pass refreshes the budget → deferred stroke now builds.
+    beginInkFrame()
+    expect(resolveInkRender(req(geo, { id: 'm-over' })).kind).toBe('bitmap')
+    expect(getInkBitmapCacheSize()).toBe(sizeAtBudget + 1)
   })
 })
