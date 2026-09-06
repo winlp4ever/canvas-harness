@@ -30,6 +30,60 @@ export const rectFromPoints = (a: Vec2, b: Vec2): WorldRect => {
 }
 
 /**
+ * Coalesce a list of rects into the fewest disjoint rects that cover the same
+ * area, merging any that intersect (transitively) into their bounding union.
+ * Disjoint rects are kept separate — unlike {@link unionRects}, which always
+ * collapses to one bounding box.
+ *
+ * Used by the eraser preview patch so scattered erasures repaint one small
+ * rect each instead of the whole span between them; adjacent erasures (a drag
+ * along a line) still collapse into one. Worst case is superlinear (the
+ * re-scan on each merge is up to O(n³)) — fine for the handful of rects a
+ * patch ever sees; not meant for large inputs.
+ */
+export const mergeOverlappingRects = (rects: WorldRect[]): WorldRect[] => {
+  const result: WorldRect[] = []
+  for (const rect of rects) {
+    let current = rect
+    // Absorb every result rect `current` now overlaps; a merge grows `current`
+    // and may create new overlaps, so re-scan until a pass merges nothing.
+    let mergedAny = true
+    while (mergedAny) {
+      mergedAny = false
+      for (let i = result.length - 1; i >= 0; i--) {
+        const other = result[i]!
+        if (rectsIntersect(current, other)) {
+          current = unionRects([current, other])!
+          result.splice(i, 1)
+          mergedAny = true
+        }
+      }
+    }
+    result.push(current)
+  }
+  return result
+}
+
+/**
+ * Merge input rects (see {@link mergeOverlappingRects}), then decide between
+ * the merged per-region rects and their single bounding box: if the merged
+ * rects already fill at least `fillRatio` of their bounding box they're dense
+ * enough that one union pass is cheaper than many small ones, so return the
+ * box; otherwise keep them separate (scattered — localizing pays off).
+ *
+ * Encapsulates the eraser-patch "how many rects to repaint" heuristic so it's
+ * unit-testable independent of the renderer.
+ */
+export const coalesceEraseRects = (rects: WorldRect[], fillRatio: number): WorldRect[] => {
+  const merged = mergeOverlappingRects(rects)
+  if (merged.length <= 1) return merged
+  const box = unionRects(merged)!
+  const boxArea = box.w * box.h
+  const splitArea = merged.reduce((sum, r) => sum + r.w * r.h, 0)
+  return boxArea > 0 && splitArea < fillRatio * boxArea ? merged : [box]
+}
+
+/**
  * Smallest AABB containing all given rects. Returns null for empty input.
  */
 export const unionRects = (rects: WorldRect[]): WorldRect | null => {

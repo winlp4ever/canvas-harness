@@ -1,5 +1,7 @@
 export {
+  coalesceEraseRects,
   inflateRect,
+  mergeOverlappingRects,
   rectContainsPoint,
   rectFromPoints,
   rectsIntersect,
