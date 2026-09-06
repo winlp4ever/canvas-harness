@@ -3,7 +3,13 @@
  * Mounts a real canvas, paints, asserts pixels.
  */
 import { describe, expect, test } from 'vitest'
-import { createInkGeometry } from '../src/ink'
+import {
+  clearInkBitmapCache,
+  createInkGeometry,
+  getInkBitmapCacheSize,
+  getInkRenderStats,
+  resetInkRenderStats,
+} from '../src/ink'
 import { createRenderer } from '../src/render'
 import { createCanvasStore } from '../src/store'
 import { type Node, asClientId, asNodeId } from '../src/types'
@@ -520,6 +526,143 @@ describe('Renderer (browser)', () => {
     expect(renderer.lastDrawCount()).toBeGreaterThan(500)
     // Generous gate to absorb headless-chromium variance; tighten in phase 13.
     expect(elapsed).toBeLessThan(60)
+
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
+
+  test('ink zoom-LOD: blits a cached bitmap zoomed-out, fills crisp vector zoomed-in', async () => {
+    const { staticCanvas, interactiveCanvas } = makeCanvases(800, 600)
+    const store = createCanvasStore({ clientId: asClientId('ink-lod') })
+    // A modest horizontal-ish stroke near the origin so it stays visible
+    // across both zoom levels this test drives.
+    const geometry = createInkGeometry(
+      [
+        { x: 20, y: 40, pressure: 0.6 },
+        { x: 90, y: 50, pressure: 0.6 },
+      ],
+      12,
+    )!
+    store.addNode({
+      id: asNodeId('ink-lod-stroke'),
+      type: 'ink',
+      x: geometry.x,
+      y: geometry.y,
+      w: geometry.w,
+      h: geometry.h,
+      angle: 0,
+      groups: [],
+      style: { strokeColor: '#000000' },
+      data: { ink: geometry.ink },
+    })
+
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 800,
+      height: 600,
+      background: { color: 'transparent' },
+    })
+
+    // ---- zoomed out + idle → bitmap ----
+    clearInkBitmapCache()
+    resetInkRenderStats()
+    store.setCamera({ x: 0, y: 0, z: 0.2 })
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+
+    expect(getInkRenderStats().bitmap).toBeGreaterThanOrEqual(1)
+    expect(getInkRenderStats().vector).toBe(0)
+    expect(getInkBitmapCacheSize()).toBeGreaterThan(0)
+    // The bitmap actually painted visible pixels (transparent background).
+    expect(countNonEmptyPixels(staticCanvas)).toBeGreaterThan(0)
+
+    // ---- zoomed in + idle → crisp vector, no bitmap built ----
+    store.setCamera({ x: 0, y: 0, z: 8 })
+    await waitFrame()
+    await waitFrame()
+    clearInkBitmapCache()
+    resetInkRenderStats()
+    renderer.invalidate()
+    await waitFrame()
+    await waitFrame()
+
+    expect(getInkRenderStats().vector).toBeGreaterThanOrEqual(1)
+    expect(getInkRenderStats().bitmap).toBe(0)
+    expect(getInkBitmapCacheSize()).toBe(0)
+    expect(countNonEmptyPixels(staticCanvas)).toBeGreaterThan(0)
+
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
+
+  test('benchmark: paints 2000 ink strokes zoomed-out (LOD bitmap) under budget', async () => {
+    const { staticCanvas, interactiveCanvas } = makeCanvases(1200, 800)
+    const store = createCanvasStore({ clientId: asClientId('ink-perf') })
+    clearInkBitmapCache()
+    store.batch(() => {
+      for (let i = 0; i < 2000; i++) {
+        const ox = (i % 50) * 120
+        const oy = Math.floor(i / 50) * 120
+        const geometry = createInkGeometry(
+          [
+            { x: ox, y: oy, pressure: 0.5 },
+            { x: ox + 40, y: oy + 20, pressure: 0.7 },
+            { x: ox + 70, y: oy + 5, pressure: 0.5 },
+          ],
+          10,
+        )
+        if (!geometry) continue
+        store.addNode({
+          id: asNodeId(`ink-${i}`),
+          type: 'ink',
+          x: geometry.x,
+          y: geometry.y,
+          w: geometry.w,
+          h: geometry.h,
+          angle: 0,
+          groups: [],
+          style: { strokeColor: '#1f2937' },
+          data: { ink: geometry.ink },
+        })
+      }
+    })
+
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 1200,
+      height: 800,
+    })
+    // Low zoom: strokes shrink on-screen and the bitmap LOD path kicks in.
+    store.setCamera({ x: 0, y: 0, z: 0.2 })
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+
+    // First timed repaint (cache warm from the two warm-up frames).
+    const t0 = performance.now()
+    renderer.invalidate()
+    await waitFrame()
+    await waitFrame()
+    const first = performance.now() - t0
+
+    // Second repaint at the same zoom reuses the same bitmaps — should be
+    // no slower than the first within headless-chromium timing noise.
+    const t1 = performance.now()
+    renderer.invalidate()
+    await waitFrame()
+    await waitFrame()
+    const second = performance.now() - t1
+
+    expect(getInkBitmapCacheSize()).toBeGreaterThan(0)
+    expect(renderer.lastDrawCount()).toBeGreaterThan(100)
+    // Generous absolute gate to absorb headless variance.
+    expect(first).toBeLessThan(200)
+    expect(second).toBeLessThan(first * 1.5 + 40)
 
     renderer.dispose()
     cleanup(staticCanvas, interactiveCanvas)

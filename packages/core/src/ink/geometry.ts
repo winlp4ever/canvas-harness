@@ -5,6 +5,14 @@ import type { InkGeometry, InkNodeData, InkSample, InkStrokeData } from './types
 
 const MIN_NODE_SIZE = 1
 
+/**
+ * Fallback fill when a committed ink node has no `style.strokeColor`. Shared
+ * so the vector path (below) and the bitmap cache bake the SAME color — the
+ * bitmap key includes it, so a drift here would silently render the two
+ * paths in different hues and stale the cache.
+ */
+export const DEFAULT_INK_COLOR = '#1f2937'
+
 /** Trace a closed outline with midpoint quadratic curves instead of visible segments. */
 export const traceSmoothInkOutline = (
   ctx: CanvasRenderingContext2D,
@@ -164,7 +172,7 @@ export const drawInkNodeWithOpacity = (
   const scaleY = node.h / Math.max(MIN_NODE_SIZE, ink.intrinsicHeight)
   ctx.save()
   ctx.scale(scaleX, scaleY)
-  ctx.fillStyle = node.style?.strokeColor ?? '#1f2937'
+  ctx.fillStyle = node.style?.strokeColor ?? DEFAULT_INK_COLOR
   ctx.globalAlpha =
     Math.max(0, Math.min(1, (node.style?.opacity ?? 100) / 100)) *
     Math.max(0, Math.min(1, opacityMultiplier))

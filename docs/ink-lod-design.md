@@ -84,10 +84,20 @@ zoom/dpr buckets, blitted into the scene. Why D over B:
 Keep **B (`forceSolid`)** documented as the fallback if per-node bitmap *memory* ever becomes the
 constraint on extreme-density boards.
 
-> §3.3–§3.4 below describe the **B (vector)** route and are retained as the alternative. The **D**
-> route's shape is: `getOrRenderInkBitmap(req)` mirroring `getOrRenderTextBitmap` (quantize →
-> `resolveRenderScale` → key → LRU → draw outline via `outlineFromInk` → return canvas), and
-> `drawInkNode` blits it — a per-node bitmap cache in `ink/`, plus wiring `zoom`/`isMoving` from `env`.
+> §3.3–§3.4 below describe the **B (vector)** route and are retained as the alternative. **The D route
+> is what shipped** (`packages/core/src/ink/bitmap-cache.ts`): `resolveInkRender(req)` mirrors
+> `getOrRenderTextBitmap` (quantize → `resolveRenderScale` → key → LRU → draw outline via
+> `outlineFromInk`) but folds in a crisp **vector fallback** — it returns `{kind:'bitmap',entry}` when
+> zoomed-out/moving and `{kind:'vector'}` when zoomed-in and idle (where a blit would be softer than a
+> direct fill and few strokes are visible anyway). The renderer's `node.type === 'ink'` branch in
+> `paintSceneBody` either blits `entry.canvas` or falls back to `drawInkNode`, reading `zoom`/`isMoving`
+> from the render pass. The gate — `isMoving || effectiveScale >= screenScale * BITMAP_CRISP_FACTOR`
+> (1.0, so an idle stroke blits only when the bitmap is a genuine downscale — never softer than the
+> old analytic fill) — lives in the cache module (one place, independently testable); a large stroke
+> shrinks `effectiveScale` toward the size cap in `clampEffectiveScale`, flipping it to vector
+> automatically. LRU is insertion-order (O(1) touch; deleted-node bitmaps drain first) capped at
+> **4000** (vs text's sort-based 1000 — many strokes visible at low zoom). `getInkRenderStats()` exposes
+> the bitmap-vs-vector split for the perf/correctness tests.
 
 ### 3.3 Alternative-B render logic (`ink/geometry.ts`)
 
@@ -181,22 +191,30 @@ This is ~25–40 lines localized to `paintEraserPreviewPatch`; no new concepts.
 
 ## 5. Phasing
 
-- **Phase 1 — eraser per-stroke rects (§4).** Small, low-risk, immediate win; ships first.
-- **Phase 2 — ink `forceSolid` LOD (§3.1–3.4, approach B).** Thread `env.zoom`, centerline render,
-  threshold + hysteresis, cache-bucket refresh. The bulk of the value.
-- **Phase 3 — centerline decimation (§3.1 C) + tuning.** Only if profiling shows the solid-path point
-  count still matters; add per-bucket RDP cache.
+- **Phase 1 — ink per-node bitmap cache LOD (§3.2, approach D).** _Shipped._ The bulk of the value:
+  full repaints blit a per-node bitmap (low-res when zoomed out) instead of re-tracing the outline;
+  crisp vector fill retained zoomed-in and for export.
+- **Phase 2 — eraser per-stroke rects (§4).** Small, low-risk follow-up; independent of Phase 1.
+- **Deferred — `forceSolid` centerline (§3.3–3.4, approach B) + decimation (C).** Retained as the
+  fallback if per-node bitmap *memory* ever becomes the constraint on extreme-density boards.
 
 ## 6. File touch list
 
-- `packages/core/src/ink/geometry.ts` — `drawInkNode(ctx, node, env)` reads `env.zoom`; add
-  `drawInkCenterline` (+ optional RDP + per-bucket cache).
-- `packages/core/src/render/renderer.ts` — track the scene ink-LOD bucket, mark `cacheStale` on a
-  bucket transition (settle-gated); per-stroke rects in `paintEraserPreviewPatch`.
-- `packages/core/src/text/render-scale.ts` — reuse `quantizeZoom` (no change; maybe a shared
-  `inkLodBucket(zoom)` helper).
-- Tests: `renderer.browser.test.ts` — dense-ink low-zoom full-repaint perf gate; solid-vs-outline
-  crossover; far-apart eraser patch stays proportional.
+_Phase 1 (shipped):_
+- `packages/core/src/ink/bitmap-cache.ts` — **new.** `resolveInkRender` + the crispness gate + LRU
+  cache (mirror `text/bitmap-cache.ts`); `clearInkBitmapCache`/`getInkBitmapCacheSize`/
+  `getInkRenderStats` test aids.
+- `packages/core/src/ink/index.ts` — export the new API.
+- `packages/core/src/render/renderer.ts` — `node.type === 'ink'` branch in `paintSceneBody` (blit vs
+  `drawInkNode`), replicating the sub-pixel + `minZoomForPlaceholder` cull gates.
+- Reused unchanged: `packages/core/src/ink/geometry.ts` (`outlineFromInk`, `traceSmoothInkOutline`),
+  `packages/core/src/text/render-scale.ts` (`quantizeZoom`/`quantizeDpr`/`resolveRenderScale`/
+  `clampEffectiveScale`).
+- Tests: `renderer.browser.test.ts` — zoomed-out-bitmap / zoomed-in-vector correctness gate + a
+  dense-ink (2000 strokes) low-zoom repaint perf gate.
+
+_Phase 2 (follow-up):_
+- `packages/core/src/render/renderer.ts` — per-stroke rects in `paintEraserPreviewPatch`.
 
 ## 7. Open questions
 

@@ -1,4 +1,13 @@
+export type { InkBitmapEntry, InkBitmapRequest, InkRenderDecision } from './bitmap-cache'
 export {
+  clearInkBitmapCache,
+  getInkBitmapCacheSize,
+  getInkRenderStats,
+  resetInkRenderStats,
+  resolveInkRender,
+} from './bitmap-cache'
+export {
+  DEFAULT_INK_COLOR,
   buildInkOutline,
   createInkGeometry,
   distanceBetweenSegments,
