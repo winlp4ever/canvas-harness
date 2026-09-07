@@ -23,7 +23,7 @@ import {
   resolveInkRender,
 } from '../ink'
 import type { NodeTypeDef, RenderEnv } from '../node-types'
-import { inflateRect, nodeAABB, unionRects } from '../spatial'
+import { coalesceEraseRects, inflateRect, nodeAABB } from '../spatial'
 import { type CanvasStore, type InteractionState, isMoving as isMovingState } from '../store'
 import {
   DEFAULT_HIGHLIGHT_COLOR,
@@ -108,6 +108,15 @@ const MIN_READABLE_FONT_PX = 3
  * identically to the custom-node dispatch it short-circuits.
  */
 const INK_MIN_ZOOM = 0.02
+
+/**
+ * Eraser patch density cut-off. If the per-stroke rects fill at least this
+ * fraction of their bounding box, repaint the single bounding box instead —
+ * once erasures are dense, N small passes (each a background fill + spatial
+ * query) cost more than one union pass. Keeps the patch never worse than the
+ * old single-union behavior while still localizing scattered erasures.
+ */
+const ERASER_PATCH_UNION_FILL_RATIO = 0.6
 
 export type RendererOptions = {
   store: CanvasStore
@@ -197,6 +206,13 @@ export type Renderer = {
    * scaled blit, `'full'` = full re-render.
    */
   getLastDrawPath(): StaticDrawPath
+  /**
+   * World rects the most recent eraser-preview patch cleared+repainted — one
+   * per coalesced group of pending erasures, `[]` when not erasing. Test
+   * instrumentation: lets browser tests assert scattered erasures stay
+   * localized (N small rects) instead of collapsing to one viewport-sized rect.
+   */
+  getLastEraserPatchRects(): WorldRect[]
   /** Current overlay-mounted custom-node ids. */
   getOverlaySet(): NodeId[]
   /**
@@ -227,6 +243,9 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
   let overlaySet: ReadonlySet<NodeId> = new Set()
   let lastDrawn = 0
   let lastDrawPath: StaticDrawPath = 'idle'
+  // World rects the last eraser-preview patch actually cleared+repainted.
+  // Test/debug instrumentation (see Renderer.getLastEraserPatchRects).
+  let lastEraserPatchRects: WorldRect[] = []
 
   // Offscreen scene cache (viewport + margin). Rendered by
   // `renderFullCache`, blitted to the on-screen static surface by
@@ -327,6 +346,11 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // which doesn't run this body at all.
     fullRender = true,
     previewExcludedNodes: ReadonlySet<NodeId> | null = null,
+    // Whether to refresh the ink bitmap-cache per-pass build budget. Normally
+    // true (one pass == one budget). The eraser patch runs several passes for
+    // one frame and resets ONCE itself, passing false here so N rects can't
+    // multiply the ceiling into an N×512 rasterization spike.
+    resetInkBudget = true,
   ): void => {
     const scale = camera.z * surface.dpr
     const interaction = store.getInteractionState()
@@ -377,9 +401,10 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // in lockstep with the custom-node dispatch it short-circuits (rather than
     // a hardcoded copy). Falls back to the constant if the def is missing.
     const inkMinZoom = store.getNodeTypeDef('ink')?.lod.minZoomForPlaceholder ?? INK_MIN_ZOOM
-    // Refresh the ink bitmap-cache per-pass build budget (see
-    // INK_BITMAP_MISS_CEILING) so no single pass can thrash on rasterization.
-    beginInkFrame()
+    // Refresh the ink bitmap-cache build budget (see INK_BITMAP_MISS_CEILING)
+    // so no single frame can thrash on rasterization. Skipped when the caller
+    // owns the budget across several passes (the eraser patch).
+    if (resetInkBudget) beginInkFrame()
     const nextOverlaySet = new Set<NodeId>()
     let drawn = 0
 
@@ -869,6 +894,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
    * interactive surface draws the same strokes at preview opacity.
    */
   const paintEraserPreviewPatch = (camera: CameraState): void => {
+    lastEraserPatchRects = []
     const interaction = store.getInteractionState()
     if (interaction.mode !== 'erasing-ink' || !interaction.draftEraser) return
     const excludedNodes = new Set(interaction.draftEraser.erasedIds)
@@ -880,41 +906,63 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
       const node = store.getNode(id)
       if (node?.type === 'ink') bounds.push(inflateRect(nodeAABB(node), margin))
     }
-    const patch = unionRects(bounds)
-    if (!patch) return
+    if (bounds.length === 0) return
+
+    // Coalesce touching/overlapping strokes (a drag along a line) into shared
+    // rects, keep scattered strokes SEPARATE — so erasing two strokes at
+    // opposite corners repaints one small rect each, not the whole span
+    // between them (the old single-union behavior). Each rect below is a fully
+    // independent scene pass, so nodes in the gaps are never iterated or
+    // filled. Dense erasures collapse back to one union rect (never worse than
+    // before) — see `coalesceEraseRects`.
+    const rects = coalesceEraseRects(bounds, ERASER_PATCH_UNION_FILL_RATIO)
 
     const viewport = worldViewport(staticSurface, camera)
-    const x = Math.max(patch.x, viewport.x)
-    const y = Math.max(patch.y, viewport.y)
-    const right = Math.min(patch.x + patch.w, viewport.x + viewport.w)
-    const bottom = Math.min(patch.y + patch.h, viewport.y + viewport.h)
-    if (right <= x || bottom <= y) return
-    const clipped = { x, y, w: right - x, h: bottom - y }
-
     const ctx = staticSurface.ctx
     const scale = camera.z * staticSurface.dpr
-    const px = Math.floor((clipped.x - camera.x) * scale)
-    const py = Math.floor((clipped.y - camera.y) * scale)
-    const pr = Math.ceil((clipped.x + clipped.w - camera.x) * scale)
-    const pb = Math.ceil((clipped.y + clipped.h - camera.y) * scale)
-    // Repaint the SAME device-aligned rect we clear, expressed back in world
-    // units, so floor/ceil rounding never leaves a cleared-but-unpainted 1px
-    // ring at the patch border.
-    const painted = {
-      x: px / scale + camera.x,
-      y: py / scale + camera.y,
-      w: (pr - px) / scale,
-      h: (pb - py) / scale,
+    const painted: WorldRect[] = []
+    // One build budget for the whole patch — each pass below passes
+    // resetInkBudget=false so N rects can't multiply the ink-raster ceiling.
+    beginInkFrame()
+
+    for (const rect of rects) {
+      // Clip to the viewport — a stroke scrolled off-screen contributes nothing.
+      const x = Math.max(rect.x, viewport.x)
+      const y = Math.max(rect.y, viewport.y)
+      const right = Math.min(rect.x + rect.w, viewport.x + viewport.w)
+      const bottom = Math.min(rect.y + rect.h, viewport.y + viewport.h)
+      if (right <= x || bottom <= y) continue
+
+      const px = Math.floor((x - camera.x) * scale)
+      const py = Math.floor((y - camera.y) * scale)
+      const pr = Math.ceil((right - camera.x) * scale)
+      const pb = Math.ceil((bottom - camera.y) * scale)
+      // Repaint the SAME device-aligned rect we clear, expressed back in world
+      // units, so floor/ceil rounding never leaves a cleared-but-unpainted 1px
+      // ring at the patch border.
+      const paintedRect = {
+        x: px / scale + camera.x,
+        y: py / scale + camera.y,
+        w: (pr - px) / scale,
+        h: (pb - py) / scale,
+      }
+      painted.push(paintedRect)
+
+      ctx.save()
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      ctx.beginPath()
+      ctx.rect(px, py, pr - px, pb - py)
+      ctx.clip()
+      ctx.clearRect(px, py, pr - px, pb - py)
+      applyCameraTransform(staticSurface, camera)
+      // Every pass excludes the FULL erased set: a stroke may straddle two
+      // rects, and un-erased neighbours inside a rect must stay visible.
+      // resetInkBudget=false — the single beginInkFrame() above owns it.
+      paintSceneBody(staticSurface, camera, paintedRect, false, excludedNodes, false)
+      ctx.restore()
     }
-    ctx.save()
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.beginPath()
-    ctx.rect(px, py, pr - px, pb - py)
-    ctx.clip()
-    ctx.clearRect(px, py, pr - px, pb - py)
-    applyCameraTransform(staticSurface, camera)
-    paintSceneBody(staticSurface, camera, painted, false, excludedNodes)
-    ctx.restore()
+
+    lastEraserPatchRects = painted
   }
 
   /**
@@ -1652,6 +1700,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     stats: () => loop.stats(),
     lastDrawCount: () => lastDrawn,
     getLastDrawPath: () => lastDrawPath,
+    getLastEraserPatchRects: () => [...lastEraserPatchRects],
     getOverlaySet: () => [...overlaySet],
     getAssetCache: () => assetCache,
     dispose() {

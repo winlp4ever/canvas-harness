@@ -723,4 +723,179 @@ describe('Renderer (browser)', () => {
     renderer.dispose()
     cleanup(staticCanvas, interactiveCanvas)
   })
+
+  // ---- eraser preview patch: per-stroke rects (PR2) --------------------
+  const addInk = (
+    store: ReturnType<typeof createCanvasStore>,
+    id: string,
+    samples: { x: number; y: number; pressure: number }[],
+    size = 10,
+  ) => {
+    const geo = createInkGeometry(samples, size)!
+    store.addNode({
+      id: asNodeId(id),
+      type: 'ink',
+      x: geo.x,
+      y: geo.y,
+      w: geo.w,
+      h: geo.h,
+      angle: 0,
+      groups: [],
+      style: { strokeColor: '#000000' },
+      data: { ink: geo.ink },
+    })
+  }
+  const alphaAt = (canvas: HTMLCanvasElement, x: number, y: number): number =>
+    canvas.getContext('2d')!.getImageData(x, y, 1, 1).data[3]!
+
+  test('eraser patch: scattered erasures stay localized (one small rect each)', async () => {
+    const { staticCanvas, interactiveCanvas } = makeCanvases(800, 600)
+    const store = createCanvasStore({ clientId: asClientId('eraser-scatter') })
+    // Two strokes at opposite corners + a witness stroke in the middle.
+    addInk(store, 'ink-a', [
+      { x: 40, y: 40, pressure: 0.5 },
+      { x: 160, y: 40, pressure: 0.5 },
+    ])
+    addInk(store, 'ink-b', [
+      { x: 620, y: 540, pressure: 0.5 },
+      { x: 740, y: 540, pressure: 0.5 },
+    ])
+    addInk(store, 'ink-witness', [
+      { x: 350, y: 290, pressure: 0.5 },
+      { x: 470, y: 290, pressure: 0.5 },
+    ])
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 800,
+      height: 600,
+      background: { color: 'transparent' },
+    })
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+
+    // Erase just A → one rect.
+    store.setInteractionState({
+      mode: 'erasing-ink',
+      draftEraser: { point: { x: 100, y: 40 }, radius: 14, erasedIds: [asNodeId('ink-a')] },
+    })
+    await waitFrame()
+    await waitFrame()
+    expect(renderer.getLastEraserPatchRects()).toHaveLength(1)
+
+    // Erase A + B (opposite corners) → TWO rects, not one viewport-sized union.
+    store.setInteractionState({
+      mode: 'erasing-ink',
+      draftEraser: {
+        point: { x: 680, y: 540 },
+        radius: 14,
+        erasedIds: [asNodeId('ink-a'), asNodeId('ink-b')],
+      },
+    })
+    await waitFrame()
+    await waitFrame()
+    const rects = renderer.getLastEraserPatchRects()
+    expect(rects).toHaveLength(2)
+    // Combined repainted area is a tiny fraction of the viewport (the old
+    // single-union behavior would have covered ~70% of it).
+    const area = rects.reduce((sum, r) => sum + r.w * r.h, 0)
+    expect(area).toBeLessThan(0.1 * (800 * 600))
+    // Still a cheap blit path, not a full re-render.
+    expect(renderer.getLastDrawPath()).toBe('present')
+
+    // Correctness: both erased strokes are cleared on the static surface and
+    // shown at preview opacity on the interactive surface; the witness between
+    // them (never erased) stays painted — the gap is not touched.
+    expect(alphaAt(staticCanvas, 100, 40)).toBe(0)
+    expect(alphaAt(staticCanvas, 680, 540)).toBe(0)
+    expect(alphaAt(interactiveCanvas, 100, 40)).toBeGreaterThan(0)
+    expect(alphaAt(interactiveCanvas, 680, 540)).toBeGreaterThan(0)
+    expect(alphaAt(staticCanvas, 410, 290)).toBeGreaterThan(0)
+
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
+
+  test('eraser patch: adjacent erasures coalesce into one rect', async () => {
+    const { staticCanvas, interactiveCanvas } = makeCanvases(800, 600)
+    const store = createCanvasStore({ clientId: asClientId('eraser-adjacent') })
+    // Two strokes whose (inflated) bounds overlap — a drag along a line.
+    addInk(store, 'ink-x', [
+      { x: 40, y: 60, pressure: 0.5 },
+      { x: 160, y: 60, pressure: 0.5 },
+    ])
+    addInk(store, 'ink-y', [
+      { x: 150, y: 66, pressure: 0.5 },
+      { x: 270, y: 66, pressure: 0.5 },
+    ])
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 800,
+      height: 600,
+      background: { color: 'transparent' },
+    })
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+
+    store.setInteractionState({
+      mode: 'erasing-ink',
+      draftEraser: {
+        point: { x: 200, y: 63 },
+        radius: 14,
+        erasedIds: [asNodeId('ink-x'), asNodeId('ink-y')],
+      },
+    })
+    await waitFrame()
+    await waitFrame()
+    expect(renderer.getLastEraserPatchRects()).toHaveLength(1)
+
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
+
+  test('eraser patch: an off-screen erased stroke contributes no rect', async () => {
+    const { staticCanvas, interactiveCanvas } = makeCanvases(800, 600)
+    const store = createCanvasStore({ clientId: asClientId('eraser-offscreen') })
+    addInk(store, 'ink-on', [
+      { x: 100, y: 100, pressure: 0.5 },
+      { x: 220, y: 100, pressure: 0.5 },
+    ])
+    addInk(store, 'ink-off', [
+      { x: 5000, y: 5000, pressure: 0.5 },
+      { x: 5120, y: 5000, pressure: 0.5 },
+    ])
+    const renderer = createRenderer({
+      store,
+      staticCanvas,
+      interactiveCanvas,
+      width: 800,
+      height: 600,
+      background: { color: 'transparent' },
+    })
+    renderer.start()
+    await waitFrame()
+    await waitFrame()
+
+    store.setInteractionState({
+      mode: 'erasing-ink',
+      draftEraser: {
+        point: { x: 160, y: 100 },
+        radius: 14,
+        erasedIds: [asNodeId('ink-on'), asNodeId('ink-off')],
+      },
+    })
+    await waitFrame()
+    await waitFrame()
+    // Only the on-screen stroke yields a rect; the off-screen one is clipped out.
+    expect(renderer.getLastEraserPatchRects()).toHaveLength(1)
+    expect(alphaAt(staticCanvas, 160, 100)).toBe(0)
+
+    renderer.dispose()
+    cleanup(staticCanvas, interactiveCanvas)
+  })
 })

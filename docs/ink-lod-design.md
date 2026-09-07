@@ -187,25 +187,32 @@ drawInkNode(ctx, node, env):
 AABB, so erasing two strokes at opposite viewport corners grows the repainted region to ~the whole
 viewport and re-scenes it every `erasedIds` change — defeating the dirty-rect goal.
 
-**Design (small, self-contained).** Keep the `bounds: WorldRect[]` we already build (post-#40) and,
-instead of `unionRects` into one patch, repaint **each rect independently**:
+**Design (small, self-contained).** _Shipped._ Keep the `bounds: WorldRect[]` we already build
+(post-#40) and, instead of `unionRects` into one patch, run `coalesceEraseRects(bounds, ratio)` and
+repaint **each returned rect independently**:
 
 ```
-for rect in bounds:
+for rect in coalesceEraseRects(bounds, 0.6):
   clipped = intersect(rect, viewport); if empty continue
-  device-round clipped (as today), clip + clear + paintSceneBody(painted, excludedNodes)
+  device-round clipped (as today), clip + clear + paintSceneBody(painted, excludedNodes, resetInkBudget=false)
 ```
 
 Details:
-- **Merge overlapping/near rects first** (a cheap sweep, or reuse `unionRects` pairwise on rects that
-  actually overlap) so touching strokes don't double-paint their shared band.
+- **`coalesceEraseRects` (in `spatial/aabb.ts`, unit-tested)** first `mergeOverlappingRects` so touching
+  strokes (a drag along a line) share a rect without double-painting, then applies a density cut-off:
+  if the merged rects already fill ≥60% of their bounding box, it returns the single box instead — many
+  small passes (each a background fill + spatial query) cost more than one union pass once erasures are
+  dense. Scattered strokes stay separate; dense ones collapse to the old single union → **never worse
+  than before**.
 - **Each `paintSceneBody` pass still excludes the full `erasedIds` set** — a stroke may straddle two
   rects, and neighbours inside a rect must stay visible.
+- **Reset the ink-bitmap build budget ONCE** for the whole patch (`beginInkFrame()` before the loop,
+  `resetInkBudget=false` on each pass). Since Phase 1 put `beginInkFrame()` inside `paintSceneBody`, N
+  passes would otherwise reset the budget N times and let one eraser frame rasterize N×512 bitmaps —
+  defeating the anti-thrash ceiling.
 - Reuse the **exact device-rounding + `painted`-rect** fix from #40 per rect (so no 1px ring per rect).
-- Total repainted area is now proportional to the strokes, not the gap between them. Worst case (many
-  overlapping strokes) collapses back toward one union — no regression.
-
-This is ~25–40 lines localized to `paintEraserPreviewPatch`; no new concepts.
+- `getLastEraserPatchRects()` on the renderer exposes the rects painted, for test instrumentation.
+- Total repainted area is now proportional to the strokes, not the gap between them.
 
 ---
 
@@ -214,7 +221,8 @@ This is ~25–40 lines localized to `paintEraserPreviewPatch`; no new concepts.
 - **Phase 1 — ink per-node bitmap cache LOD (§3.2, approach D).** _Shipped._ The bulk of the value:
   full repaints blit a per-node bitmap (low-res when zoomed out) instead of re-tracing the outline;
   crisp vector fill retained zoomed-in and for export.
-- **Phase 2 — eraser per-stroke rects (§4).** Small, low-risk follow-up; independent of Phase 1.
+- **Phase 2 — eraser per-stroke rects (§4).** _Shipped._ Small, low-risk follow-up; independent of
+  Phase 1 (they compound).
 - **Deferred — `forceSolid` centerline (§3.3–3.4, approach B) + decimation (C).** Retained as the
   fallback if per-node bitmap *memory* ever becomes the constraint on extreme-density boards.
 
@@ -237,8 +245,14 @@ _Phase 1 (shipped):_
   `renderer.browser.test.ts` — zoomed-out-bitmap / zoomed-in-vector correctness gate, sub-pixel cull,
   and a dense-ink (2000 strokes) low-zoom repaint perf gate.
 
-_Phase 2 (follow-up):_
-- `packages/core/src/render/renderer.ts` — per-stroke rects in `paintEraserPreviewPatch`.
+_Phase 2 (shipped):_
+- `packages/core/src/spatial/aabb.ts` — **new** `mergeOverlappingRects` + `coalesceEraseRects` (merge
+  + density cut-off).
+- `packages/core/src/render/renderer.ts` — `paintEraserPreviewPatch` repaints per-coalesced-rect (one
+  shared ink build budget via `resetInkBudget`); `getLastEraserPatchRects()` test accessor.
+- Tests: `spatial.test.ts` — merge (overlap/transitive/disjoint/mixed) + coalesce (scattered/dense/
+  merge) cases; `renderer.browser.test.ts` — scattered→N localized rects, adjacent→1, off-screen
+  skipped, both cleared-on-static + preview-on-interactive, witness untouched.
 
 ## 7. Open questions
 

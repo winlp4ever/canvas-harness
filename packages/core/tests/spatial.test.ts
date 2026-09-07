@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'vitest'
 import {
   UniformGrid,
+  coalesceEraseRects,
   inflateRect,
+  mergeOverlappingRects,
   nodeAABB,
   rectContainsPoint,
   rectsIntersect,
@@ -41,6 +43,103 @@ describe('aabb', () => {
     ])
     expect(u).toEqual({ x: 0, y: 0, w: 55, h: 55 })
     expect(unionRects([])).toBeNull()
+  })
+
+  test('mergeOverlappingRects: empty and single passthrough', () => {
+    expect(mergeOverlappingRects([])).toEqual([])
+    const one = { x: 1, y: 2, w: 3, h: 4 }
+    expect(mergeOverlappingRects([one])).toEqual([one])
+  })
+
+  test('mergeOverlappingRects: overlapping pair merges to their union', () => {
+    const merged = mergeOverlappingRects([
+      { x: 0, y: 0, w: 10, h: 10 },
+      { x: 5, y: 5, w: 10, h: 10 },
+    ])
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toEqual({ x: 0, y: 0, w: 15, h: 15 })
+  })
+
+  test('mergeOverlappingRects: disjoint rects stay separate', () => {
+    const input = [
+      { x: 0, y: 0, w: 10, h: 10 },
+      { x: 100, y: 100, w: 10, h: 10 },
+    ]
+    const merged = mergeOverlappingRects(input)
+    expect(merged).toHaveLength(2)
+    // Touching-but-not-overlapping edges do NOT merge (matches rectsIntersect).
+    expect(
+      mergeOverlappingRects([
+        { x: 0, y: 0, w: 10, h: 10 },
+        { x: 10, y: 0, w: 10, h: 10 },
+      ]),
+    ).toHaveLength(2)
+  })
+
+  test('mergeOverlappingRects: transitive A–B–C chain collapses to one', () => {
+    // A overlaps B, B overlaps C, but A and C do not — a naive single pass
+    // would miss this; the re-scan must fold all three together.
+    const merged = mergeOverlappingRects([
+      { x: 0, y: 0, w: 10, h: 10 },
+      { x: 8, y: 0, w: 10, h: 10 },
+      { x: 16, y: 0, w: 10, h: 10 },
+    ])
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toEqual({ x: 0, y: 0, w: 26, h: 10 })
+  })
+
+  test('mergeOverlappingRects: mixed — a cluster merges, a loner stays', () => {
+    const merged = mergeOverlappingRects([
+      { x: 0, y: 0, w: 10, h: 10 },
+      { x: 5, y: 5, w: 10, h: 10 },
+      { x: 200, y: 200, w: 10, h: 10 },
+    ])
+    expect(merged).toHaveLength(2)
+    expect(merged).toContainEqual({ x: 0, y: 0, w: 15, h: 15 })
+    expect(merged).toContainEqual({ x: 200, y: 200, w: 10, h: 10 })
+  })
+
+  test('coalesceEraseRects: empty and single passthrough', () => {
+    expect(coalesceEraseRects([], 0.6)).toEqual([])
+    const one = { x: 1, y: 2, w: 3, h: 4 }
+    expect(coalesceEraseRects([one], 0.6)).toEqual([one])
+  })
+
+  test('coalesceEraseRects: scattered rects stay separate (localized)', () => {
+    // Two tiny rects at opposite corners → union is huge, split area is a
+    // sliver of it, so keep them separate.
+    const result = coalesceEraseRects(
+      [
+        { x: 0, y: 0, w: 10, h: 10 },
+        { x: 500, y: 500, w: 10, h: 10 },
+      ],
+      0.6,
+    )
+    expect(result).toHaveLength(2)
+  })
+
+  test('coalesceEraseRects: dense disjoint rects collapse to their union', () => {
+    // Two rects stacked edge-to-edge (touching, so not merged) fill their
+    // bounding box completely → one union pass beats two.
+    const result = coalesceEraseRects(
+      [
+        { x: 0, y: 0, w: 10, h: 10 },
+        { x: 0, y: 10, w: 10, h: 10 },
+      ],
+      0.6,
+    )
+    expect(result).toEqual([{ x: 0, y: 0, w: 10, h: 20 }])
+  })
+
+  test('coalesceEraseRects: overlapping rects merge before the density check', () => {
+    const result = coalesceEraseRects(
+      [
+        { x: 0, y: 0, w: 10, h: 10 },
+        { x: 5, y: 5, w: 10, h: 10 },
+      ],
+      0.6,
+    )
+    expect(result).toEqual([{ x: 0, y: 0, w: 15, h: 15 }])
   })
 })
 
