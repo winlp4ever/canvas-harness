@@ -55,6 +55,17 @@ const FILL_D2L = invert(FILL_L2D)
 const STROKE_D2L = invert(STROKE_L2D)
 const TEXT_D2L = invert(TEXT_L2D)
 
+/**
+ * Map one stroke color to its variant for `toMode` (identity if it isn't a
+ * known palette color). Used to keep the ink tool's *active* color in step
+ * with the theme so newly drawn strokes stay visible after a toggle, using
+ * the same table that swaps the existing strokes.
+ */
+export const swapStrokeColorForMode = (color: string, toMode: ThemeMode): string => {
+  const map = toMode === 'dark' ? STROKE_L2D : STROKE_D2L
+  return map[color] ?? color
+}
+
 export const swapSceneColors = (
   store: CanvasStore,
   fromMode: ThemeMode,

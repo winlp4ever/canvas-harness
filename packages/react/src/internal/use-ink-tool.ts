@@ -9,6 +9,7 @@ import {
   type CanvasStore,
   type InkGeometry,
   type InkSample,
+  type InkStrokeOptions,
   type Node,
   type NodeId,
   type Style,
@@ -20,6 +21,7 @@ import {
   hitTestInkWorld,
   notePenActive,
   notePenInactive,
+  pickInkStrokeOptions,
   screenToWorld,
   shouldRejectTouch,
 } from '@canvas-harness/core'
@@ -42,6 +44,12 @@ export type InkNodeFactoryInput = {
   size: number
   style: Style
   data?: Record<string, unknown>
+  /**
+   * Shape knobs the caller OVERRODE for this stroke (defaults omitted; the same
+   * subset baked into `geometry.ink`). Merge with `DEFAULT_INK_STROKE_OPTIONS`
+   * for the effective values.
+   */
+  options: InkStrokeOptions
 }
 
 export type InkToolDefaults = {
@@ -49,6 +57,12 @@ export type InkToolDefaults = {
   size?: ValueOrFactory<number>
   /** Stroke color stamped at gesture start. Defaults to `style.strokeColor`. */
   color?: ValueOrFactory<string>
+  /** Pressure→width sensitivity (−1…1). Defaults to 0.68. */
+  thinning?: ValueOrFactory<number>
+  /** Outline smoothing (0…1). Defaults to 0.58. */
+  smoothing?: ValueOrFactory<number>
+  /** Input jitter smoothing (0…1). Defaults to 0.42. */
+  streamline?: ValueOrFactory<number>
   /** Style stamped into the same node.add op as the completed stroke. */
   style?: ValueOrFactory<Style>
   /** Consumer metadata merged next to the engine-owned `data.ink` field. */
@@ -90,6 +104,9 @@ export const useInkTool = (
     let erasedIds = new Set<NodeId>()
     let activeSize = DEFAULT_INK_SIZE
     let activeStyle: Style = { strokeColor: DEFAULT_INK_COLOR }
+    // Shape knobs resolved at gesture start; only the overridden fields are set
+    // (createInkGeometry persists just those, defaulting the rest at render).
+    let activeInkOptions: InkStrokeOptions = {}
     let draftRaf = 0
     let lastEraserWorld: Vec2 | null = null
     let suppressNextClick = false
@@ -120,6 +137,7 @@ export const useInkTool = (
             size: activeSize,
             color: activeStyle.strokeColor ?? DEFAULT_INK_COLOR,
             opacity: activeStyle.opacity ?? 100,
+            options: activeInkOptions,
           },
           draftEraser: null,
         })
@@ -231,6 +249,14 @@ export const useInkTool = (
         ...resolvedStyle,
         strokeColor: resolvedColor ?? resolvedStyle?.strokeColor ?? DEFAULT_INK_COLOR,
       }
+      // pickInkStrokeOptions keeps only finite overrides — a factory that
+      // computes NaN (e.g. a divide-by-zero from a live setting) is dropped
+      // rather than corrupting the committed geometry.
+      activeInkOptions = pickInkStrokeOptions({
+        thinning: resolveValue(defaultsRef.current?.thinning),
+        smoothing: resolveValue(defaultsRef.current?.smoothing),
+        streamline: resolveValue(defaultsRef.current?.streamline),
+      })
       activePointerId = event.pointerId
       activeMode = isPenEraserContact(event) ? 'eraser' : (tool as 'ink' | 'eraser')
       sampleSegments = [[]]
@@ -270,7 +296,7 @@ export const useInkTool = (
         const createNode = defaultsRef.current?.createNode
         store.batch(() => {
           for (const segment of nonEmptySegments) {
-            const geometry = createInkGeometry(segment, activeSize)
+            const geometry = createInkGeometry(segment, activeSize, activeInkOptions)
             if (!geometry) continue
             const id = asNodeId(store.generateId())
             const input: InkNodeFactoryInput = {
@@ -279,6 +305,7 @@ export const useInkTool = (
               samples: segment,
               size: activeSize,
               style: activeStyle,
+              options: activeInkOptions,
               ...(data ? { data } : {}),
             }
             const node = createNode

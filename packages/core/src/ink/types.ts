@@ -8,6 +8,20 @@ export type InkSample = Vec2 & {
 /** Portable, node-local sample stored in an ink node. */
 export type InkPoint = readonly [x: number, y: number, pressure: number]
 
+/**
+ * perfect-freehand shape knobs exposed for tuning stroke feel. All optional;
+ * an omitted (or non-finite) field falls back to {@link DEFAULT_INK_STROKE_OPTIONS},
+ * and values outside the listed ranges are clamped when the outline is built.
+ *   - `thinning`   pressure → width sensitivity (−1…1)
+ *   - `smoothing`  outline smoothing (0…1)
+ *   - `streamline` input jitter smoothing (0…1)
+ */
+export type InkStrokeOptions = {
+  thinning?: number
+  smoothing?: number
+  streamline?: number
+}
+
 /** Versioned geometry owned by the built-in `ink` node. */
 export type InkStrokeData = {
   type: 'ink'
@@ -16,6 +30,15 @@ export type InkStrokeData = {
   points: InkPoint[]
   intrinsicWidth: number
   intrinsicHeight: number
+  /**
+   * Persisted shape knobs — only the fields that differ from the defaults are
+   * stored (so default strokes stay compact and back-compatible). Renderers
+   * rebuild the outline from `points + size + these`, so a stroke keeps the
+   * feel it was drawn with across reload/sync even if the tool config changes.
+   */
+  thinning?: number
+  smoothing?: number
+  streamline?: number
 }
 
 /** Pure geometry produced at pointer-up, before a product builds its node payload. */
@@ -45,6 +68,8 @@ export type InkDraft = {
   size: number
   color: string
   opacity: number
+  /** Shape knobs for the live preview, so it matches the committed stroke. */
+  options?: InkStrokeOptions
 }
 
 /** Ephemeral whole-stroke eraser cursor, expressed in world units. */

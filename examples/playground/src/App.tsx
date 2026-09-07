@@ -6,13 +6,14 @@ import {
 } from '@canvas-harness/core'
 import { CanvasProvider, Minimap } from '@canvas-harness/react'
 import { createBroadcastSyncAdapter } from '@canvas-harness/sync-broadcast'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AiContextButton } from './components/AiContextButton'
 import { BackgroundPanel, useBackgroundState } from './components/BackgroundPanel'
 import { Canvas, type Tool } from './components/Canvas'
 import { ExportControls } from './components/ExportControls'
 import { ExtensionsMenu } from './components/ExtensionsMenu'
 import { HistoryControls } from './components/HistoryControls'
+import { InkPanel, inkDefaultsFromSettings, useInkSettings } from './components/InkPanel'
 import { PerfOverlay } from './components/PerfOverlay'
 import { PresenceOverlay } from './components/PresenceOverlay'
 import { PresentMode } from './components/PresentMode'
@@ -24,7 +25,7 @@ import { ThemeToggle } from './components/ThemeToggle'
 import { Toolbar } from './components/Toolbar'
 import { chartCardDef } from './custom-nodes/chart-card'
 import { fakeSave } from './db/fake-db'
-import { swapSceneColors } from './hooks/swap-theme-colors'
+import { swapSceneColors, swapStrokeColorForMode } from './hooks/swap-theme-colors'
 import { useDebouncedSave } from './hooks/useDebouncedSave'
 import { getThemeBackground, useThemeMode } from './hooks/useThemeMode'
 
@@ -56,6 +57,8 @@ export function App() {
   const [tool, setTool] = useState<Tool>('select')
   const [renderer, setRenderer] = useState<Renderer | null>(null)
   const { background, setBackground } = useBackgroundState()
+  const { inkSettings, setInkSettings } = useInkSettings()
+  const inkDefaults = useMemo(() => inkDefaultsFromSettings(inkSettings), [inkSettings])
   const themeMode = useThemeMode()
   // Couple the theme toggle to the BackgroundPanel state: flipping
   // mode replaces the user's chosen background with the new preset
@@ -67,7 +70,13 @@ export function App() {
     // Demo-fidelity: swap shape colors that match the playground's
     // known palette. Custom user colors stay untouched.
     swapSceneColors(store, themeMode.mode, nextMode)
-  }, [themeMode, setBackground, store])
+    // Keep the ink tool's active color in step so the NEXT stroke is drawn
+    // in the theme-appropriate variant, not the previous mode's.
+    setInkSettings({
+      ...inkSettings,
+      color: swapStrokeColorForMode(inkSettings.color, nextMode),
+    })
+  }, [themeMode, setBackground, store, inkSettings, setInkSettings])
 
   const onRenderer = useCallback((r: Renderer) => {
     setRenderer(r)
@@ -147,8 +156,10 @@ export function App() {
           background={background}
           theme={themeMode.theme}
           selectionColor="#8b5cf6"
+          inkDefaults={inkDefaults}
         />
         <Toolbar active={tool} onSelect={setTool} />
+        {tool === 'ink' && <InkPanel value={inkSettings} onChange={setInkSettings} />}
         <HistoryControls store={store} />
         <ThemeToggle mode={themeMode.mode} onToggle={handleThemeToggle} />
         <BackgroundPanel value={background} onChange={setBackground} />

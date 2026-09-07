@@ -12,6 +12,7 @@ export {
 } from './bitmap-cache'
 export {
   DEFAULT_INK_COLOR,
+  DEFAULT_INK_STROKE_OPTIONS,
   buildInkOutline,
   createInkGeometry,
   distanceBetweenSegments,
@@ -23,6 +24,7 @@ export {
   hitTestInkSegmentWorld,
   hitTestInkWorld,
   outlineFromInk,
+  pickInkStrokeOptions,
   readInkData,
   traceSmoothInkOutline,
 } from './geometry'
@@ -35,4 +37,5 @@ export type {
   InkPoint,
   InkSample,
   InkStrokeData,
+  InkStrokeOptions,
 } from './types'
