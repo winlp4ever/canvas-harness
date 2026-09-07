@@ -30,7 +30,10 @@ const DEFAULT_INK_SETTINGS: InkSettings = {
   streamline: 0.42,
 }
 
-const PEN_COLORS = ['#1f2937', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#a855f7']
+// Light-mode palette colors that the playground's theme swap knows about, so
+// strokes drawn with these flip to their dark variant on a theme toggle (a
+// custom color picked below is treated as a user custom and stays put).
+const PEN_COLORS = ['#1f2937', '#dc2626', '#ea580c', '#16a34a', '#0284c7', '#9333ea']
 
 const loadInitial = (): InkSettings => {
   if (typeof window === 'undefined') return DEFAULT_INK_SETTINGS

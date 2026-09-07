@@ -25,7 +25,7 @@ import { ThemeToggle } from './components/ThemeToggle'
 import { Toolbar } from './components/Toolbar'
 import { chartCardDef } from './custom-nodes/chart-card'
 import { fakeSave } from './db/fake-db'
-import { swapSceneColors } from './hooks/swap-theme-colors'
+import { swapSceneColors, swapStrokeColorForMode } from './hooks/swap-theme-colors'
 import { useDebouncedSave } from './hooks/useDebouncedSave'
 import { getThemeBackground, useThemeMode } from './hooks/useThemeMode'
 
@@ -70,7 +70,13 @@ export function App() {
     // Demo-fidelity: swap shape colors that match the playground's
     // known palette. Custom user colors stay untouched.
     swapSceneColors(store, themeMode.mode, nextMode)
-  }, [themeMode, setBackground, store])
+    // Keep the ink tool's active color in step so the NEXT stroke is drawn
+    // in the theme-appropriate variant, not the previous mode's.
+    setInkSettings({
+      ...inkSettings,
+      color: swapStrokeColorForMode(inkSettings.color, nextMode),
+    })
+  }, [themeMode, setBackground, store, inkSettings, setInkSettings])
 
   const onRenderer = useCallback((r: Renderer) => {
     setRenderer(r)
