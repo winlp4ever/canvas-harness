@@ -1483,8 +1483,8 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
     // 5. Pressure-aware ink and eraser previews live on the engine's
     //    interactive surface, never in the document/op log.
     if (interaction.mode === 'creating-ink' && interaction.draftInk) {
-      const { segments, size, color, opacity } = interaction.draftInk
-      for (const samples of segments) drawInkDraft(ctx, samples, size, color, opacity)
+      const { segments, size, color, opacity, options } = interaction.draftInk
+      for (const samples of segments) drawInkDraft(ctx, samples, size, color, opacity, options)
     }
     if (interaction.mode === 'erasing-ink' && interaction.draftEraser) {
       const { point, radius, erasedIds } = interaction.draftEraser

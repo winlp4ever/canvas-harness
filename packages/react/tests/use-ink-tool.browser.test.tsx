@@ -107,6 +107,22 @@ describe('built-in ink tool', () => {
     await mounted.cleanup()
   })
 
+  test('persists inkDefaults shape knobs on the committed stroke', async () => {
+    const store = createCanvasStore({ clientId: asClientId('ink-knobs') })
+    const mounted = await mountCanvas(store, 'ink', { streamline: 0.9, thinning: 0.2 })
+
+    await act(async () => firePointer(mounted.wrap, 'pointerdown', { x: 10, y: 20 }))
+    await act(async () => firePointer(mounted.wrap, 'pointermove', { x: 40, y: 30 }))
+    await act(async () => firePointer(mounted.wrap, 'pointerup', { x: 40, y: 30 }))
+
+    const ink = readInkData(store.getAllNodes()[0]!)!
+    expect(ink.streamline).toBe(0.9)
+    expect(ink.thinning).toBe(0.2)
+    // Only the overridden knobs are persisted.
+    expect(ink).not.toHaveProperty('smoothing')
+    await mounted.cleanup()
+  })
+
   test('lets a product factory build its own node envelope', async () => {
     const store = createCanvasStore({ clientId: asClientId('factory-test') })
     let calls = 0

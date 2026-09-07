@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'vitest'
-import { createInkGeometry, hitTestInkSegmentWorld, hitTestInkWorld, readInkData } from '../src/ink'
+import {
+  buildInkOutline,
+  createInkGeometry,
+  hitTestInkSegmentWorld,
+  hitTestInkWorld,
+  outlineFromInk,
+  pickInkStrokeOptions,
+  readInkData,
+} from '../src/ink'
 import { type Node, asNodeId } from '../src/types'
 
 describe('ink geometry', () => {
@@ -71,4 +79,80 @@ const makeNode = (geometry: NonNullable<ReturnType<typeof createInkGeometry>>): 
   z: 1,
   groups: [],
   data: { ink: geometry.ink },
+})
+
+describe('ink stroke options', () => {
+  const jitter = [
+    { x: 0, y: 0, pressure: 0.5 },
+    { x: 10, y: 8, pressure: 0.5 },
+    { x: 20, y: -4, pressure: 0.5 },
+    { x: 30, y: 9, pressure: 0.5 },
+    { x: 40, y: 0, pressure: 0.5 },
+  ]
+
+  test('a default stroke persists no shape knobs (compact + back-compatible)', () => {
+    const ink = createInkGeometry(jitter, 6)!.ink
+    expect(ink).not.toHaveProperty('thinning')
+    expect(ink).not.toHaveProperty('smoothing')
+    expect(ink).not.toHaveProperty('streamline')
+  })
+
+  test('persists only the overridden knobs', () => {
+    const ink = createInkGeometry(jitter, 6, { smoothing: 0.9 })!.ink
+    expect(ink.smoothing).toBe(0.9)
+    expect(ink).not.toHaveProperty('thinning')
+    expect(ink).not.toHaveProperty('streamline')
+  })
+
+  test('options change the traced outline', () => {
+    const loose = buildInkOutline(jitter, 8, { streamline: 0.1 })
+    const tight = buildInkOutline(jitter, 8, { streamline: 0.9 })
+    expect(loose.length).toBeGreaterThan(0)
+    expect(JSON.stringify(loose)).not.toBe(JSON.stringify(tight))
+  })
+
+  test('outlineFromInk rebuilds with the persisted knobs, not the defaults', () => {
+    // Same samples/size, different persisted streamline → different outline,
+    // so a committed stroke keeps its feel across a re-render.
+    const a = createInkGeometry(jitter, 8, { streamline: 0.1 })!.ink
+    const b = createInkGeometry(jitter, 8, { streamline: 0.9 })!.ink
+    expect(JSON.stringify(outlineFromInk(a))).not.toBe(JSON.stringify(outlineFromInk(b)))
+  })
+
+  test('clamps out-of-range knobs to perfect-freehand domains at render', () => {
+    expect(JSON.stringify(buildInkOutline(jitter, 8, { streamline: 5 }))).toBe(
+      JSON.stringify(buildInkOutline(jitter, 8, { streamline: 1 })),
+    )
+    expect(JSON.stringify(buildInkOutline(jitter, 8, { streamline: -5 }))).toBe(
+      JSON.stringify(buildInkOutline(jitter, 8, { streamline: 0 })),
+    )
+  })
+
+  test('treats a non-finite knob as the default and never persists it', () => {
+    // Rendering falls back to the default (no NaN geometry).
+    expect(JSON.stringify(buildInkOutline(jitter, 8, { thinning: Number.NaN }))).toBe(
+      JSON.stringify(buildInkOutline(jitter, 8)),
+    )
+    const geo = createInkGeometry(jitter, 6, { thinning: Number.NaN })!
+    expect(Number.isFinite(geo.w)).toBe(true)
+    expect(geo.ink).not.toHaveProperty('thinning') // dropped, not stored
+  })
+
+  test('pickInkStrokeOptions keeps finite overrides, drops undefined and non-finite', () => {
+    expect(pickInkStrokeOptions({ thinning: 0.5, smoothing: Number.NaN })).toEqual({
+      thinning: 0.5,
+    })
+    expect(pickInkStrokeOptions({ streamline: Number.POSITIVE_INFINITY })).toEqual({})
+    expect(pickInkStrokeOptions(undefined)).toEqual({})
+  })
+
+  test('readInkData accepts finite knobs and rejects non-finite ones', () => {
+    const base = createInkGeometry(jitter, 6)!
+    const node = makeNode(base)
+    // Fresh objects (spread) bypass the validated-instance fast path.
+    const withKnob: Node = { ...node, data: { ink: { ...base.ink, thinning: 0.9 } } }
+    expect(readInkData(withKnob)?.thinning).toBe(0.9)
+    const badKnob: Node = { ...node, data: { ink: { ...base.ink, smoothing: Number.NaN } } }
+    expect(readInkData(badKnob)).toBeNull()
+  })
 })

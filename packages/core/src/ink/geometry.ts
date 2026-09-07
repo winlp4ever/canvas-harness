@@ -1,9 +1,53 @@
 import { getStroke } from 'perfect-freehand'
 import { worldToNodeLocal } from '../edges'
 import type { Node, Vec2 } from '../types'
-import type { InkGeometry, InkNodeData, InkSample, InkStrokeData } from './types'
+import type { InkGeometry, InkNodeData, InkSample, InkStrokeData, InkStrokeOptions } from './types'
 
 const MIN_NODE_SIZE = 1
+
+/** perfect-freehand shape knobs used when a stroke doesn't override them. */
+export const DEFAULT_INK_STROKE_OPTIONS = {
+  thinning: 0.68,
+  smoothing: 0.58,
+  streamline: 0.42,
+} as const
+
+// perfect-freehand's documented domains — values outside them produce
+// degenerate outlines, so we clamp at outline-build time (covering both
+// live strokes and anything arriving via sync/persistence).
+const KNOB_RANGE = {
+  thinning: [-1, 1],
+  smoothing: [0, 1],
+  streamline: [0, 1],
+} as const
+
+/** Resolve one knob: fall back to the default when absent/non-finite, else clamp to range. */
+const resolveKnob = (value: number | undefined, key: keyof typeof KNOB_RANGE): number => {
+  if (value === undefined || !Number.isFinite(value)) return DEFAULT_INK_STROKE_OPTIONS[key]
+  const [lo, hi] = KNOB_RANGE[key]
+  return Math.max(lo, Math.min(hi, value))
+}
+
+/**
+ * Keep only the knobs that are finite numbers — drops both `undefined` and a
+ * bad config value (`NaN`/`±Infinity`), so default strokes stay compact and a
+ * garbage config can never be persisted onto a node (which would make
+ * `readInkData` later reject and hide the whole stroke). Shared by the tool
+ * and the geometry builder so the "only overrides" rule lives in one place.
+ */
+export const pickInkStrokeOptions = (options?: InkStrokeOptions): InkStrokeOptions => {
+  const out: InkStrokeOptions = {}
+  if (options?.thinning !== undefined && Number.isFinite(options.thinning)) {
+    out.thinning = options.thinning
+  }
+  if (options?.smoothing !== undefined && Number.isFinite(options.smoothing)) {
+    out.smoothing = options.smoothing
+  }
+  if (options?.streamline !== undefined && Number.isFinite(options.streamline)) {
+    out.streamline = options.streamline
+  }
+  return out
+}
 
 /**
  * Fallback fill when a committed ink node has no `style.strokeColor`. Shared
@@ -44,19 +88,21 @@ export const traceSmoothInkOutline = (
   ctx.closePath()
 }
 
-/** Produce a pressure-aware polygon for one freehand stroke. */
+/** Produce a pressure-aware polygon for one freehand stroke. Omitted shape
+ *  options fall back to {@link DEFAULT_INK_STROKE_OPTIONS}. */
 export const buildInkOutline = (
   samples: ReadonlyArray<InkSample>,
   size: number,
+  options?: InkStrokeOptions,
 ): Array<[number, number]> => {
   if (samples.length === 0) return []
   return getStroke(
     samples.map(point => [point.x, point.y, point.pressure]),
     {
       size,
-      thinning: 0.68,
-      smoothing: 0.58,
-      streamline: 0.42,
+      thinning: resolveKnob(options?.thinning, 'thinning'),
+      smoothing: resolveKnob(options?.smoothing, 'smoothing'),
+      streamline: resolveKnob(options?.streamline, 'streamline'),
       simulatePressure: false,
       last: true,
     },
@@ -71,8 +117,9 @@ export const buildInkOutline = (
 export const createInkGeometry = (
   samples: ReadonlyArray<InkSample>,
   size: number,
+  options?: InkStrokeOptions,
 ): InkGeometry | null => {
-  const outline = buildInkOutline(samples, size)
+  const outline = buildInkOutline(samples, size, options)
   if (outline.length === 0) return null
 
   let minX = Number.POSITIVE_INFINITY
@@ -95,6 +142,9 @@ export const createInkGeometry = (
     points: samples.map(({ x, y, pressure }) => [x - minX, y - minY, pressure]),
     intrinsicWidth: w,
     intrinsicHeight: h,
+    // Persist ONLY the knobs the caller overrode (finite ones) — default
+    // strokes stay compact and a bad value can't corrupt the node.
+    ...pickInkStrokeOptions(options),
   }
   validInkData.add(ink)
   return {
@@ -129,7 +179,11 @@ export const readInkData = (node: Node): InkStrokeData | null => {
     !Number.isFinite(raw.intrinsicWidth) ||
     raw.intrinsicWidth <= 0 ||
     !Number.isFinite(raw.intrinsicHeight) ||
-    raw.intrinsicHeight <= 0
+    raw.intrinsicHeight <= 0 ||
+    // Optional shape knobs: absent is fine, but if present must be finite.
+    (raw.thinning !== undefined && !Number.isFinite(raw.thinning)) ||
+    (raw.smoothing !== undefined && !Number.isFinite(raw.smoothing)) ||
+    (raw.streamline !== undefined && !Number.isFinite(raw.streamline))
   ) {
     invalidInkData.add(raw)
     return null
@@ -148,6 +202,7 @@ export const outlineFromInk = (ink: InkStrokeData): Array<[number, number]> => {
   const outline = buildInkOutline(
     ink.points.map(([x, y, pressure]) => ({ x, y, pressure })),
     ink.size,
+    { thinning: ink.thinning, smoothing: ink.smoothing, streamline: ink.streamline },
   )
   outlineCache.set(ink, outline)
   return outline
@@ -189,8 +244,9 @@ export const drawInkDraft = (
   size: number,
   color: string,
   opacity = 100,
+  options?: InkStrokeOptions,
 ): void => {
-  const outline = draftOutlineFromSamples(samples, size)
+  const outline = draftOutlineFromSamples(samples, size, options)
   if (outline.length === 0) return
   ctx.save()
   ctx.fillStyle = color
@@ -203,20 +259,25 @@ export const drawInkDraft = (
 
 const draftOutlineCache = new WeakMap<
   ReadonlyArray<InkSample>,
-  Map<number, Array<[number, number]>>
+  Map<string, Array<[number, number]>>
 >()
 
 const draftOutlineFromSamples = (
   samples: ReadonlyArray<InkSample>,
   size: number,
+  options?: InkStrokeOptions,
 ): Array<[number, number]> => {
-  const bySize = draftOutlineCache.get(samples)
-  const cached = bySize?.get(size)
+  // Key includes the shape knobs so a preview re-render with different options
+  // doesn't reuse a stale outline (options are constant within a gesture, so
+  // in practice this is one entry per stroke).
+  const key = `${size}:${options?.thinning ?? ''}:${options?.smoothing ?? ''}:${options?.streamline ?? ''}`
+  const byKey = draftOutlineCache.get(samples)
+  const cached = byKey?.get(key)
   if (cached) return cached
-  const outline = buildInkOutline(samples, size)
-  const nextBySize = bySize ?? new Map<number, Array<[number, number]>>()
-  nextBySize.set(size, outline)
-  if (!bySize) draftOutlineCache.set(samples, nextBySize)
+  const outline = buildInkOutline(samples, size, options)
+  const nextByKey = byKey ?? new Map<string, Array<[number, number]>>()
+  nextByKey.set(key, outline)
+  if (!byKey) draftOutlineCache.set(samples, nextByKey)
   return outline
 }
 
