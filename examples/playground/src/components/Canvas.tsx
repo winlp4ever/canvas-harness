@@ -3,6 +3,7 @@ import {
   type ArrowToolDefaults,
   type CanvasCreateDragEvent,
   type CanvasPointerEvent,
+  type InkToolDefaults,
   Canvas as LibCanvas,
   type ThemeResolver,
   useCanvasStore,
@@ -73,12 +74,14 @@ export function Canvas({
   background,
   theme,
   selectionColor,
+  inkDefaults,
 }: {
   tool: Tool
   onRenderer?: Parameters<typeof LibCanvas>[0]['onRenderer']
   background?: CanvasBackground
   theme?: ThemeResolver
   selectionColor?: string
+  inkDefaults?: InkToolDefaults
 }) {
   const store = useCanvasStore()
   const styleMemory = useStyleMemory(store)
@@ -312,6 +315,7 @@ export function Canvas({
         onDoubleClick={handleDoubleClick}
         onCreateDrag={handleCreateDrag}
         arrowDefaults={arrowDefaults}
+        inkDefaults={inkDefaults}
         background={background}
         theme={theme}
         selectionColor={selectionColor}
