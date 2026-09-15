@@ -95,16 +95,34 @@ export const sizeSurface = (
   maxDpr?: number,
 ): boolean => {
   const dpr = getDpr(maxDpr, cssW, cssH)
-  if (surface.cssWidth === cssW && surface.cssHeight === cssH && surface.dpr === dpr) {
+  // Use Math.ceil so the canvas is always at least as wide as the
+  // wrap div, never narrower. On high-DPI screens (notably 4K),
+  // ResizeObserver can report fractional CSS widths (e.g. `3840.4`);
+  // with Math.round, the canvas can end up ~0.5 CSS px narrower than
+  // the wrap, leaving a faint vertical strip where the wrap's
+  // background shows through on the right edge. The wrap has
+  // `overflow: hidden`, so a sub-pixel overflow from ceil is clipped
+  // to invisibility.
+  //
+  // The ceiled value is also stored as `cssWidth`/`cssHeight` so the
+  // renderer's viewport math sees the same dimensions the canvas is
+  // actually displaying (the renderer uses `surface.cssWidth` in
+  // `worldViewport` / `paintBackground` for world-rect computation).
+  // Compare against the ceiled value in the early-out so a fractional
+  // ResizeObserver report that ceils to the same integer doesn't
+  // re-allocate the backing store every call.
+  const ceilCssW = Math.ceil(cssW)
+  const ceilCssH = Math.ceil(cssH)
+  if (surface.cssWidth === ceilCssW && surface.cssHeight === ceilCssH && surface.dpr === dpr) {
     return false
   }
-  surface.cssWidth = cssW
-  surface.cssHeight = cssH
+  surface.cssWidth = ceilCssW
+  surface.cssHeight = ceilCssH
   surface.dpr = dpr
-  surface.canvas.width = Math.max(1, Math.round(cssW * dpr))
-  surface.canvas.height = Math.max(1, Math.round(cssH * dpr))
-  surface.canvas.style.width = `${cssW}px`
-  surface.canvas.style.height = `${cssH}px`
+  surface.canvas.width = Math.max(1, Math.round(ceilCssW * dpr))
+  surface.canvas.height = Math.max(1, Math.round(ceilCssH * dpr))
+  surface.canvas.style.width = `${ceilCssW}px`
+  surface.canvas.style.height = `${ceilCssH}px`
   return true
 }
 
