@@ -11,7 +11,7 @@
  * inside the library resolves through the getters below, so measurement,
  * painting, the DOM editor, and export all stay consistent.
  */
-import type { FontFamily, FontSize } from '../types'
+import type { FontFamily, FontSize, FontSizePreset } from '../types'
 import { bumpFontEpoch } from './font-epoch'
 
 /**
@@ -30,10 +30,10 @@ export const DEFAULT_FONT_STACKS: Record<FontFamily, string> = {
 }
 
 /** Built-in font sizes (px) per size token. */
-export const DEFAULT_FONT_SIZES: Record<FontSize, number> = { S: 14, M: 16, L: 24, XL: 36 }
+export const DEFAULT_FONT_SIZES: Record<FontSizePreset, number> = { S: 14, M: 16, L: 24, XL: 36 }
 
 /** Built-in line heights (px) per size token. */
-export const DEFAULT_LINE_HEIGHTS: Record<FontSize, number> = { S: 20, M: 24, L: 32, XL: 40 }
+export const DEFAULT_LINE_HEIGHTS: Record<FontSizePreset, number> = { S: 20, M: 24, L: 32, XL: 40 }
 
 /**
  * @deprecated Read via `getFontStack()`; kept for back-compat. Reflects
@@ -48,24 +48,26 @@ export const LINE_HEIGHT_MAP = DEFAULT_LINE_HEIGHTS
 // Live registry — the values the library actually resolves through.
 // Seeded from the defaults; mutated (merged) by configureFonts().
 let fontStacks: Record<FontFamily, string> = { ...DEFAULT_FONT_STACKS }
-let fontSizes: Record<FontSize, number> = { ...DEFAULT_FONT_SIZES }
-let lineHeights: Record<FontSize, number> = { ...DEFAULT_LINE_HEIGHTS }
+let fontSizes: Record<FontSizePreset, number> = { ...DEFAULT_FONT_SIZES }
+let lineHeights: Record<FontSizePreset, number> = { ...DEFAULT_LINE_HEIGHTS }
 
 /** Resolve a font-family token to its current CSS stack. */
 export const getFontStack = (family: FontFamily): string => fontStacks[family]
 /** Resolve a size token to its current pixel size. */
-export const getFontSizePx = (size: FontSize): number => fontSizes[size]
+export const getFontSizePx = (size: FontSize): number =>
+  typeof size === 'number' ? size : fontSizes[size]
 /** Resolve a size token to its current line height (px). */
-export const getLineHeightPx = (size: FontSize): number => lineHeights[size]
+export const getLineHeightPx = (size: FontSize): number =>
+  typeof size === 'number' ? size * 1.25 : lineHeights[size]
 
 /** Overrides for `configureFonts()`. Any subset; unspecified keys keep their current value. */
 export type FontConfig = {
   /** Map a family token to a CSS font stack (e.g. `{ 'sans-serif': '"Inter", sans-serif' }`). */
   family?: Partial<Record<FontFamily, string>>
   /** Override a size token's pixel size. Affects newly measured/laid-out text (see note on reflow). */
-  size?: Partial<Record<FontSize, number>>
+  size?: Partial<Record<FontSizePreset, number>>
   /** Override a size token's line height (px). */
-  lineHeight?: Partial<Record<FontSize, number>>
+  lineHeight?: Partial<Record<FontSizePreset, number>>
 }
 
 // Merge only *defined* override values over the base — a caller building

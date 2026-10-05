@@ -24,6 +24,11 @@ describe('font defaults', () => {
     expect(getFontSizePx('M')).toBe(16)
     expect(getLineHeightPx('M')).toBe(24)
   })
+
+  test('numeric sizes resolve directly with a proportional line height', () => {
+    expect(getFontSizePx(72)).toBe(72)
+    expect(getLineHeightPx(72)).toBe(90)
+  })
 })
 
 describe('configureFonts', () => {
