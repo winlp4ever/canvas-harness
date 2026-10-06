@@ -12,12 +12,14 @@ import {
   type DragOriginal,
   type EdgeEnd,
   type EdgeId,
+  type FontSize,
   type NodeId,
   type ResizeHandle,
   type Vec2,
   type WorldRect,
   computeAutoFitHeight,
   createPalmRejectionState,
+  getFontSizePresetForPx,
   getFontSizePx,
   hitTestAny,
   marqueeNodes,
@@ -49,15 +51,22 @@ export const scaledTextFontSizeForResize = ({
   handle,
 }: {
   nodeType: string
-  fontSize: Parameters<typeof getFontSizePx>[0]
+  fontSize: FontSize
   originalWidth: number
   resizedWidth: number
   handle: ResizeHandle
-}): number | undefined => {
-  if (nodeType !== 'text' || !CORNER_RESIZE_HANDLES.has(handle) || originalWidth <= 0) {
+}): FontSize | undefined => {
+  if (
+    nodeType !== 'text' ||
+    !CORNER_RESIZE_HANDLES.has(handle) ||
+    !Number.isFinite(originalWidth) ||
+    !Number.isFinite(resizedWidth) ||
+    originalWidth <= 0
+  ) {
     return undefined
   }
-  return Math.max(1, getFontSizePx(fontSize) * (resizedWidth / originalWidth))
+  const scaled = getFontSizePx(Math.round(getFontSizePx(fontSize) * (resizedWidth / originalWidth)))
+  return getFontSizePresetForPx(scaled) ?? scaled
 }
 
 export type InteractionTool =
@@ -205,6 +214,15 @@ export const useInteractionGesture = (
       const scaleText = node?.type === 'text' && CORNER_RESIZE_HANDLES.has(resizeHandle)
       const resizeModifiers = { ...modifiers, shift: modifiers.shift || scaleText }
       const next = computeResizeGeometry(orig, resizeHandle, worldPoint, resizeModifiers)
+      const scaledFontSize = node
+        ? scaledTextFontSizeForResize({
+            nodeType: node.type,
+            fontSize: node.style?.fontSize ?? 'M',
+            originalWidth: orig.w,
+            resizedWidth: next.w,
+            handle: resizeHandle,
+          })
+        : undefined
       // Write the in-progress geometry to the draft slot only — no
       // store mutation. The renderer reads `resizeDraft` via
       // mapDragPositions, so the static cache stays valid and no
@@ -214,7 +232,14 @@ export const useInteractionGesture = (
       store.setInteractionState({
         resizeLockAspect: resizeModifiers.shift,
         resizeFromCenter: modifiers.alt,
-        resizeDraft: { x: next.x, y: next.y, w: next.w, h: next.h, angle: orig.angle },
+        resizeDraft: {
+          x: next.x,
+          y: next.y,
+          w: next.w,
+          h: next.h,
+          angle: orig.angle,
+          ...(scaledFontSize !== undefined ? { fontSize: scaledFontSize } : {}),
+        },
       })
     }
 
@@ -241,23 +266,14 @@ export const useInteractionGesture = (
       if (draft && orig) {
         store.batch(() => {
           const node = store.getNode(orig.id)
-          const scaledFontSize = node && resizeHandle
-            ? scaledTextFontSizeForResize({
-                nodeType: node.type,
-                fontSize: node.style?.fontSize ?? 'M',
-                originalWidth: orig.w,
-                resizedWidth: draft.w,
-                handle: resizeHandle,
-              })
-            : undefined
           store.updateNode(orig.id, {
             x: draft.x,
             y: draft.y,
             w: draft.w,
             h: draft.h,
             angle: draft.angle,
-            ...(scaledFontSize !== undefined
-              ? { style: { ...node?.style, fontSize: scaledFontSize } }
+            ...(draft.fontSize !== undefined
+              ? { style: { ...node?.style, fontSize: draft.fontSize } }
               : {}),
           })
           // Refit autofit nodes now that the gesture is over (we
