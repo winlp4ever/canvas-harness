@@ -12,12 +12,15 @@ import {
   type DragOriginal,
   type EdgeEnd,
   type EdgeId,
+  type FontSize,
   type NodeId,
   type ResizeHandle,
   type Vec2,
   type WorldRect,
   computeAutoFitHeight,
   createPalmRejectionState,
+  getFontSizePresetForPx,
+  getFontSizePx,
   hitTestAny,
   marqueeNodes,
   midpointToCubicControls,
@@ -36,6 +39,35 @@ const CLICK_MAX_PIXELS = 4 // pointerup within this many pixels of pointerdown =
 const LONG_PRESS_MS = 500
 /** Max pixel movement during the long-press window without canceling it. */
 const LONG_PRESS_MAX_MOVE_PX = 10
+
+const CORNER_RESIZE_HANDLES = new Set<ResizeHandle>(['nw', 'ne', 'se', 'sw'])
+
+/** Resolve the proportional font size for a standalone text corner resize. */
+export const scaledTextFontSizeForResize = ({
+  nodeType,
+  fontSize,
+  originalWidth,
+  resizedWidth,
+  handle,
+}: {
+  nodeType: string
+  fontSize: FontSize
+  originalWidth: number
+  resizedWidth: number
+  handle: ResizeHandle
+}): FontSize | undefined => {
+  if (
+    nodeType !== 'text' ||
+    !CORNER_RESIZE_HANDLES.has(handle) ||
+    !Number.isFinite(originalWidth) ||
+    !Number.isFinite(resizedWidth) ||
+    originalWidth <= 0
+  ) {
+    return undefined
+  }
+  const scaled = getFontSizePx(Math.round(getFontSizePx(fontSize) * (resizedWidth / originalWidth)))
+  return getFontSizePresetForPx(scaled) ?? scaled
+}
 
 export type InteractionTool =
   | 'select'
@@ -178,7 +210,19 @@ export const useInteractionGesture = (
     const updateResize = (worldPoint: Vec2, modifiers: { shift: boolean; alt: boolean }): void => {
       const orig = dragOriginals[0]
       if (!orig || !resizeHandle) return
-      const next = computeResizeGeometry(orig, resizeHandle, worldPoint, modifiers)
+      const node = store.getNode(orig.id)
+      const scaleText = node?.type === 'text' && CORNER_RESIZE_HANDLES.has(resizeHandle)
+      const resizeModifiers = { ...modifiers, shift: modifiers.shift || scaleText }
+      const next = computeResizeGeometry(orig, resizeHandle, worldPoint, resizeModifiers)
+      const scaledFontSize = node
+        ? scaledTextFontSizeForResize({
+            nodeType: node.type,
+            fontSize: node.style?.fontSize ?? 'M',
+            originalWidth: orig.w,
+            resizedWidth: next.w,
+            handle: resizeHandle,
+          })
+        : undefined
       // Write the in-progress geometry to the draft slot only — no
       // store mutation. The renderer reads `resizeDraft` via
       // mapDragPositions, so the static cache stays valid and no
@@ -186,9 +230,16 @@ export const useInteractionGesture = (
       // Single-node resize for now; multi-select group resize is
       // a §11.6 follow-up.
       store.setInteractionState({
-        resizeLockAspect: modifiers.shift,
+        resizeLockAspect: resizeModifiers.shift,
         resizeFromCenter: modifiers.alt,
-        resizeDraft: { x: next.x, y: next.y, w: next.w, h: next.h, angle: orig.angle },
+        resizeDraft: {
+          x: next.x,
+          y: next.y,
+          w: next.w,
+          h: next.h,
+          angle: orig.angle,
+          ...(scaledFontSize !== undefined ? { fontSize: scaledFontSize } : {}),
+        },
       })
     }
 
@@ -214,12 +265,16 @@ export const useInteractionGesture = (
       const orig = dragOriginals[0]
       if (draft && orig) {
         store.batch(() => {
+          const node = store.getNode(orig.id)
           store.updateNode(orig.id, {
             x: draft.x,
             y: draft.y,
             w: draft.w,
             h: draft.h,
             angle: draft.angle,
+            ...(draft.fontSize !== undefined
+              ? { style: { ...node?.style, fontSize: draft.fontSize } }
+              : {}),
           })
           // Refit autofit nodes now that the gesture is over (we
           // suppress mid-stream refit so the user's drag isn't

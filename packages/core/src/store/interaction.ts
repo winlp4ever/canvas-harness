@@ -10,7 +10,7 @@ import type { InkDraft, InkEraserDraft } from '../ink/types'
  * Phase 3 ships dragging / resizing / marqueeing modes. Pan/zoom/edit
  * arrive later but the type covers them now to avoid breaking changes.
  */
-import type { EdgeEnd, EdgeId, NodeId, Vec2, WorldRect } from '../types'
+import type { EdgeEnd, EdgeId, FontSize, NodeId, Vec2, WorldRect } from '../types'
 
 export type InteractionMode =
   | 'idle'
@@ -66,13 +66,20 @@ export type InteractionState = {
   /** Whether the user is holding Alt during a resize (resize from center). */
   resizeFromCenter: boolean
   /**
-   * Live in-progress geometry of the resized node — written every
+   * Live in-progress geometry and optional text size — written every
    * pointermove, committed to the store once on pointer-up. While
    * present, `store.getNode(id)` still returns the original geometry;
    * the renderer overlays this draft via `mapDragPositions` for the
    * interactive layer paint. Mirrors how `dragDelta` works for drag.
    */
-  resizeDraft: { x: number; y: number; w: number; h: number; angle: number } | null
+  resizeDraft: {
+    x: number
+    y: number
+    w: number
+    h: number
+    angle: number
+    fontSize?: FontSize
+  } | null
 
   // Marquee state — populated when mode is 'marqueeing'.
   marqueeRect: WorldRect | null

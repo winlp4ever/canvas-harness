@@ -4,7 +4,8 @@
  */
 export type StrokeStyle = 'solid' | 'dashed' | 'dotted'
 export type FontFamily = 'handwriting' | 'sans-serif' | 'serif' | 'monospace' | 'informal'
-export type FontSize = 'S' | 'M' | 'L' | 'XL'
+export type FontSizePreset = 'S' | 'M' | 'L' | 'XL'
+export type FontSize = FontSizePreset | number
 export type TextAlign = 'left' | 'center' | 'right'
 export type TextStyle = 'normal' | 'bold' | 'italic'
 export type Arrowhead = 'none' | 'arrow' | 'barb' | 'arrow-filled'
