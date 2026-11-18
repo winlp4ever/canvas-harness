@@ -43,7 +43,9 @@ concurrency:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    # Pinned: runs the Playwright browser suite, which can't install chromium
+    # deps on ubuntu-latest (now 26.04) with Playwright 1.60. Tracked in #49.
+    runs-on: ubuntu-24.04
     # Full suite + browser tests + rebuild + npm publish in one job.
     # Backstop against a wedged test/publish holding the runner open.
     timeout-minutes: 25
