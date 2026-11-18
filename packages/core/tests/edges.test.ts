@@ -191,6 +191,236 @@ describe('clip', () => {
     const clip = clipSamples(samples, sourceNode, sourceNode)
     expect(clip.visible).toBe(false)
   })
+
+  const nodeA = () => makeNode({ id: asNodeId('a'), x: 0, y: 0, w: 100, h: 100 })
+
+  test('keeps a straight edge whose endpoints sit on both node borders', () => {
+    const targetNode = makeNode({ id: asNodeId('b'), x: 200, y: 0, w: 100, h: 100 })
+    const samples = [
+      { x: 100, y: 50 },
+      { x: 200, y: 50 },
+    ]
+    const clip = clipSamples(samples, nodeA(), targetNode)
+    expect(clip.visible).toBe(true)
+    // Border endpoints heading outward are untrimmed: the endpoints themselves.
+    expect(clip.startIndex).toBe(0)
+    expect(clip.endIndex).toBe(1)
+    expect(clip.startPoint).toEqual({ x: 100, y: 50 })
+    expect(clip.endPoint).toEqual({ x: 200, y: 50 })
+  })
+
+  test('keeps both bends of a border-to-border polyline in the painted run', () => {
+    // A's east border → bend → B's top border. The renderer paints
+    // samples[startIndex+1..endIndex-1], which must include the bend.
+    const targetNode = makeNode({ id: asNodeId('b'), x: 300, y: 300, w: 100, h: 100 })
+    const samples = [
+      { x: 100, y: 50 },
+      { x: 350, y: 50 },
+      { x: 350, y: 300 },
+    ]
+    const clip = clipSamples(samples, nodeA(), targetNode)
+    expect(clip.visible).toBe(true)
+    expect(clip.startIndex).toBe(0)
+    expect(clip.endIndex).toBe(2)
+    expect(samples.slice(clip.startIndex + 1, clip.endIndex)).toEqual([{ x: 350, y: 50 }])
+  })
+
+  test('keeps the full line from a border source to a free target', () => {
+    // Source on the west border, target dropped in empty space.
+    const samples = [
+      { x: 0, y: 50 },
+      { x: -150, y: 200 },
+    ]
+    const clip = clipSamples(samples, nodeA(), null)
+    expect(clip.visible).toBe(true)
+    expect(clip.startPoint).toEqual({ x: 0, y: 50 })
+    expect(clip.endPoint).toEqual({ x: -150, y: 200 })
+  })
+
+  test('treats endpoints a hair off the border (round-off) as on it', () => {
+    const targetNode = makeNode({ id: asNodeId('b'), x: 200, y: 0, w: 100, h: 100 })
+    const samples = [
+      { x: 100 - 1e-9, y: 50 },
+      { x: 200 + 1e-9, y: 50 },
+    ]
+    const clip = clipSamples(samples, nodeA(), targetNode)
+    expect(clip.visible).toBe(true)
+    expect(clip.startIndex).toBe(0)
+    expect(clip.endIndex).toBe(1)
+    expect(clip.startPoint).toEqual(samples[0])
+    expect(clip.endPoint).toEqual(samples[1])
+    // A hair outside the border: the endpoint is simply untrimmed.
+    const outside = clipSamples(
+      [
+        { x: 100 + 1e-9, y: 50 },
+        { x: 200 - 1e-9, y: 50 },
+      ],
+      nodeA(),
+      targetNode,
+    )
+    expect(outside.startIndex).toBe(0)
+    expect(outside.endIndex).toBe(1)
+  })
+
+  test('clips a 2-sample straight edge attached at both node centers', () => {
+    const targetNode = makeNode({ id: asNodeId('b'), x: 200, y: 0, w: 100, h: 100 })
+    const samples = [
+      { x: 50, y: 50 },
+      { x: 250, y: 50 },
+    ]
+    const clip = clipSamples(samples, nodeA(), targetNode)
+    expect(clip.visible).toBe(true)
+    expect(clip.startPoint.x).toBeCloseTo(100)
+    expect(clip.endPoint.x).toBeCloseTo(200)
+  })
+
+  test('still clips a border endpoint whose path heads into its own node', () => {
+    // Starts on the west border and runs east through the node.
+    const samples = [
+      { x: 0, y: 50 },
+      { x: 300, y: 50 },
+    ]
+    const clip = clipSamples(samples, nodeA(), null)
+    expect(clip.visible).toBe(true)
+    expect(clip.startPoint.x).toBeCloseTo(100)
+  })
+
+  test('clips an inward border path at its far-side exit across many samples', () => {
+    // North-border start dipping through the node, leaving via the east side.
+    const samples = [
+      { x: 30, y: 0 },
+      { x: 60, y: 40 },
+      { x: 90, y: 50 },
+      { x: 150, y: 50 },
+    ]
+    const clip = clipSamples(samples, nodeA(), null)
+    expect(clip.startIndex).toBe(3)
+    expect(clip.startPoint.x).toBeCloseTo(100)
+    expect(clip.startPoint.y).toBeCloseTo(50)
+  })
+
+  test('keeps the original index meaning: first sample past the clip point', () => {
+    const targetNode = makeNode({ id: asNodeId('b'), x: 300, y: 0, w: 100, h: 100 })
+    const samples = [
+      { x: 50, y: 50 },
+      { x: 200, y: 50 },
+      { x: 350, y: 50 },
+    ]
+    const clip = clipSamples(samples, nodeA(), targetNode)
+    expect(clip.startIndex).toBe(1)
+    expect(clip.endIndex).toBe(1)
+  })
+
+  test('keeps the bend after a later sample lying on the border', () => {
+    // Center → border sample → bend → down: the clip lands on samples[1].
+    const samples = [
+      { x: 50, y: 50 },
+      { x: 100, y: 50 },
+      { x: 200, y: 50 },
+      { x: 200, y: 300 },
+    ]
+    const clip = clipSamples(samples, nodeA(), null)
+    expect(clip.startIndex).toBe(1)
+    expect(clip.startPoint).toEqual({ x: 100, y: 50 })
+    expect(samples.slice(clip.startIndex + 1, clip.endIndex)).toEqual([{ x: 200, y: 50 }])
+  })
+
+  test('treats a border endpoint on a rotated node as on the border', () => {
+    // East-border midpoint of a rotated node, projected to world (round-off
+    // from cos/sin), heading outward along the node's local +x.
+    const node = makeNode({ id: asNodeId('a'), x: 0, y: 0, w: 100, h: 100, angle: 0.7 })
+    const at = (lx: number, ly: number) => nodeLocalToWorld({ x: lx, y: ly }, node)
+    const samples = [at(100, 50), at(150, 50), at(150, 300)]
+    const clip = clipSamples(samples, node, null)
+    expect(clip.visible).toBe(true)
+    expect(clip.startIndex).toBe(0)
+    expect(clip.startPoint).toEqual(samples[0])
+  })
+
+  test('snaps a near-border endpoint leaving at a shallow angle', () => {
+    // 5e-7 inside the east border, first segment almost parallel to it.
+    const samples = [
+      { x: 100 - 5e-7, y: 50 },
+      { x: 100.001, y: 1000 },
+      { x: 500, y: 1000 },
+    ]
+    const clip = clipSamples(samples, nodeA(), null)
+    expect(clip.startIndex).toBe(0)
+    expect(samples.slice(clip.startIndex + 1, clip.endIndex)).toEqual([{ x: 100.001, y: 1000 }])
+  })
+
+  test('mirrors the border rules at the target end', () => {
+    const targetNode = makeNode({ id: asNodeId('b'), x: 300, y: 0, w: 100, h: 100 })
+    // Inward: target on B's east border, path arriving from the west through
+    // B, so it's trimmed where it enters B's west side.
+    const inward = clipSamples(
+      [
+        { x: 0, y: 50 },
+        { x: 400, y: 50 },
+      ],
+      null,
+      targetNode,
+    )
+    expect(inward.endPoint.x).toBeCloseTo(300)
+    // A later sample on B's border: the bend before it stays painted.
+    const samples = [
+      { x: 150, y: 300 },
+      { x: 150, y: 50 },
+      { x: 300, y: 50 },
+      { x: 350, y: 50 },
+    ]
+    const clip = clipSamples(samples, null, targetNode)
+    expect(clip.endIndex).toBe(2)
+    expect(clip.endPoint).toEqual({ x: 300, y: 50 })
+    expect(samples.slice(clip.startIndex + 1, clip.endIndex)).toEqual([{ x: 150, y: 50 }])
+  })
+
+  test('hides an edge between touching nodes (zero-length span)', () => {
+    const targetNode = makeNode({ id: asNodeId('b'), x: 100, y: 0, w: 100, h: 100 })
+    const samples = [
+      { x: 50, y: 50 },
+      { x: 150, y: 50 },
+    ]
+    expect(clipSamples(samples, nodeA(), targetNode).visible).toBe(false)
+  })
+
+  test('hides touching nodes when a sample lands exactly on the shared border', () => {
+    const targetNode = makeNode({ id: asNodeId('b'), x: 100, y: 0, w: 100, h: 100 })
+    const samples = [
+      { x: 50, y: 50 },
+      { x: 100, y: 50 },
+      { x: 150, y: 50 },
+    ]
+    expect(clipSamples(samples, nodeA(), targetNode).visible).toBe(false)
+  })
+
+  test('keeps very short edges between nearly touching nodes despite round-off', () => {
+    // Center-to-center edges across a 0.5-unit gap, over many non-round
+    // sizes: round-off between the two node frames must not hide them.
+    for (let i = 1; i <= 200; i++) {
+      const w = 37.3 + i * 1.7
+      const x = 0.1 * i
+      const sourceNode = makeNode({ id: asNodeId('a'), x, y: 0, w, h: 80 })
+      const targetNode = makeNode({ id: asNodeId('b'), x: x + w + 0.5, y: 0, w: w * 0.6, h: 80 })
+      const samples = [
+        { x: x + w / 2, y: 40 + i * 0.01 },
+        { x: x + w + 0.5 + w * 0.3, y: 40 - i * 0.013 },
+      ]
+      expect(clipSamples(samples, sourceNode, targetNode).visible).toBe(true)
+    }
+  })
+
+  test('hides a straight edge whose clip points cross on one segment (overlapping nodes)', () => {
+    // Source spans x 0..150, target x 100..250: the source exit (150) lies
+    // past the target entry (100) on the same segment.
+    const sourceNode = makeNode({ id: asNodeId('a'), x: 0, y: 0, w: 150, h: 100 })
+    const targetNode = makeNode({ id: asNodeId('b'), x: 100, y: 0, w: 150, h: 100 })
+    const samples = [
+      { x: 50, y: 50 },
+      { x: 200, y: 50 },
+    ]
+    expect(clipSamples(samples, sourceNode, targetNode).visible).toBe(false)
+  })
 })
 
 describe('edge AABB from samples', () => {
