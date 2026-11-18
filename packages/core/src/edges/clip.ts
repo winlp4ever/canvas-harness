@@ -5,16 +5,25 @@ import type { Node, Vec2 } from '../types'
  *
  * For each end, transform the polyline samples into the attached node's
  * pre-rotation local frame (collapsing the rotated-rect problem to
- * axis-aligned). Walk samples from that endpoint outward; the first
- * sample outside the rect is the exit. Sub-pixel interpolate between
- * the last-inside and first-outside samples for a clean clip point.
+ * axis-aligned). Walk samples from that endpoint outward; the border
+ * counts as inside. The first sample outside the rect ends the walk, and
+ * the clip is where the segment into it exits the rect (slab exit). If
+ * that exit lands on the segment's inside sample (e.g. an endpoint stored
+ * on the border, heading outward), the sample itself is the clip.
  */
 import { nodeLocalToWorld, worldToNodeLocal } from './project'
 
 /**
  * Result of clipping the polyline against the two attached-node rects.
- * `startIndex` / `endIndex` are sample indices; the visible polyline is
- * `[startPoint, samples[startIndex+1..endIndex-1], endPoint]`.
+ * `startIndex` / `endIndex` are sample indices: the first sample past
+ * each clip point, or the clip sample itself when the clip lands on one
+ * (an untrimmed endpoint, or a sample on the node border). The
+ * renderer paints `[startPoint, samples[startIndex+1..endIndex-1], endPoint]`,
+ * so when a clip lands mid-segment the sample at the trimmed index itself
+ * is not painted (known gap: a polyline bend right after a mid-segment
+ * clip is dropped). When the two clips fall on the same or adjacent
+ * segments, a visible result can have `startIndex >= endIndex` (by at
+ * most one): use `visible`, not the index order, to test visibility.
  * If both ends are free-floating (no attached node), returns the full range.
  */
 export type ClipResult = {
@@ -44,162 +53,119 @@ export const clipSamples = (
   targetNode: Node | null,
 ): ClipResult => {
   if (samples.length < 2) return fullVisibleClipResult(samples)
+  const last = samples.length - 1
 
-  let startIndex = 0
-  let startPoint = samples[0]!
-  if (sourceNode) {
-    const trimmed = trimFromStart(samples, sourceNode)
-    if (!trimmed) return { ...fullVisibleClipResult(samples), visible: false }
-    startIndex = trimmed.index
-    startPoint = trimmed.point
-  }
+  const start = sourceNode ? trimFrom(samples, sourceNode, +1) : clipAtSample(samples, 0)
+  const end = targetNode ? trimFrom(samples, targetNode, -1) : clipAtSample(samples, last)
+  if (!start || !end) return { ...fullVisibleClipResult(samples), visible: false }
 
-  let endIndex = samples.length - 1
-  let endPoint = samples[endIndex]!
-  if (targetNode) {
-    const trimmed = trimFromEnd(samples, targetNode)
-    if (!trimmed) return { ...fullVisibleClipResult(samples), visible: false }
-    endIndex = trimmed.index
-    endPoint = trimmed.point
-  }
-
-  // Source clip is strictly after target clip → nothing visible (clips
-  // crossed over each other; happens when nodes overlap and edge ends
-  // are inside both).
-  if (startIndex > endIndex) {
-    return {
-      startIndex,
-      endIndex,
-      startPoint,
-      endPoint,
-      visible: false,
-    }
-  }
-
-  return { startIndex, endIndex, startPoint, endPoint, visible: true }
-}
-
-/**
- * Walks samples from index 0 outward, returns the exit point where the
- * polyline first leaves the node's local rect. Returns null if every
- * sample is inside the rect (edge fully consumed by the node).
- */
-const trimFromStart = (samples: Vec2[], node: Node): { index: number; point: Vec2 } | null => {
-  const localSamples = samples.map(p => worldToNodeLocal(p, node))
-  // Find first "outside" sample after we've seen at least one "inside".
-  let lastInside = -1
-  for (let i = 0; i < localSamples.length; i++) {
-    const p = localSamples[i]!
-    if (isInsideLocalRect(p, node.w, node.h)) {
-      lastInside = i
-    } else if (lastInside >= 0) {
-      // Transition: lastInside → i is the crossing segment.
-      const crossingLocal = segmentRectExit(localSamples[lastInside]!, p, node.w, node.h)
-      return {
-        index: i,
-        point: nodeLocalToWorld(crossingLocal, node),
-      }
-    }
-    // First sample already outside → the source endpoint is outside its node.
-    // That's normal for free-floating endpoints; for attached endpoints it
-    // happens when the node is small and the endpoint is exactly on the edge.
-    if (i === 0 && !isInsideLocalRect(p, node.w, node.h)) {
-      return { index: 0, point: samples[0]! }
-    }
-  }
-  // Every sample inside → nothing visible.
-  return null
-}
-
-/**
- * Mirror of trimFromStart: walk from the end backwards.
- */
-const trimFromEnd = (samples: Vec2[], node: Node): { index: number; point: Vec2 } | null => {
-  const localSamples = samples.map(p => worldToNodeLocal(p, node))
-  let lastInside = -1
-  for (let i = localSamples.length - 1; i >= 0; i--) {
-    const p = localSamples[i]!
-    if (isInsideLocalRect(p, node.w, node.h)) {
-      lastInside = i
-    } else if (lastInside >= 0) {
-      const crossingLocal = segmentRectExit(localSamples[lastInside]!, p, node.w, node.h)
-      return {
-        index: i,
-        point: nodeLocalToWorld(crossingLocal, node),
-      }
-    }
-    if (i === localSamples.length - 1 && !isInsideLocalRect(p, node.w, node.h)) {
-      return { index: i, point: samples[i]! }
-    }
-  }
-  return null
-}
-
-/**
- * Boolean: is a local-frame point inside the rect [0..w, 0..h]?
- * Allows a tiny inset epsilon so the "first sample on the boundary"
- * case behaves consistently.
- */
-const isInsideLocalRect = (p: Vec2, w: number, h: number): boolean => {
-  const eps = 1e-6
-  return p.x >= -eps && p.x <= w + eps && p.y >= -eps && p.y <= h + eps
-}
-
-/**
- * Given a local-frame segment from `inside` to `outside`, find the exact
- * point where it exits the rect [0..w, 0..h]. Tests against all 4 edges
- * and picks the smallest t in (0, 1].
- */
-const segmentRectExit = (inside: Vec2, outside: Vec2, w: number, h: number): Vec2 => {
-  let bestT = 1
-  const ts: number[] = []
-  if (outside.x !== inside.x) {
-    ts.push(crossEdge(inside.x, outside.x, 0, inside, outside, h, /* checkY */ true))
-    ts.push(crossEdge(inside.x, outside.x, w, inside, outside, h, true))
-  }
-  if (outside.y !== inside.y) {
-    ts.push(crossEdgeY(inside.y, outside.y, 0, inside, outside, w))
-    ts.push(crossEdgeY(inside.y, outside.y, h, inside, outside, w))
-  }
-  for (const t of ts) {
-    if (t > 0 && t <= 1 && t < bestT) bestT = t
-  }
+  // The visible span must have positive length: clips that cross (nodes
+  // overlap and the edge runs inside both) or coincide (touching nodes)
+  // leave nothing to draw. The tolerance absorbs round-off between the two
+  // node frames.
   return {
-    x: inside.x + bestT * (outside.x - inside.x),
-    y: inside.y + bestT * (outside.y - inside.y),
+    startIndex: start.index,
+    endIndex: end.index,
+    startPoint: start.point,
+    endPoint: end.point,
+    visible: end.pos - start.pos > POSITION_EPS,
   }
 }
 
 /**
- * Tests crossing of a segment with a vertical edge at x=edgeX.
- * Returns the parametric t along the segment, or Infinity if the
- * y at that t is outside [0..h].
+ * Local-frame distance within which a point counts as on the node border:
+ * absorbs world↔local round-off (e.g. rotated nodes) for endpoints the
+ * host stores exactly on the border.
  */
-const crossEdge = (
-  ax: number,
-  bx: number,
-  edgeX: number,
-  a: Vec2,
-  b: Vec2,
-  h: number,
-  _checkY: boolean,
-): number => {
-  if (ax === bx) return Number.POSITIVE_INFINITY
-  const t = (edgeX - ax) / (bx - ax)
-  if (t < 0 || t > 1) return Number.POSITIVE_INFINITY
-  const y = a.y + t * (b.y - a.y)
-  if (y < -1e-6 || y > h + 1e-6) return Number.POSITIVE_INFINITY
-  return t
+const BORDER_EPS = 1e-6
+
+/** Minimum visible span, in segments (`index + fraction` units). */
+const POSITION_EPS = 1e-9
+
+type Trim = {
+  /**
+   * First sample past the clip point, walking from the endpoint; the clip
+   * sample itself when the clip lands on one (e.g. an untrimmed endpoint).
+   * Same meaning the renderer has always used for `ClipResult` indices.
+   */
+  index: number
+  /** Clip point in world coords. */
+  point: Vec2
+  /** Clip position along the polyline, as `segment start index + fraction`. */
+  pos: number
+}
+
+/** A clip that lands exactly on `samples[index]` (untrimmed end or a sample on the exit side). */
+const clipAtSample = (samples: Vec2[], index: number): Trim => ({
+  index,
+  point: samples[index]!,
+  pos: index,
+})
+
+/**
+ * Walks samples from one end (`dir` = +1 from the source, -1 from the
+ * target) and returns where the polyline first leaves the node's local
+ * rect (border inclusive). An endpoint outside its node is untrimmed. When
+ * the exit lands on a sample (within `BORDER_EPS`, e.g. a border endpoint
+ * heading outward), that sample is reported as the clip, so the renderer
+ * still paints the sample after it (a polyline bend). A border endpoint
+ * heading inward is trimmed where the path leaves the far side. Returns
+ * null if every sample is inside.
+ */
+const trimFrom = (samples: Vec2[], node: Node, dir: 1 | -1): Trim | null => {
+  const first = dir === 1 ? 0 : samples.length - 1
+  let insideLocal: Vec2 | null = null
+  for (let i = first; i >= 0 && i < samples.length; i += dir) {
+    // Converted lazily: the walk usually stops after a sample or two.
+    const p = worldToNodeLocal(samples[i]!, node)
+    if (isInsideLocalRect(p, node.w, node.h)) {
+      insideLocal = p
+      continue
+    }
+    if (!insideLocal) return clipAtSample(samples, first)
+    // The crossing lies on segment (i - dir) → i.
+    const { t, gap } = segmentRectExit(insideLocal, p, node.w, node.h)
+    // The inside sample lies on the side the segment exits through (within
+    // round-off, measured across that side, not along a shallow segment).
+    if (t <= 0 || gap <= BORDER_EPS) return clipAtSample(samples, i - dir)
+    const local = {
+      x: insideLocal.x + t * (p.x - insideLocal.x),
+      y: insideLocal.y + t * (p.y - insideLocal.y),
+    }
+    return { index: i, point: nodeLocalToWorld(local, node), pos: i - dir + dir * t }
+  }
+  return null
 }
 
 /**
- * Tests crossing of a segment with a horizontal edge at y=edgeY.
+ * Boolean: is a local-frame point inside the rect [0..w, 0..h], border
+ * included? A tiny epsilon absorbs world↔local round-off for endpoints
+ * stored on the border.
  */
-const crossEdgeY = (ay: number, by: number, edgeY: number, a: Vec2, b: Vec2, w: number): number => {
-  if (ay === by) return Number.POSITIVE_INFINITY
-  const t = (edgeY - ay) / (by - ay)
-  if (t < 0 || t > 1) return Number.POSITIVE_INFINITY
-  const x = a.x + t * (b.x - a.x)
-  if (x < -1e-6 || x > w + 1e-6) return Number.POSITIVE_INFINITY
-  return t
+const isInsideLocalRect = (p: Vec2, w: number, h: number): boolean =>
+  p.x >= -BORDER_EPS && p.x <= w + BORDER_EPS && p.y >= -BORDER_EPS && p.y <= h + BORDER_EPS
+
+/**
+ * Where the local-frame segment `inside → outside` leaves the rect
+ * [0..w, 0..h] (Liang–Barsky slab exit): `t ∈ [0, 1]` along the segment,
+ * and `gap`, the distance from `inside` to the side it exits through
+ * (0 when `inside` lies on that side). `inside` may lie on the border:
+ * heading outward gives `t = 0`, heading inward gives the far-side exit.
+ */
+const segmentRectExit = (
+  inside: Vec2,
+  outside: Vec2,
+  w: number,
+  h: number,
+): { t: number; gap: number } => {
+  const dx = outside.x - inside.x
+  const dy = outside.y - inside.y
+  // Per axis: the slab side the segment heads toward, its param and gap.
+  const gapX = dx > 0 ? w - inside.x : inside.x
+  const gapY = dy > 0 ? h - inside.y : inside.y
+  const tx = dx === 0 ? Number.POSITIVE_INFINITY : gapX / Math.abs(dx)
+  const ty = dy === 0 ? Number.POSITIVE_INFINITY : gapY / Math.abs(dy)
+  const exitsX = tx <= ty
+  const t = Math.min(1, exitsX ? tx : ty)
+  return { t: Math.max(0, t), gap: Math.abs(exitsX ? gapX : gapY) }
 }

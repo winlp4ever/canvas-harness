@@ -909,13 +909,13 @@ Algorithm, per end:
 2. Compute the curve geometry (see §6.6 for bezier, §6.7 for polyline).
 3. Transform the curve into the attached node's **pre-rotation local frame**: subtract node.center, then inverse-rotate by `-node.angle`. The node's AABB in this frame is `[0..w, 0..h]` (after re-translating by `+w/2, +h/2`).
 4. Walk the sampled polyline from the endpoint sample *outward*. Each sample is either inside or outside the local AABB. Find the first transition.
-5. **Interpolate sub-pixel**: between the last-inside sample and the first-outside sample, linearly solve for the exact crossing of the AABB edge. This eliminates jitter when the boundary sits between samples.
+5. **Interpolate sub-pixel**: between the last-inside sample and the first-outside sample, linearly solve for the exact crossing of the AABB edge. This eliminates jitter when the boundary sits between samples. The **border counts as inside** (within a small epsilon), and the crossing is the segment's slab exit, which may be at its start: hosts store attached endpoints on the border, so an endpoint on the border heading outward is left untrimmed, while one heading inward is trimmed where the path leaves the far side. (Treating the border as outside instead would draw inward paths across the node; ignoring a `t = 0` exit hid straight border-attached edges entirely.) More generally, when the inside sample of the crossing segment lies on the side it exits through (within round-off), that **sample itself is the clip** and its index is reported, so the renderer, which paints from the sample after the clip index, keeps the next point (e.g. a polyline bend).
 6. Transform the crossing point back to world coordinates (rotate by `+node.angle`, add node.center).
 7. The visible edge is the curve between the two crossing points. Arrowheads sit at the crossings; their direction is the **tangent of the unclipped curve at that arc-length position**, not the chord from crossing to crossing.
 
 Failure modes and their handling:
 
-- **Both endpoints inside both rects (overlapping nodes)**: clip ranges don't intersect; render nothing. The edge still exists in the store, just isn't visible until nodes separate.
+- **Both endpoints inside both rects (overlapping nodes)**: clip ranges don't intersect; render nothing. The edge still exists in the store, just isn't visible until nodes separate. Visibility compares the two crossings' positions along the curve, so touching nodes (coincident crossings, zero-length span) also render nothing.
 - **Curve never enters the rect (free-floating endpoint, no clip)**: skip step 3–6 for that end; draw to the endpoint as-is.
 - **Self-loop**: special-cased (§6.8), no normal clip.
 - **Polyline crossing the rect via multiple segments**: walk all segments; first inside→outside transition from each end wins.
