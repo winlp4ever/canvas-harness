@@ -226,6 +226,20 @@ export type Renderer = {
   dispose(): void
 }
 
+/** Overlay uncommitted resize geometry and typography onto a node for live painting. */
+export const applyResizeDraftToNode = (
+  node: Node,
+  draft: NonNullable<InteractionState['resizeDraft']>,
+): Node => ({
+  ...node,
+  x: draft.x,
+  y: draft.y,
+  w: draft.w,
+  h: draft.h,
+  angle: draft.angle,
+  ...(draft.fontSize !== undefined ? { style: { ...node.style, fontSize: draft.fontSize } } : {}),
+})
+
 export const createRenderer = (opts: RendererOptions): Renderer => {
   const { store, theme, onOverlayChange } = opts
   const maxDpr = opts.maxDpr
@@ -1524,7 +1538,7 @@ export const createRenderer = (opts: RendererOptions): Renderer => {
         // through this same map) paints the live shape.
         const d = interaction.resizeDraft
         if (d) {
-          m.set(orig.id, { ...live, x: d.x, y: d.y, w: d.w, h: d.h, angle: d.angle })
+          m.set(orig.id, applyResizeDraftToNode(live, d))
         } else {
           m.set(orig.id, live)
         }

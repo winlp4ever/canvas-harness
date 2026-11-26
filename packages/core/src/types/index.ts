@@ -15,6 +15,7 @@ export type {
   EdgeStyle,
   FontFamily,
   FontSize,
+  FontSizePreset,
   Style,
   StrokeStyle,
   TextAlign,

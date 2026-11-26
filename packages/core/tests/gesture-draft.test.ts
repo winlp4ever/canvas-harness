@@ -6,6 +6,7 @@
  * event fires during the gesture, and exactly one fires on commit.
  */
 import { describe, expect, test, vi } from 'vitest'
+import { applyResizeDraftToNode } from '../src/render/renderer'
 import { createCanvasStore } from '../src/store'
 import { type Edge, type Node, asClientId, asEdgeId, asNodeId } from '../src/types'
 
@@ -22,6 +23,17 @@ const makeRect = (overrides: Partial<Node> = {}): Omit<Node, 'z'> & { z?: number
 })
 
 describe('Resize draft model', () => {
+  test('overlays draft typography without mutating the stored node', () => {
+    const node = makeRect({ type: 'text', style: { fontSize: 'M', textColor: '#123456' } })
+    const preview = applyResizeDraftToNode(
+      { ...node, z: 1 },
+      { x: 100, y: 100, w: 300, h: 150, angle: 0, fontSize: 24 },
+    )
+
+    expect(preview.style).toEqual({ fontSize: 24, textColor: '#123456' })
+    expect(node.style).toEqual({ fontSize: 'M', textColor: '#123456' })
+  })
+
   test('resizeDraft updates do not emit change events', () => {
     const store = createCanvasStore({ clientId: asClientId('u-test') })
     store.addNode(makeRect())

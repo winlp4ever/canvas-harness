@@ -55,4 +55,5 @@ export const estimateMarkdownContentHeight = ({
   return getContentHeight(lines, lineHeight) + CONTENT_HEIGHT_BUFFER
 }
 
+/** Resolve the line height used by markdown layout for a preset or explicit font size. */
 export const getMarkdownLineHeightPx = (fontSize: FontSize): number => getLineHeightPx(fontSize)

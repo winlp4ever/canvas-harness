@@ -11,7 +11,7 @@
  * inside the library resolves through the getters below, so measurement,
  * painting, the DOM editor, and export all stay consistent.
  */
-import type { FontFamily, FontSize } from '../types'
+import type { FontFamily, FontSize, FontSizePreset } from '../types'
 import { bumpFontEpoch } from './font-epoch'
 
 /**
@@ -30,10 +30,19 @@ export const DEFAULT_FONT_STACKS: Record<FontFamily, string> = {
 }
 
 /** Built-in font sizes (px) per size token. */
-export const DEFAULT_FONT_SIZES: Record<FontSize, number> = { S: 14, M: 16, L: 24, XL: 36 }
+export const DEFAULT_FONT_SIZES: Record<FontSizePreset, number> = { S: 14, M: 16, L: 24, XL: 36 }
 
 /** Built-in line heights (px) per size token. */
-export const DEFAULT_LINE_HEIGHTS: Record<FontSize, number> = { S: 20, M: 24, L: 32, XL: 40 }
+export const DEFAULT_LINE_HEIGHTS: Record<FontSizePreset, number> = { S: 20, M: 24, L: 32, XL: 40 }
+
+/** Smallest explicit font size accepted by the renderer. */
+export const MIN_FONT_SIZE_PX = 8
+
+/** Largest explicit font size accepted by the renderer. */
+export const MAX_FONT_SIZE_PX = 256
+
+/** Default line-height multiplier for explicit numeric font sizes. */
+export const DEFAULT_NUMERIC_LINE_HEIGHT_RATIO = 1.25
 
 /**
  * @deprecated Read via `getFontStack()`; kept for back-compat. Reflects
@@ -48,24 +57,68 @@ export const LINE_HEIGHT_MAP = DEFAULT_LINE_HEIGHTS
 // Live registry — the values the library actually resolves through.
 // Seeded from the defaults; mutated (merged) by configureFonts().
 let fontStacks: Record<FontFamily, string> = { ...DEFAULT_FONT_STACKS }
-let fontSizes: Record<FontSize, number> = { ...DEFAULT_FONT_SIZES }
-let lineHeights: Record<FontSize, number> = { ...DEFAULT_LINE_HEIGHTS }
+let fontSizes: Record<FontSizePreset, number> = { ...DEFAULT_FONT_SIZES }
+let lineHeights: Record<FontSizePreset, number> = { ...DEFAULT_LINE_HEIGHTS }
+let numericLineHeightRatio = DEFAULT_NUMERIC_LINE_HEIGHT_RATIO
+
+const FONT_SIZE_PRESETS: FontSizePreset[] = ['S', 'M', 'L', 'XL']
+
+const clampFontSize = (size: number): number =>
+  Math.min(MAX_FONT_SIZE_PX, Math.max(MIN_FONT_SIZE_PX, size))
+
+const fallbackFontSize = (): number => {
+  const medium = fontSizes.M
+  return Number.isFinite(medium) ? clampFontSize(medium) : DEFAULT_FONT_SIZES.M
+}
+
+const fallbackLineHeight = (): number => {
+  const medium = lineHeights.M
+  return Number.isFinite(medium) ? medium : DEFAULT_LINE_HEIGHTS.M
+}
 
 /** Resolve a font-family token to its current CSS stack. */
 export const getFontStack = (family: FontFamily): string => fontStacks[family]
-/** Resolve a size token to its current pixel size. */
-export const getFontSizePx = (size: FontSize): number => fontSizes[size]
-/** Resolve a size token to its current line height (px). */
-export const getLineHeightPx = (size: FontSize): number => lineHeights[size]
+/** Resolve a preset or explicit size to a safe pixel value. */
+export const getFontSizePx = (size: FontSize): number => {
+  if (typeof size === 'number') {
+    return Number.isFinite(size) ? clampFontSize(size) : fallbackFontSize()
+  }
+  const configured = fontSizes[size as FontSizePreset]
+  return Number.isFinite(configured) ? clampFontSize(configured) : fallbackFontSize()
+}
+
+/** Return the configured preset whose pixel value exactly matches `size`, if any. */
+export const getFontSizePresetForPx = (size: number): FontSizePreset | undefined => {
+  if (!Number.isFinite(size)) return undefined
+  const resolved = getFontSizePx(size)
+  return FONT_SIZE_PRESETS.find(preset => getFontSizePx(preset) === resolved)
+}
+
+/** Resolve a preset or explicit size to its current line height in pixels. */
+export const getLineHeightPx = (size: FontSize): number => {
+  if (typeof size === 'number') {
+    if (!Number.isFinite(size)) return fallbackLineHeight()
+    const preset = getFontSizePresetForPx(size)
+    if (preset) {
+      const configured = lineHeights[preset]
+      return Number.isFinite(configured) ? configured : fallbackLineHeight()
+    }
+    return getFontSizePx(size) * numericLineHeightRatio
+  }
+  const configured = lineHeights[size as FontSizePreset]
+  return Number.isFinite(configured) ? configured : fallbackLineHeight()
+}
 
 /** Overrides for `configureFonts()`. Any subset; unspecified keys keep their current value. */
 export type FontConfig = {
   /** Map a family token to a CSS font stack (e.g. `{ 'sans-serif': '"Inter", sans-serif' }`). */
   family?: Partial<Record<FontFamily, string>>
   /** Override a size token's pixel size. Affects newly measured/laid-out text (see note on reflow). */
-  size?: Partial<Record<FontSize, number>>
+  size?: Partial<Record<FontSizePreset, number>>
   /** Override a size token's line height (px). */
-  lineHeight?: Partial<Record<FontSize, number>>
+  lineHeight?: Partial<Record<FontSizePreset, number>>
+  /** Override the line-height multiplier used by explicit numeric sizes. */
+  numericLineHeightRatio?: number
 }
 
 // Merge only *defined* override values over the base — a caller building
@@ -106,6 +159,13 @@ export const configureFonts = (config: FontConfig): void => {
   if (config.family) fontStacks = mergeDefined(fontStacks, config.family)
   if (config.size) fontSizes = mergeDefined(fontSizes, config.size)
   if (config.lineHeight) lineHeights = mergeDefined(lineHeights, config.lineHeight)
+  if (
+    config.numericLineHeightRatio !== undefined &&
+    Number.isFinite(config.numericLineHeightRatio) &&
+    config.numericLineHeightRatio > 0
+  ) {
+    numericLineHeightRatio = config.numericLineHeightRatio
+  }
   bumpFontEpoch()
 }
 
@@ -114,6 +174,7 @@ export const resetFonts = (): void => {
   fontStacks = { ...DEFAULT_FONT_STACKS }
   fontSizes = { ...DEFAULT_FONT_SIZES }
   lineHeights = { ...DEFAULT_LINE_HEIGHTS }
+  numericLineHeightRatio = DEFAULT_NUMERIC_LINE_HEIGHT_RATIO
   bumpFontEpoch()
 }
 
